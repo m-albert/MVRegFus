@@ -15,6 +15,7 @@ Python libraries:
 - transformations (C. Goehlke)
 - redis
 - SimpleITK
+- skimage
 
 External:
 - elastix (install binary and indicate path at the beginning of dipy_multiview.py)
