@@ -2,7 +2,7 @@ __author__ = 'malbert'
 
 elastix_dir = '/scratch/malbert/dependencies_linux/elastix_linux64_v4.8'
 
-import os,tempfile,pdb
+import os,tempfile,pdb,sys
 import numpy as np
 import czifile
 import SimpleITK as sitk
