@@ -783,7 +783,7 @@ def register_linear_elastix_seq(fixed,moving,t0=None,degree=2,elastix_dir=elasti
     return final_params
 
 @io_decorator
-def register_linear_elastix(fixed,moving,degree=2):
+def register_linear_elastix(fixed,moving,degree=2,elastix_dir=elastix_dir):
 
     """
     estimate t0 and crop images to intersection in y
