@@ -49,6 +49,7 @@ def build_multiview_graph(
     time_alignment = False,
     time_alignment_ref_sample = 0,
     time_alignment_ref_view = 0,
+    elastix_dir = '/scratch/malbert/dependencies_linux/elastix_linux64_v4.8',
     ):
 
     # ref_channel_chrom = channels[ref_channel_index_chrom]
@@ -64,6 +65,7 @@ def build_multiview_graph(
                                                                    multiview_view_reg_label %(ds,time_alignment_ref_sample,time_alignment_ref_view,reg_channel),
                                                                    multiview_view_reg_label %(ds,sample,time_alignment_ref_view,reg_channel),
                                                                    1, # degree = 1 (trans + rotation)
+                                                                   elastix_dir,
                                                                    )
 
         if os.path.exists(os.path.join(out_dir,time_alignment_params_label %(ds,sample))):
@@ -89,6 +91,7 @@ def build_multiview_graph(
                                                                    multiview_view_reg_label %(ds,sample,pair[0],reg_channel),
                                                                    multiview_view_reg_label %(ds,sample,pair[1],reg_channel),
                                                                    2, # degree = 1 (trans + rotation)
+                                                                   elastix_dir,
                                                                    )
 
     graph[fusion_params_label %(ds,sample)] = (

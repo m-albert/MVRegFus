@@ -15,6 +15,8 @@ import importlib
 # cache = Cache(cache_size)  # Leverage two gigabytes of memory
 # cache.register()    # Turn cache on globall
 
+elastix_dir = ''
+
 import graph_multiview
 
 graph_multiview.multiview_fused_label = graph_multiview.multiview_fused_label[:-2]+'mhd'
@@ -80,6 +82,7 @@ if __name__ == '__main__':
             # dct_max_kernel = 11, #max_kernel
             # dct_gaussian_kernel = 7, #gauss_kernel
             final_volume_mode = 'sample',
+            elastix_dir = elastix_dir,
             )
         )
 

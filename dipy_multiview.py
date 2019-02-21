@@ -873,7 +873,7 @@ def register_linear_elastix(fixed,moving,degree=2):
     t0[9:] += np.dot(t0[:9].reshape((3,3)),offset)
     # pdb.set_trace()
     # return t0
-    parameters = register_linear_elastix_seq(static,mov,t0,degree=degree)
+    parameters = register_linear_elastix_seq(static,mov,t0,degree=degree,elastix_dir=elastix_dir)
     return parameters
 
 
