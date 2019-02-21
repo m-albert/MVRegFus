@@ -313,9 +313,7 @@ def getStackInfoFromCZI(pathToImage, xy_spacing=None):
             from lxml import etree
         except ImportError:
             from xml.etree import cElementTree as etree
-        etree.fromstring(metadata)
-
-
+        metadata = etree.fromstring(metadata)
 
     # old version
     # nViews = metadata.xpath("//SizeV")
