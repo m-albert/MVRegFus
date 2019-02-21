@@ -14,6 +14,8 @@ Python libraries:
 - czifile (C. Goehlke)
 - transformations (C. Goehlke)
 - redis
+- SimpleITK
 
 External:
 - elastix (install binary and indicate path at the beginning of dipy_multiview.py)
+
