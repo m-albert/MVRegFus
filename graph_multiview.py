@@ -236,7 +236,7 @@ def build_multiview_graph(
                                                                 background_level,
                                                                 multiview_metadata_label %(ds,sample),
                                                                 False, # do clean pixels
-                                                                True, # do smooth pixels
+                                                                False, # do smooth pixels
                                                                 True,#extract_rotation
                                                                 # True,#despeckle
                                                                 False,#despeckle
