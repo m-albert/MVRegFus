@@ -641,8 +641,11 @@ def register_linear_elastix_seq(fixed,moving,t0=None,degree=2,elastix_dir=elasti
                     return np.array([1,0,0,0,1,0,0,0,1,0,0,0])
 
     import subprocess,shutil
-    elastix_bin = os.path.join(elastix_dir,'bin/elastix')
-    os.environ['LD_LIBRARY_PATH'] = os.path.join(elastix_dir,'lib')
+    if 'win' in sys.platform:
+        elastix_bin = os.path.join(elastix_dir,'elastix')
+    else:
+        elastix_bin = os.path.join(elastix_dir,'bin/elastix')
+        os.environ['LD_LIBRARY_PATH'] = os.path.join(elastix_dir,'lib')
 
     # temp_dir = tempfile.mkdtemp(prefix = '/data/malbert/tmp/tmp_')
     temp_dir_obj = tempfile.TemporaryDirectory()
@@ -1257,95 +1260,6 @@ def register_nonlinear_dipy(static,moving,t0=None):
 
     return mapping
 
-def transform_stack_elastix(stack,p=None,t0=None,out_shape=None,out_spacing=None,out_origin=None,elastix_dir='/scratch/malbert/dependencies_linux/elastix_linux64_v4.8'):
-
-    """
-
-    """
-    elx_initial_transform_template_string = """
-(Transform "AffineTransform")
-(NumberOfParameters 12)
-
-(HowToCombineTransforms "Compose")
-
-(InitialTransformParametersFileName "NoInitialTransform")
-
-// Image specific
-(FixedImageDimension 3)
-(MovingImageDimension 3)
-(FixedInternalImagePixelType "short")
-(MovingInternalImagePixelType "short")
-//(UseDirectionCosines "false")
-
-(CenterOfRotationPoint 0 0 0)
-"""
-
-    import subprocess,shutil
-    transformix_bin = os.path.join(elastix_dir,'bin/transformix')
-    os.environ['LD_LIBRARY_PATH'] = os.path.join(elastix_dir,'lib')
-
-    if p is None:
-        return transform_stack_dipy(stack,p,out_shape=out_shape,out_spacing=out_spacing,out_origin=out_origin)
-
-    if out_shape is None:
-        out_shape = stack.shape
-
-    if out_origin is None:
-        out_origin = stack.origin
-
-    if out_spacing is None:
-        out_spacing = stack.spacing
-
-    s = sitk.GetImageFromArray(np.array(stack))
-    s.SetSpacing(stack.spacing[::-1])
-    s.SetOrigin(stack.origin[::-1])
-
-    # temp_dir = tempfile.mkdtemp(prefix = '/data/malbert/tmp/tmp_')
-    temp_dir_obj = tempfile.TemporaryDirectory()
-    temp_dir = temp_dir_obj.name
-
-    imagepath = os.path.join(temp_dir,'for_transformix.mhd')
-    sitk.WriteImage(s,imagepath)
-
-    elx_initial_transform_path = os.path.join(temp_dir,'t0.txt')
-
-    if t0 is None:
-        t0_inv = matrix_to_params(np.eye(4))
-    else:
-        t0_inv = params_invert_coordinates(t0)
-    createInitialTransformFile(np.array(out_spacing), t0_inv, elx_initial_transform_template_string, elx_initial_transform_path)
-
-    # correct parameter file
-    new_string = []
-    # for param_line in param_string.readlines():
-    for param_line in p.split('\n'):
-        if not '(Size ' in param_line:
-            if not '(Origin ' in param_line:
-                if not '(Spacing ' in param_line:
-                    if not '(InitialTransformParametersFileName ' in param_line:
-                        new_string.append(param_line)
-
-    new_string.append('(Size %s %s %s)' %tuple([int(i) for i in out_shape[::-1]]))
-    new_string.append('(Origin %s %s %s)' %tuple(out_origin[::-1]))
-    new_string.append('(Spacing %s %s %s)' %tuple(out_spacing[::-1]))
-    new_string.append('(InitialTransformParametersFileName "%s")' %elx_initial_transform_path)
-
-    new_string = '\n'.join(new_string)
-
-    params_path = os.path.join(temp_dir,'params.txt')
-    open(params_path,'w').write(new_string)
-
-    cmd = '%s -in %s -out %s -tp %s' %(transformix_bin,imagepath,temp_dir,params_path)
-
-    cmd = cmd.split(' ')
-    subprocess.Popen(cmd).wait()
-
-    out_path = os.path.join(temp_dir,'result.mhd')
-    resampled = sitk.GetArrayFromImage(sitk.ReadImage(out_path))
-
-    resampled = ImageArray(resampled,origin=out_origin,spacing=out_spacing)
-
-    return resampled
 
 def get_grid2world(image):
     w2g = np.diag(list(image.spacing)+[1])
