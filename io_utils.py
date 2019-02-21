@@ -10,7 +10,6 @@ import redis_lock
 from redis import StrictRedis
 conn = StrictRedis()
 
-import pandas as pd
 from dipy.align.imwarp import DiffeomorphicMap
 from image_array import ImageArray
 
@@ -221,9 +220,6 @@ def process_output_element(element,path):
         for key,value in element.items():
             tmpFile[key] = value
         tmpFile.close()
-    elif path.endswith('hdf'): #pandas dataframe or panel
-        # element.to_hdf(path,'pandas',format='table')
-        element.to_hdf(path,'pandas')
     else:
         raise(Exception('unrecognized string output from function'))
 

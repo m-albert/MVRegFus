@@ -1,8 +1,13 @@
+import sys
+del sys.path[3]
+del sys.path[3]
+del sys.path[3]
+del sys.path[3]
 
 
 # import dipy_multiview_test
 import numpy as np
-import pdb,os,sys
+import pdb,os
 from scipy import misc
 import dask
 import pickle
