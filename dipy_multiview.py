@@ -1881,7 +1881,7 @@ def fuse_views(views,params,spacing=None):
 def calc_stack_properties_from_views_and_params(views,params,spacing=None,mode='sample'):
 
     if spacing is None:
-        spacing = np.max([view.spacing for view in views],0)
+        spacing = np.max([view.spacing for view in views],0).astype(np.float)
 
     if mode == 'sample':
         volume = get_sample_volume(views,params)
@@ -2911,8 +2911,10 @@ def transformStack(p,stack,outShape=None,outSpacing=None,outOrigin=None,interp='
     else:
         shape = np.ceil(np.array(outShape))
         shape = [int(i) for i in shape]
-    if outSpacing is None: outSpacing = stack.GetSpacing()
+    if outSpacing is None:
+        outSpacing = stack.GetSpacing()
     else: outSpacing = np.array(outSpacing)
+    outSpacing = np.array(outSpacing).astype(np.float)
     if outOrigin is None: outOrigin = stack.GetOrigin()
     else: outOrigin = np.array(outOrigin)
 
@@ -2937,6 +2939,7 @@ def transformStack(p,stack,outShape=None,outSpacing=None,outOrigin=None,interp='
         interpolator = sitk.sitkLinear
     elif interp == 'nearest':
         interpolator = sitk.sitkNearestNeighbor
+
     newim = sitk.Resample(stack,shape,transf,interpolator,outOrigin,outSpacing)
     if numpyarray:
         newim = sitk.GetArrayFromImage(newim)
