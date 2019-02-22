@@ -36,10 +36,10 @@ def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,background_level=
     # fuse illuminations
     illuminations = infoDict['originalShape'][1]
     if illuminations > 1:
-        # print('fusing %s illuminations using simple mean' %illuminations)
-        # stack = np.mean([stack[i:stack.shape[0]:illuminations] for i in range(illuminations)],0).astype(np.uint16)
-        print('choosing only illumination 1')
-        stack = np.array(stack[1:stack.shape[0]:illuminations]).astype(np.uint16)
+        print('fusing %s illuminations using simple mean' %illuminations)
+        stack = np.mean([stack[i:stack.shape[0]:illuminations] for i in range(illuminations)],0).astype(np.uint16)
+        # print('choosing only illumination 1')
+        # stack = np.array(stack[1:stack.shape[0]:illuminations]).astype(np.uint16)
 
     if do_despeckle: # try to supress vesicles
         print('warning: despeckling images')

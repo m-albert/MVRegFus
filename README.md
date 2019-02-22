@@ -8,14 +8,15 @@ Code to register and fuse multi-view light sheet data from Zeiss Z1
 
 Python libraries:
 - numpy, scipy
+- h5py
 - dask
 - distributed
 - dipy
-- czifile (C. Goehlke)
-- transformations (C. Goehlke)
 - redis
+- redis-lock
 - SimpleITK
-- skimage
+- scikit-image
+- bcolz
 
 External:
 - elastix (install binary and indicate path at the beginning of dipy_multiview.py)
