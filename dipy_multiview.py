@@ -102,7 +102,7 @@ def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,
         infoDict = getStackInfoFromCZI(filepath)
     stack = czifile.CziFile(filepath).asarray_view_ch(view,ch).squeeze()
 
-    stack = stack.astype(np.uint16)
+    stack = stack.astype(np.uint16) # czifile can also load in other dtypes
 
     # fuse illuminations
     illuminations = infoDict['originalShape'][1]

@@ -17,7 +17,7 @@ import importlib
 
 import sys
 # elastix_dir = os.path.join(sys.path[0],'../elastix-4.9.0-win64')
-elastix_dir = '../../elastix-4.9.0-win64'
+elastix_dir = '../elastix-4.9.0-win64'
 
 import graph_multiview
 
