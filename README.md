@@ -25,8 +25,8 @@ External:
 
 ### create a new conda environment and type:
 
-conda install ipython h5py numpy scipy scikit-learn pandas dask distributed bokeh
-pip install SimpleITK redis redis_lock dipy scikit-image bcolz
+conda install ipython h5py numpy scipy scikit-learn pandas dask distributed bokeh bcolz
+pip install SimpleITK redis redis_lock dipy scikit-image transformations
 
 an addition might be needed:
 pip install --upgrade scikit-image

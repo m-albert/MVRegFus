@@ -548,11 +548,14 @@ def register_linear_elastix_seq(fixed,moving,t0=None,degree=2,elastix_dir=None):
                     return np.array([1,0,0,0,1,0,0,0,1,0,0,0])
 
     import subprocess,shutil
-    if 'win' in sys.platform:
+    if 'win' in sys.platform[:3]:
         elastix_bin = os.path.join(elastix_dir,'elastix.exe')
-    else:
+    elif 'lin' in sys.platform[:3]:
         elastix_bin = os.path.join(elastix_dir,'bin/elastix')
         os.environ['LD_LIBRARY_PATH'] = os.path.join(elastix_dir,'lib')
+    elif 'dar' in sys.platform[:3]:
+        elastix_bin = os.path.join(elastix_dir,'bin/elastix')
+        os.environ['DYLD_LIBRARY_PATH'] = os.path.join(elastix_dir,'lib')
 
     # temp_dir = tempfile.mkdtemp(prefix = '/data/malbert/tmp/tmp_')
     temp_dir_obj = tempfile.TemporaryDirectory()
