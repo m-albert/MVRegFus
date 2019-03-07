@@ -89,7 +89,8 @@ czifile.CziFile.asarray_view_ch = asarray_view_ch
 
 @io_decorator
 def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,
-                                          background_level=200,infoDict=None,
+                                          background_level=200,
+                                          infoDict=None,
                                           do_clean_pixels=True,
                                           do_smooth=True,
                                           extract_rotation=True,
