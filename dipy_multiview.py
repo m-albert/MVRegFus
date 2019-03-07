@@ -37,10 +37,11 @@ def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,background_level=
     if illuminations > 1:
         print('fusing %s illuminations using simple mean' %illuminations)
         # stack = np.mean([stack[i:stack.shape[0]:illuminations] for i in range(illuminations)],0).astype(np.uint16)
-        for z in range(stack.shape[0]/illuminations):
+        zshape = int(stack.shape[0]/illuminations)
+        for z in range(zshape):
             if not z%50: print('fusing z plane: %s' %z)
             stack[z] = np.mean(stack[z*illuminations:z*illuminations+illuminations],0).astype(np.uint16)
-        stack = stack[:stack.shape[0]/illuminations]
+        stack = stack[:zshape]
         # print('choosing only illumination 1')
         # stack = np.array(stack[1:stack.shape[0]:illuminations]).astype(np.uint16)
 
