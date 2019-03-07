@@ -21,3 +21,8 @@ Python libraries:
 External:
 - elastix (install binary and indicate path at the beginning of dipy_multiview.py)
 
+## installation commands
+
+
+conda install ipython h5py numpy scipy scikit-image scikit-learn pandas dask distributed bokeh
+pip install SimpleITK bcolz redis redis-lock

@@ -1,7 +1,7 @@
 import sys
 # import dipy_multiview_test
 import numpy as np
-import pdb,os
+import pdb,os,sys
 from scipy import misc
 import dask
 import pickle
@@ -15,7 +15,8 @@ import importlib
 # cache = Cache(cache_size)  # Leverage two gigabytes of memory
 # cache.register()    # Turn cache on globall
 
-elastix_dir = ''
+import sys
+elastix_dir = os.path.join(sys.path[0],'elastix-4.9.0-win64')
 
 import graph_multiview
 
@@ -38,9 +39,10 @@ if __name__ == '__main__':
     # ]
     # filepaths = ['/data/malbert/data/dbspim/chemokine/20180319_36hpf_4_gfp_7_rfp/4g7r_06.czi']+['/data/malbert/data/dbspim/chemokine/20180319_36hpf_4_gfp_7_rfp/4g7r_06(%s).czi' %i for i in range(1,18)]
     # filepaths = ['/data/malbert/data/dbspim/chemokine/20180606_36dpf_lyntimer/lyntimer_7m_hetero_tl_2(%s).czi' %i for i in range(1,11)]
-    filepaths = ['/data/malbert/data/dbspim/Lucien/2018-07-11/%s' %fn for fn in ['Fish1_t2.czi','Fish2_t2.czi','Fish3.czi','Fish4.czi','Fish5.czi']]
+    # filepaths = ['/data/malbert/data/dbspim/Lucien/2018-07-11/%s' %fn for fn in ['Fish1_t2.czi','Fish2_t2.czi','Fish3.czi','Fish4.czi','Fish5.czi']]
     # filepaths = ['/data/malbert/data/dbspim/Lucien/2018-07-25/%s' %fn for fn in ['Fish1.czi','Stack1.czi','Stack2.czi']]
     # filepaths = ['/data/malbert/lucien/2018-06-14/Fish1.czi','/data/malbert/lucien/2018-06-14/Fish2.czi']
+    filepaths = [os.path.join(sys.path[0],'../__for_Marvin/SPIRIT-cldnbGFP-bact_h2a_mcherry_24hpf.czi')]
 
     channelss = [[0]]*len(filepaths)
     reg_channel = 0
@@ -60,14 +62,16 @@ if __name__ == '__main__':
             graph_multiview.build_multiview_graph(
             filepath = filepath,
             # pairs = [[0,1],[1,2],[2,3],[3,0]],
-            pairs = [[0,1]],#,[1,2],[2,3],[3,0]],
+            pairs = [[0,1],[1,2],[2,3],[4,3],[5,4],[5,0]],
+            # pairs = [[0,1]],#,[1,2],[2,3],[3,0]],
             # pairs = pairs,
             ref_view = 0,
             # mv_registration_bin_factors = np.array([8,8,2]),
             mv_registration_bin_factors = np.array([8,8,4]),
             # mv_final_spacing = np.array([10.]*3), # orig resolution
             # mv_final_spacing = np.array([1.]*3), # orig resolution
-            mv_final_spacing = np.array([1.06]*3), # orig resolution
+            # mv_final_spacing = np.array([1.06]*3), # orig resolution
+            mv_final_spacing = np.array([4.]*3), # orig resolution
             reg_channel = reg_channel,
             channels = channels,
             ds = 0,
