@@ -24,6 +24,7 @@ import io_utils
 io_decorator = io_utils.io_decorator_local
 
 @io_decorator
+@io_decorator
 def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,background_level=200,infoDict=None,do_clean_pixels=True,do_smooth=True,extract_rotation=True,do_despeckle=False):
     print('reading %s view %s ch %s' %(filepath,view,ch))
     # return ImageArray(np.ones((10,10,10)))
@@ -36,6 +37,10 @@ def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,background_level=
     if illuminations > 1:
         print('fusing %s illuminations using simple mean' %illuminations)
         stack = np.mean([stack[i:stack.shape[0]:illuminations] for i in range(illuminations)],0).astype(np.uint16)
+        for z in range(stack.shape[0]/illuminations):
+            print(z)
+            stack[z] = np.mean(stack[z*illuminations:z*illuminations+illuminations],0)
+        stack = stack[:stack.shape[0]/illuminations]
         # print('choosing only illumination 1')
         # stack = np.array(stack[1:stack.shape[0]:illuminations]).astype(np.uint16)
 

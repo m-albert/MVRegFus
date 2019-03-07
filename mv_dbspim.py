@@ -65,7 +65,7 @@ if __name__ == '__main__':
             # pairs = pairs,
             ref_view = 0,
             # mv_registration_bin_factors = np.array([8,8,2]),
-            mv_registration_bin_factors = np.array([8,8,4]),
+            mv_registration_bin_factors = np.array([8,8,8]),
             # mv_final_spacing = np.array([10.]*3), # orig resolution
             # mv_final_spacing = np.array([1.]*3), # orig resolution
             # mv_final_spacing = np.array([1.06]*3), # orig resolution
