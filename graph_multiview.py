@@ -50,6 +50,7 @@ def build_multiview_graph(
     time_alignment_ref_sample = 0,
     time_alignment_ref_view = 0,
     elastix_dir = '/scratch/malbert/dependencies_linux/elastix_linux64_v4.8',
+    raw_input_binning = None, # x,y,z
     ):
 
     # ref_channel_chrom = channels[ref_channel_index_chrom]
@@ -188,6 +189,7 @@ def build_multiview_graph(
                                                                 False,#do_smooth
                                                                 False,#extract_rotation
                                                                 False,#despeckle
+                                                                raw_input_binning,
                                                                 )
         else:
             graph[multiview_chrom_correction_channel_label %(ds,sample,ref_channel_chrom)]  = multiview_view_reg_label %(ds,sample,ref_view,ref_channel_chrom)
@@ -240,6 +242,7 @@ def build_multiview_graph(
                                                                 True,#extract_rotation
                                                                 # True,#despeckle
                                                                 False,#despeckle
+                                                                raw_input_binning,
                                                                 )
 
             graph[transformed_view_label %(ds,sample,view,ch)] = (

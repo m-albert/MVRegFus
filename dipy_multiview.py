@@ -25,7 +25,14 @@ io_decorator = io_utils.io_decorator_local
 
 @io_decorator
 @io_decorator
-def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,background_level=200,infoDict=None,do_clean_pixels=True,do_smooth=True,extract_rotation=True,do_despeckle=False):
+def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,
+                                          background_level=200,infoDict=None,
+                                          do_clean_pixels=True,
+                                          do_smooth=True,
+                                          extract_rotation=True,
+                                          do_despeckle=False,
+                                          raw_input_binning=None,
+                                          ):
     print('reading %s view %s ch %s' %(filepath,view,ch))
     # return ImageArray(np.ones((10,10,10)))
     if infoDict is None:
@@ -45,6 +52,9 @@ def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,background_level=
         # print('choosing only illumination 1')
         # stack = np.array(stack[1:stack.shape[0]:illuminations]).astype(np.uint16)
 
+    if raw_input_binning is not None:
+        stack = np.array(bin_stack(ImageArray(stack),raw_input_binning))
+
     if do_despeckle: # try to supress vesicles
         print('warning: despeckling images')
         stack = despeckle(stack)
@@ -63,7 +73,12 @@ def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,background_level=
         rotation = infoDict['positions'][view][3]
     else:
         rotation = 0
-    stack = ImageArray(stack,spacing=infoDict['spacing'][::-1],origin=infoDict['origins'][view][::-1],rotation=rotation)
+
+    if raw_input_binning is None:
+        spacing = infoDict['spacing'][::-1]
+    else:
+        spacing = (infoDict['spacing'] * np.array(raw_input_binning))[::-1]
+    stack = ImageArray(stack,spacing=spacing,origin=infoDict['origins'][view][::-1],rotation=rotation)
 
     return stack
 
@@ -162,6 +177,7 @@ def clean_pixels(im):
 
 @io_decorator
 def bin_stack(im,bin_factors=np.array([1,1,1])):
+    bin_factors = np.array(bin_factors)
     origin = im.origin
     spacing = im.spacing
     rotation = im.rotation
