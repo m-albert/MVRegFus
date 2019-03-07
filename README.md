@@ -33,4 +33,12 @@ pip install SimpleITK redis redis_lock dipy scikit-image transformations czifile
 an addition might be needed:
 pip install --upgrade scikit-image
 
-### download elastix binaries and place them in the same folder as z1regfus (this one)
+download elastix binaries and place them in the same folder as z1regfus (this one)
+
+## usage
+
+- open anaconda prompt
+- navigate to this directory "cd Z:\transfer\Z1_Multi_View_Fusion\z1regfus"
+- type "conda activate Z:\transfer\Z1_Multi_View_Fusion\z1regfus_conda_env"
+- use mv_dbspim.py as a template to create your own mv_dbspim_<project>.py in this folder
+- run fusion with ipython mv_dbspim_<project>.py
