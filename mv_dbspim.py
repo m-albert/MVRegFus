@@ -65,7 +65,7 @@ if __name__ == '__main__':
             # pairs = pairs,
             ref_view = 0,
             # mv_registration_bin_factors = np.array([8,8,2]),
-            mv_registration_bin_factors = np.array([8,8,8]), # x,y,z
+            mv_registration_bin_factors = np.array([8,8,2]), # x,y,z
             # mv_final_spacing = np.array([10.]*3), # orig resolution
             # mv_final_spacing = np.array([1.]*3), # orig resolution
             # mv_final_spacing = np.array([1.06]*3), # orig resolution
@@ -86,7 +86,7 @@ if __name__ == '__main__':
             final_volume_mode = 'sample',
             elastix_dir = elastix_dir,
             # raw_input_binning = None,
-            raw_input_binning = [1,1,6], # x,y,z
+            raw_input_binning = [1,1,4], # x,y,z
             )
         )
 

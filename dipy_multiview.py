@@ -53,7 +53,10 @@ def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,
         # stack = np.array(stack[1:stack.shape[0]:illuminations]).astype(np.uint16)
 
     if raw_input_binning is not None:
+        print('WARNING: binning down raw input by xyz factors %s' %raw_input_binning)
+        print('old shape: %s' %stack.shape)
         stack = np.array(bin_stack(ImageArray(stack),raw_input_binning))
+        print('new shape: %s' %stack.shape)
 
     if do_despeckle: # try to supress vesicles
         print('warning: despeckling images')

@@ -25,7 +25,10 @@ External:
 
 ### create a new conda environment and type:
 
-conda install ipython h5py numpy scipy scikit-image scikit-learn pandas dask distributed bokeh
-pip install SimpleITK redis redis_lock dipy bcolz
+conda install ipython h5py numpy scipy scikit-learn pandas dask distributed bokeh
+pip install SimpleITK redis redis_lock dipy scikit-image bcolz
+
+an addition might be needed:
+pip install --upgrade scikit-image
 
 ### download elastix binaries and place them in the same folder as z1regfus (this one)
