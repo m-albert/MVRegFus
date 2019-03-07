@@ -52,8 +52,6 @@ if __name__ == '__main__':
     graph = dict()
     result_keys = []
     for ifile,filepath in enumerate(filepaths):
-        print('warning: skipping first file!')
-        if not ifile: continue
         channels = channelss[ifile]
         # pairs = pairss[ifile]
 
