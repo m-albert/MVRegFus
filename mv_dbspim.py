@@ -42,7 +42,7 @@ if __name__ == '__main__':
     # filepaths = ['/data/malbert/data/dbspim/Lucien/2018-07-11/%s' %fn for fn in ['Fish1_t2.czi','Fish2_t2.czi','Fish3.czi','Fish4.czi','Fish5.czi']]
     # filepaths = ['/data/malbert/data/dbspim/Lucien/2018-07-25/%s' %fn for fn in ['Fish1.czi','Stack1.czi','Stack2.czi']]
     # filepaths = ['/data/malbert/lucien/2018-06-14/Fish1.czi','/data/malbert/lucien/2018-06-14/Fish2.czi']
-    filepaths = [os.path.join(sys.path[0],'../__for_Marvin/SPIRIT-cldnbGFP-bact_h2a_mcherry_24hpf.czi')]
+    filepaths = [os.path.join(sys.path[0],'../../__for_Marvin/SPIRIT-cldnbGFP-bact_h2a_mcherry_24hpf.czi')]
 
     channelss = [[0]]*len(filepaths)
     reg_channel = 0
