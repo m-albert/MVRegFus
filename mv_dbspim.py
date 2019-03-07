@@ -45,8 +45,8 @@ if __name__ == '__main__':
     # filepaths = ['/data/malbert/lucien/2018-06-14/Fish1.czi','/data/malbert/lucien/2018-06-14/Fish2.czi']
     filepaths = [os.path.join(sys.path[0],'../../__for_Marvin/SPIRIT-cldnbGFP-bact_h2a_mcherry_24hpf.czi')]
 
-    channelss = [[0]]*len(filepaths)
-    reg_channel = 0
+    channelss = [[2]]*len(filepaths)
+    reg_channel = 2
     # pairss = [[[0,1],[1,2],[2,3],[3,0],[1,4],[4,5],[4,6],[6,7]]]*len(filepaths)
     # pairss = [[[0,1],[1,2],[2,3],[3,0],[1,4],[4,5],[4,6],[6,7]]]*len(filepaths)
 
