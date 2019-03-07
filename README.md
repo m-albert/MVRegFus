@@ -17,6 +17,8 @@ Python libraries:
 - SimpleITK
 - scikit-image
 - bcolz
+- tifffile
+- czifile
 
 External:
 - elastix (install binary and indicate path at the beginning of dipy_multiview.py)
@@ -26,7 +28,7 @@ External:
 ### create a new conda environment and type:
 
 conda install ipython h5py numpy scipy scikit-learn pandas dask distributed bokeh bcolz
-pip install SimpleITK redis redis_lock dipy scikit-image transformations
+pip install SimpleITK redis redis_lock dipy scikit-image transformations czifile tifffile
 
 an addition might be needed:
 pip install --upgrade scikit-image

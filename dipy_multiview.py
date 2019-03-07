@@ -23,7 +23,70 @@ from dipy.align.imwarp import mult_aff
 import io_utils
 io_decorator = io_utils.io_decorator_local
 
-@io_decorator
+import warnings
+def asarray_view_ch(self, view, ch, resize=True, order=1):
+    """Return image data from file(s) as numpy array.
+
+    modified by malbert
+    example:
+    - to extract view 0, channel 0 from multiview, channel file
+    get axes from self.filtered_subblock_directory[-1].axes
+
+    Parameters
+    ----------
+    bgr2rgb : bool
+        If True, exchange red and blue samples if applicable.
+    resize : bool
+        If True (default), resize sub/supersampled subblock data.
+    order : int
+        The order of spline interpolation used to resize sub/supersampled
+        subblock data. Default is 1 (bilinear).
+
+    resize : bool
+        If True (default), resize sub/supersampled subblock data.
+    order : int
+        The order of spline interpolation used to resize sub/supersampled
+        subblock data. Default is 0 (nearest neighbor).
+    out : numpy.ndarray, str, or file-like object; optional
+        Buffer where image data will be saved.
+        If numpy.ndarray, a writable array of compatible dtype and shape.
+        If str or open file, the file name or file object used to
+        create a memory-map to an array stored in a binary file on disk.
+    max_workers : int
+        Maximum number of threads to read and decode subblock data.
+        By default up to half the CPU cores are used.
+
+
+    """
+
+    nonZeroDims = []
+    for idim in range(len(self.shape)):
+        if self.shape[idim]>1: nonZeroDims.append(idim)
+
+    image = []
+
+    ndims = len(self.start)
+    for directory_entry in self.filtered_subblock_directory:
+
+        index_start = [directory_entry.start[i] - self.start[i] for i in range(ndims)]
+        if index_start[0] != view or index_start[5] != ch: continue
+
+        # print(index_start[0],directory_entry.start)
+        subblock = directory_entry.data_segment()
+        tile = subblock.data(resize=resize, order=order)
+        # index = [slice(i-j, i-j+k) for i, j, k in
+        #          zip(directory_entry.start, self.start, tile.shape)]
+
+        try:
+            image.append(tile)
+        except ValueError as e:
+            warnings.warn(str(e))
+
+    return np.array(image)
+
+# monkey patch czifile.py
+czifile.CziFile.asarray_view_ch = asarray_view_ch
+
 @io_decorator
 def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,
                                           background_level=200,infoDict=None,
@@ -39,7 +102,6 @@ def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,
         infoDict = getStackInfoFromCZI(filepath)
     stack = czifile.CziFile(filepath).asarray_view_ch(view,ch).squeeze()
 
-    pdb.set_trace()
     # fuse illuminations
     illuminations = infoDict['originalShape'][1]
     if illuminations > 1:
@@ -785,7 +847,6 @@ def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None):
 
     t0 = np.copy(t00)
     t0[9:] += np.dot(t0[:9].reshape((3,3)),offset)
-    # pdb.set_trace()
     # return t0
     parameters = register_linear_elastix_seq(static,mov,t0,degree=degree,elastix_dir=elastix_dir)
     return parameters
@@ -831,8 +892,6 @@ def translation3d(im0, im1):
     if t0 > shape[0] // 2: t0 -= shape[0]
     if t1 > shape[1] // 2: t1 -= shape[1]
     if t2 > shape[2] // 2: t2 -= shape[2]
-
-    # pdb.set_trace()
 
     return [t0, t1, t2]
 
@@ -1910,7 +1969,6 @@ def fuse_LR_with_weights_dct(
         # debug crop
         # tmp = tmp[:,500:550,:]
         views[ip] = tmp
-        # pdb.set_trace()
 
     noisy_multiview_data = views
 
