@@ -1,10 +1,5 @@
 __author__ = 'malbert'
 
-
-# os.path.dirname(os.path.realpath(__file__))
-# elastix_dir = os.path.join('elastix-4.9.0-win64'
-# elastix_dir = '/scratch/malbert/dependencies_linux/elastix_linux64_v4.8'
-
 import os,tempfile,pdb,sys
 import numpy as np
 import czifile
@@ -488,7 +483,7 @@ def createParameterFile(spacing,initialTransformFile,template,outPath):
     return
 
 
-def register_linear_elastix_seq(fixed,moving,t0=None,degree=2,elastix_dir=elastix_dir):
+def register_linear_elastix_seq(fixed,moving,t0=None,degree=2,elastix_dir=None):
 
     """
     assumes clahe images
@@ -529,7 +524,7 @@ def register_linear_elastix_seq(fixed,moving,t0=None,degree=2,elastix_dir=elasti
 
     import subprocess,shutil
     if 'win' in sys.platform:
-        elastix_bin = os.path.join(elastix_dir,'elastix')
+        elastix_bin = os.path.join(elastix_dir,'elastix.exe')
     else:
         elastix_bin = os.path.join(elastix_dir,'bin/elastix')
         os.environ['LD_LIBRARY_PATH'] = os.path.join(elastix_dir,'lib')
@@ -673,7 +668,7 @@ def register_linear_elastix_seq(fixed,moving,t0=None,degree=2,elastix_dir=elasti
     return final_params
 
 @io_decorator
-def register_linear_elastix(fixed,moving,degree=2,elastix_dir=elastix_dir):
+def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None):
 
     """
     estimate t0 and crop images to intersection in y
