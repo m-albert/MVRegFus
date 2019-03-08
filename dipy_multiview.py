@@ -1614,6 +1614,7 @@ def get_final_params(ref_view,pairs,params,time_alignment_params=None):
     for ipair,pair in enumerate(pairs):
         # g.add_edge(pair[0],pair[1],{'p': params[ipair]})
         g.add_edge(pair[0],pair[1], p = params[ipair]) # after update 201809 networkx seems to have changed
+        g.add_edge(pair[1],pair[0], p = invert_params(params[ipair])) # after update 201809 networkx seems to have changed
 
     all_views = np.unique(np.array(pairs).flatten())
     # views_to_transform = np.sort(np.array(list(set(all_views).difference(set([ref_view])))))

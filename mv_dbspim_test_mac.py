@@ -61,8 +61,8 @@ if __name__ == '__main__':
         graph.update(
             graph_multiview.build_multiview_graph(
             filepath = filepath,
-            # pairs = [[0,1],[1,2],[2,3],[3,0]],
-            pairs = [[0,1]],
+            pairs = [[0,1],[1,2],[3,2],[3,0]],
+            # pairs = [[1,0]],
             # pairs = [[0,1],[1,2],[2,3],[4,3],[5,4],[5,0]],
             # pairs = [[0,1]],#,[1,2],[2,3],[3,0]],
             # pairs = pairs,
@@ -89,7 +89,7 @@ if __name__ == '__main__':
             final_volume_mode = 'sample',
             elastix_dir = elastix_dir,
             # raw_input_binning = None,
-            raw_input_binning = [2,2,1], # x,y,z
+            raw_input_binning = [4,4,2], # x,y,z
             background_level = 200,
             )
         )
@@ -98,8 +98,8 @@ if __name__ == '__main__':
         # if ifile:
         #     graph[graph_multiview.stack_properties_label %(0,ifile)] = graph_multiview.stack_properties_label %(0,0)
 
-        if os.path.exists(os.path.join(os.path.dirname(filepath),graph_multiview.multiview_fused_label %(0,ifile,0))):
-            continue
+        # if os.path.exists(os.path.join(os.path.dirname(filepath),graph_multiview.multiview_fused_label %(0,ifile,0))):
+        #     continue
 
         multiview_fused_labels              = [graph_multiview.multiview_fused_label %(0,ifile,ch) for ch in channels]
         # fusion_params_label                 = 'mv_params_%03d_%03d.prealignment.h5' %(ikey,s)
