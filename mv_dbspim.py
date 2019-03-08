@@ -5,6 +5,7 @@ import pdb,os,sys
 from scipy import misc
 import dask
 import pickle
+import io_utils
 
 # import tifffile
 import importlib
@@ -103,7 +104,9 @@ if __name__ == '__main__':
         # fusion_params_label                 = 'mv_params_%03d_%03d.prealignment.h5' %(ikey,s)
         result_keys += multiview_fused_labels
             # p = threaded.get(graph,fusion_params_label)
-    o = dask.local.get_sync(graph,result_keys)
+
+    o = io_utils.get(graph,result_keys,local=True)
+    # o = dask.local.get_sync(graph,result_keys)
     #
     # N = 1
     # results = []

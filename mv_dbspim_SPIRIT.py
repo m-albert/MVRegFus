@@ -5,6 +5,7 @@ import pdb,os,sys
 from scipy import misc
 import dask
 import pickle
+import io_utils
 
 # import tifffile
 import importlib
@@ -45,8 +46,8 @@ if __name__ == '__main__':
     # filepaths = ['/data/malbert/lucien/2018-06-14/Fish1.czi','/data/malbert/lucien/2018-06-14/Fish2.czi']
     filepaths = [os.path.join(sys.path[0],'../../__for_Marvin/SPIRIT-cldnbGFP-bact_h2a_mcherry_24hpf.czi')]
 
-    channelss = [[2]]*len(filepaths)
-    reg_channel = 2
+    channelss = [[0,1,2]]*len(filepaths)
+    reg_channel = 1
     # pairss = [[[0,1],[1,2],[2,3],[3,0],[1,4],[4,5],[4,6],[6,7]]]*len(filepaths)
     # pairss = [[[0,1],[1,2],[2,3],[3,0],[1,4],[4,5],[4,6],[6,7]]]*len(filepaths)
 
@@ -66,7 +67,7 @@ if __name__ == '__main__':
             # pairs = pairs,
             ref_view = 0,
             # mv_registration_bin_factors = np.array([8,8,2]),
-            mv_registration_bin_factors = np.array([8,8,2]), # x,y,z
+            mv_registration_bin_factors = np.array([4,4,2]), # x,y,z
             # mv_final_spacing = np.array([10.]*3), # orig resolution
             # mv_final_spacing = np.array([1.]*3), # orig resolution
             # mv_final_spacing = np.array([1.06]*3), # orig resolution
@@ -87,8 +88,8 @@ if __name__ == '__main__':
             final_volume_mode = 'sample',
             elastix_dir = elastix_dir,
             # raw_input_binning = None,
-            raw_input_binning = [1,1,4], # x,y,z
-            background_level = 200,
+            raw_input_binning = [2,2,4], # x,y,z
+            background_level = 0,
             )
         )
 
@@ -103,7 +104,9 @@ if __name__ == '__main__':
         # fusion_params_label                 = 'mv_params_%03d_%03d.prealignment.h5' %(ikey,s)
         result_keys += multiview_fused_labels
             # p = threaded.get(graph,fusion_params_label)
-    o = dask.local.get_sync(graph,result_keys)
+
+    o = io_utils.get(graph,result_keys,local=True)
+    # o = dask.local.get_sync(graph,result_keys)
     #
     # N = 1
     # results = []
