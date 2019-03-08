@@ -178,18 +178,28 @@ def build_multiview_graph(
         #                                     multiview_fusion_seg_label %(ds,sample,ch),
         #                                     )
 
-        print('WARNING: FUSING WITH LR (with weights)')
-        graph[multiview_fused_label %(ds,sample,ch)] = (
-                                            dipy_multiview.fuse_LR_with_weights_dct,
-                                            os.path.join(out_dir,multiview_fused_label %(ds,sample,ch)),
-                                           [multiview_view_corr_label %(ds,sample,view,ch) for view in all_views],
-                                            fusion_params_label %(ds,sample),
-                                            # mv_final_spacing,
-                                            stack_properties_label %(ds,sample),
-                                            20, # iters
-                                            5,  # sigma z
-                                            0.1,# sigma xy
-                                            )
+        print('WARNING: FUSING WITH LR (with dct weights)')
+        # graph[multiview_fused_label %(ds,sample,ch)] = (
+        #                                     dipy_multiview.fuse_LR_with_weights_dct,
+        #                                     os.path.join(out_dir,multiview_fused_label %(ds,sample,ch)),
+        #                                    [multiview_view_corr_label %(ds,sample,view,ch) for view in all_views],
+        #                                     fusion_params_label %(ds,sample),
+        #                                     # mv_final_spacing,
+        #                                     stack_properties_label %(ds,sample),
+        #                                     20, # iters
+        #                                     5,  # sigma z
+        #                                     0.1,# sigma xy
+        #                                     )
+
+        # print('WARNING: FUSING ADDITIVE WITH DCT WEIGHTS')
+        # graph[multiview_fused_label %(ds,sample,ch)] = (
+        #                                     dipy_multiview.fuse_dct,
+        #                                     os.path.join(out_dir,multiview_fused_label %(ds,sample,ch)),
+        #                                    [multiview_view_corr_label %(ds,sample,view,ch) for view in all_views],
+        #                                     fusion_params_label %(ds,sample),
+        #                                     # mv_final_spacing,
+        #                                     stack_properties_label %(ds,sample),
+        #                                     )
 
         if chromatic_correction_file is not None:
             graph[multiview_chrom_correction_channel_label %(ds,sample,ch)] = (dipy_multiview.readStackFromMultiviewMultiChannelCzi,

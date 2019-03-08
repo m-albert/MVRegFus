@@ -2261,9 +2261,14 @@ def fuse_views_weights(views,params,stack_properties,weights=None):
         f = np.mean(transformed,0)
 
 
-    f = ImageArray(f,spacing=stack_properties['spacing'],origin=stack_properties['origin'])
+    f = ImageArray(f.astype(np.uint16),spacing=stack_properties['spacing'],origin=stack_properties['origin'])
 
     return f
+
+@io_decorator
+def fuse_dct(views,params,stack_properties):
+    weights = get_weights_dct(views,params,stack_properties)
+    return fuse_views_weights(views,params,stack_properties,weights=weights)
 
 def image_to_sitk(im):
     sim = sitk.GetImageFromArray(im)
