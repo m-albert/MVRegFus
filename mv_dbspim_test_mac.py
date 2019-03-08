@@ -61,8 +61,8 @@ if __name__ == '__main__':
         graph.update(
             graph_multiview.build_multiview_graph(
             filepath = filepath,
-            pairs = [[0,1],[1,2],[3,2],[3,0]],
-            # pairs = [[1,0]],
+            # pairs = [[0,1],[1,2],[3,2],[3,0]],
+            pairs = [[1,0]],
             # pairs = [[0,1],[1,2],[2,3],[4,3],[5,4],[5,0]],
             # pairs = [[0,1]],#,[1,2],[2,3],[3,0]],
             # pairs = pairs,

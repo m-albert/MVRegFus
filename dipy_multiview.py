@@ -1876,6 +1876,190 @@ def multiview_data_to_density(
     density = sitk.Cast(density,sitk.sitkFloat32)
     return density
 
+from scipy.fftpack import dctn,idctn
+from scipy import ndimage
+import dask.array as da
+def get_weights_dct(
+                    views,
+                    params,
+                    stack_properties,
+                    size=50,
+                    max_kernel=10,
+                    gaussian_kernel=10,
+                    ):
+
+    w_stack_properties = stack_properties.copy()
+    minspacing = 3.
+    changed_stack_properties = False
+    if w_stack_properties['spacing'][0] < minspacing:
+        changed_stack_properties = True
+        print('using downsampled images for calculating weights..')
+        w_stack_properties['spacing'] = np.array([minspacing]*3)
+        w_stack_properties['size'] = (stack_properties['spacing'][0]/w_stack_properties['spacing'][0])*stack_properties['size']
+
+    vs = []
+    vdils = []
+    for iview,view in enumerate(views):
+        tmpvs = transform_stack_sitk(view,params[iview],
+                               out_origin=w_stack_properties['origin'],
+                               out_shape=w_stack_properties['size'],
+                               out_spacing=w_stack_properties['spacing'])
+
+        tmp_view = ImageArray(view[:-1,:-1,:-1]+1,spacing=views[iview].spacing,origin=views[iview].origin+views[iview].spacing/2.,rotation=views[iview].rotation)
+        mask = transform_stack_sitk(tmp_view,params[iview],
+                               out_origin=w_stack_properties['origin'],
+                               out_shape=w_stack_properties['size'],
+                               out_spacing=w_stack_properties['spacing'],
+                                interp='nearest')
+        # tmp[tmp==0] = 10
+        mask = mask > 0
+        vdils.append(ndimage.binary_dilation(mask == 0))
+        vs.append(tmpvs*(mask>0))
+
+    if size is None:
+        size = np.max([4,int(50 / vs[0].spacing[0])]) # 50um
+        print('dct: choosing size %s' %size)
+    if max_kernel is None:
+        max_kernel = int(size/2.)
+        print('dct: choosing max_kernel %s' %max_kernel)
+    if gaussian_kernel is None:
+        gaussian_kernel = int(max_kernel)
+        print('dct: choosing gaussian_kernel %s' %gaussian_kernel)
+
+    print('calculating dct weights...')
+    def determine_quality(vrs):
+        # print('dw...')
+
+        axes = [0,1,2]
+        ds = []
+        for v in vrs:
+
+            # if np.sum(v==0) > np.product(v.shape) / 10.:
+            #     ds.append([0])
+            #     continue
+
+            if np.sum(v==0) > np.product(v.shape) * (4/5.):
+                ds.append([0])
+                continue
+            elif v.min()<0.0001:
+                v[v==0] = v[v>0].min() # or nearest neighbor
+
+            d = dctn(v,norm='ortho',axes=axes)
+            # cut = size//2
+            # d[:cut,:cut,:cut] = 0
+            ds.append(d.flatten())
+
+        ws = np.array([np.sum(np.abs(d)) for d in ds])
+        # print('watch out in dct fusion! using different dct measure')
+        # ws = np.array([np.sum(np.log(np.abs(d))) for d in ds])
+
+        # replace value of zero view by lowest
+        if not ws.max():
+            ws = np.ones(len(ws))/float(len(ws))
+
+        # elif np.sum(ws == 0):
+        #     ws = ws * (ws != 0) + (ws == 0) * (ws[ws>0]).min()
+
+        # ws = np.array([(w - ws.min())/(ws.max() - ws.min()) for w in ws])
+        # ws = ws/np.sum(ws)
+
+        # res = np.ones(vrs.shape,dtype=np.float)
+        # for iw,w in enumerate(ws):
+        #     res[iw] *= w
+        #     # zeros = ndimage.binary_dilation(vrs[iw] == 0)
+            # res[iw][zeros] = 0
+
+        return ws[:,None,None,None]
+
+    # def determine_quality(vrs):
+    #     ws = np.sum(np.sum(np.sum(vrs,-1),-1),-1)
+    #     # ws = np.max(np.max(np.max(vrs,-1),-1),-1)
+    #     # ws = np.array([(w - ws.min())/(ws.max() - ws.min()) for w in ws])
+    #     # ws = ws/np.sum(ws)
+    #     res = np.ones(vrs.shape)
+    #     for iw,w in enumerate(ws):
+    #         res[iw] *= w
+    #     return res
+
+
+    x = da.from_array(np.array(vs), chunks=(len(vs),size,size,size))
+    # ws=x.map_blocks(determine_quality,dtype=np.float)
+    # pdb.set_trace()
+    ws = x.map_blocks(determine_quality,dtype=np.float,chunks=(len(vs),1,1,1))
+
+    ws = np.array(ws)
+
+    ws = ImageArray(ws,
+                    spacing= np.array([size]*3)*np.array(w_stack_properties['spacing']),
+                    origin = w_stack_properties['origin'] + ((size-1)*w_stack_properties['spacing'])/2.,
+                    )
+
+    newws = []
+    for iw in range(len(ws)):
+        newws.append(transform_stack_sitk(ws[iw],
+                            [1,0,0,0,1,0,0,0,1,0,0,0],
+                            # out_shape=stack_properties['size'],
+                            # out_origin=stack_properties['origin'],
+                            # out_spacing=stack_properties['spacing'],
+                               out_origin=w_stack_properties['origin'],
+                               out_shape=w_stack_properties['size'],
+                               out_spacing=w_stack_properties['spacing'],
+                            interp='linear',
+                             ))
+    ws = np.array(newws)
+
+    for iw,w in enumerate(ws):
+        print('filtering')
+        ws[iw] = ndimage.maximum_filter(ws[iw],max_kernel)
+
+    for iw,w in enumerate(ws):
+        ws[iw][vdils[iw]] = 0
+
+    wsmin = ws.min(0)
+    wsmax = ws.max(0)
+    ws = np.array([(w - wsmin)/(wsmax - wsmin + 0.01) for w in ws])
+    # ws = np.array([(w - wsmin)/(wsmax - wsmin) for w in ws])
+
+    # for iw,w in enumerate(ws):
+    #     ws[iw][vdils[iw]] = 0.00001
+
+    wsum = np.sum(ws,0)
+    wsum[wsum==0] = 1
+    for iw,w in enumerate(ws):
+        ws[iw] /= wsum
+
+    # tifffile.imshow(np.array([np.array(ts)*10,ws]).swapaxes(-3,-2),vmax=10000)
+    for iw,w in enumerate(ws):
+        print('filtering')
+        # ws[iw] = ndimage.maximum_filter(ws[iw],10)
+        # ws[iw][vdils[iw]] = 0.00001
+        ws[iw] = ndimage.gaussian_filter(ws[iw],gaussian_kernel)
+        # zeros = ndimage.binary_dilation(vs[iw] == 0)
+        # ws[iw][zeros] = 0.00001
+        # ws[iw][vdils[iw]] = 0.00001
+        ws[iw][vdils[iw]] = 0
+
+    wsum = np.sum(ws,0)
+    wsum[wsum==0] = 1
+    for iw,w in enumerate(ws):
+        ws[iw] /= wsum
+
+    ws = list(ws)
+    for iw,w in enumerate(ws):
+        ws[iw] = ImageArray(ws[iw],
+                            origin=w_stack_properties['origin'],
+                            spacing=w_stack_properties['spacing'])
+
+    if changed_stack_properties:
+        for iview in range(len(ws)):
+            ws[iview] = transform_stack_sitk(ws[iview],[1,0,0,0,1,0,0,0,1,0,0,0],
+                                   out_origin=stack_properties['origin'],
+                                   out_shape=stack_properties['size'],
+                                   out_spacing=stack_properties['spacing'])
+
+
+    return ws
+
 @io_decorator
 def fuse_LR_with_weights_dct(
         views,

@@ -47,7 +47,7 @@ if __name__ == '__main__':
     filepaths = [os.path.join(sys.path[0],'../../__for_Marvin/SPIRIT-cldnbGFP-bact_h2a_mcherry_24hpf.czi')]
 
     channelss = [[0,1,2]]*len(filepaths)
-    reg_channel = 1
+    reg_channel = 2
     # pairss = [[[0,1],[1,2],[2,3],[3,0],[1,4],[4,5],[4,6],[6,7]]]*len(filepaths)
     # pairss = [[[0,1],[1,2],[2,3],[3,0],[1,4],[4,5],[4,6],[6,7]]]*len(filepaths)
 
@@ -71,7 +71,7 @@ if __name__ == '__main__':
             # mv_final_spacing = np.array([10.]*3), # orig resolution
             # mv_final_spacing = np.array([1.]*3), # orig resolution
             # mv_final_spacing = np.array([1.06]*3), # orig resolution
-            mv_final_spacing = np.array([4.]*3), # orig resolution
+            mv_final_spacing = np.array([2.]*3), # orig resolution
             reg_channel = reg_channel,
             channels = channels,
             ds = 0,
