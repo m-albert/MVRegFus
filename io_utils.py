@@ -480,7 +480,6 @@ def io_decorator_local(func):
 
     def full_func(*args, **kwargs):
 
-        # pdb.set_trace()
         print('DECORATOR local... %s' %(func.__name__,))
         # print('DECORATOR local... %s, %s' %(func.__name__,args[0]))
         if not is_io_path(args[0]):
@@ -505,7 +504,6 @@ def io_decorator_local(func):
             # if not np.any(np.array(mtimes[1:]) == -1) and mtimes[0] >= highest_mtime:
             # if 1:
             #     print('ignoring output path times!')
-            #     pdb.set_trace()
                 return args[0]
 
         nargs = []
@@ -515,17 +513,15 @@ def io_decorator_local(func):
 
             nargs.append(res)
 
-        if 'map2' in args[0]:
-        #     print(args)
-        #     print(mtimes)
-            pdb.set_trace()
+        # if 'map2' in args[0]:
+        # #     print(args)
+        # #     print(mtimes)
+        #     pdb.set_trace()
 
         print('producing %s' %args[0])
-        # if 'map2_' in args[0]: pdb.set_trace()
 
         import time
         # time.sleep(5)
-        # pdb.set_trace()
 
         result = func(*nargs,**kwargs)
         nresult = process_output_element(result,args[0])

@@ -1930,6 +1930,8 @@ def get_weights_dct(
     def determine_quality(vrs):
         # print('dw...')
 
+        vrs = np.copy(vrs)
+
         axes = [0,1,2]
         ds = []
         for v in vrs:
@@ -1987,6 +1989,7 @@ def get_weights_dct(
     # pdb.set_trace()
     ws = x.map_blocks(determine_quality,dtype=np.float,chunks=(len(vs),1,1,1))
 
+    ws = ws.compute(scheduler = 'threads')
     ws = np.array(ws)
 
     ws = ImageArray(ws,

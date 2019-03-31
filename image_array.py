@@ -5,14 +5,19 @@ import numpy as np
 # https://docs.scipy.org/doc/numpy-1.13.0/user/basics.subclassing.html
 class ImageArray(np.ndarray):
 
-    def __new__(cls, input_array, spacing=[1.,1.,1.], origin=[0.,0.,0.], rotation=0.):
+    def __new__(cls, input_array, spacing=[1.,1.,1.], origin=[0.,0.,0.], rotation=0., meta = None):
         # Input array is an already formed ndarray instance
         # We first cast to be our class type
         obj = np.asarray(input_array).view(cls)
         # add the new attribute to the created instance
-        obj.spacing = np.array(spacing).astype(np.float64)
-        obj.origin = np.array(origin).astype(np.float64)
-        obj.rotation = float(rotation)
+        if meta is None:
+            obj.spacing = np.array(spacing).astype(np.float64)
+            obj.origin = np.array(origin).astype(np.float64)
+            obj.rotation = float(rotation)
+        else:
+            obj.spacing  = meta['spacing']
+            obj.origin   = meta['origin']
+            obj.rotation = meta['rotation']
         # Finally, we must return the newly created object:
         return obj
 
@@ -35,3 +40,35 @@ class ImageArray(np.ndarray):
         self.spacing,self.origin,self.rotation, = state[-3:]  # Set the info attribute
         # Call the parent's __setstate__ with the other tuple elements.
         super(ImageArray, self).__setstate__(state[0:-3])
+
+    def get_meta_dict(self):
+        meta = dict()
+        meta['spacing'] = self.spacing
+        meta['origin'] = self.origin
+        meta['rotation'] = self.rotation
+        return meta
+
+# http://distributed.dask.org/en/latest/serialization.html
+try:
+    # from distributed.protocol import register_generic
+    # register_generic(ImageArray)
+
+    from distributed.protocol import dask_serialize, dask_deserialize, serialize
+
+    @dask_serialize.register(ImageArray)
+    def serialize(imar):
+        meta = imar.get_meta_dict()
+        ar = np.array(imar)
+        header, frames = serialize.serialize([meta,ar])
+        return header, frames
+
+    @dask_deserialize.register(ImageArray)
+    def deserialize(header, frames):
+        [meta,ar] = serialize.deserialize(header,frames)
+        return ImageArray(ar,meta=meta)
+
+    print('INFO: successfully registered image array for dask distributed serialization')
+
+except:
+    # http://distributed.dask.org/en/latest/serialization.html
+    print('WARNING: could not register image array for dask distributed serialization')
