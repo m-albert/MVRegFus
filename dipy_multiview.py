@@ -1783,18 +1783,23 @@ def blur_view(view,
               sz,
               sxy,
               ):
+    """
+    adapted from https://code.google.com/archive/p/iterative-fusion/
+
+    :param view:
+    :param p:
+    :param orig_properties:
+    :param stack_properties:
+    :param sz:
+    :param sxy:
+    :return:
+    """
 
     print('blur view..')
+
     p = params_invert_coordinates(p)
     inv_p = invert_params(p)
-    # print('transf md %s' %ip)
-    # o = transform_stack_sitk(density,
-    #                      p           = inv_p,
-    #                      out_shape   = orig_prop_list[ip]['size'],
-    #                      out_spacing = orig_prop_list[ip]['spacing'],
-    #                      out_origin  = orig_prop_list[ip]['origin'],
-    #                      interp      ='linear')
-    # print('transform to view..')
+
     o = transformStack(
                          p          = inv_p,
                          stack      = view,
@@ -1804,10 +1809,9 @@ def blur_view(view,
                         # interp='bspline',
                        )
     # print('not blurring!')
-    if sz:
-        o = sitk.SmoothingRecursiveGaussian(o,[sxy,sxy,sz])
-    else:
-        print('not blurring! (not sz is True)')
+
+    o = sitk.SmoothingRecursiveGaussian(o,[sxy,sxy,sz])
+
     # print('transform to fused..')
     o = transformStack(
                          p          = p,
@@ -1828,7 +1832,8 @@ def density_to_multiview_data(
                               sxy,
                               ):
     """
-    Takes a 2D image input, returns a stack of multiview data
+    Takes a 3D image input, returns a stack of multiview data
+    adapted from https://code.google.com/archive/p/iterative-fusion/
     """
 
     """
@@ -1837,7 +1842,6 @@ def density_to_multiview_data(
     out = []
     for ip,p in enumerate(params):
         print('gauss dm %s' %ip)
-        # o = sitk.SmoothingRecursiveGaussian(density,sigmas[ip])
         o = blur_view(density,p,orig_prop_list[ip],stack_properties,sz,sxy)
         out.append(o)
     return out
@@ -1853,6 +1857,9 @@ def multiview_data_to_density(
                               ):
     """
     The transpose of the density_to_multiview_data operation we perform above.
+    adapted from https://code.google.com/archive/p/iterative-fusion/
+
+    - multiply with DCT weights here
     """
 
     density = multiview_data[0]*0.
@@ -1862,7 +1869,6 @@ def multiview_data_to_density(
     for ip,p in enumerate(params):
         print('gauss md %s' %ip)
         o = multiview_data[ip]
-        # o = sitk.SmoothingRecursiveGaussian(multiview_data[ip],sigmas[ip])
 
         # smooth and resample in original view
         o = blur_view(o,p,orig_prop_list[ip],stack_properties,sz,sxy)
@@ -1888,6 +1894,18 @@ def get_weights_dct(
                     gaussian_kernel=10,
                     ):
 
+    # heuristic for okayish default values if not set
+    if size is None:
+        size = np.max([4,int(50 / vs[0].spacing[0])]) # 50um
+        print('dct: choosing size %s' %size)
+    if max_kernel is None:
+        max_kernel = int(size/2.)
+        print('dct: choosing max_kernel %s' %max_kernel)
+    if gaussian_kernel is None:
+        gaussian_kernel = int(max_kernel)
+        print('dct: choosing gaussian_kernel %s' %gaussian_kernel)
+
+    # if input spacing is smaller than minspacing, downsample
     w_stack_properties = stack_properties.copy()
     minspacing = 3.
     changed_stack_properties = False
@@ -1897,8 +1915,9 @@ def get_weights_dct(
         w_stack_properties['spacing'] = np.array([minspacing]*3)
         w_stack_properties['size'] = (stack_properties['spacing'][0]/w_stack_properties['spacing'][0])*stack_properties['size']
 
+    # transform views to target space and take care of borders
     vs = []
-    vdils = []
+    vdils = [] # strange variable name but ok: dilated sample mask
     for iview,view in enumerate(views):
         tmpvs = transform_stack_sitk(view,params[iview],
                                out_origin=w_stack_properties['origin'],
@@ -1916,17 +1935,6 @@ def get_weights_dct(
         vdils.append(ndimage.binary_dilation(mask == 0))
         vs.append(tmpvs*(mask>0))
 
-    if size is None:
-        size = np.max([4,int(50 / vs[0].spacing[0])]) # 50um
-        print('dct: choosing size %s' %size)
-    if max_kernel is None:
-        max_kernel = int(size/2.)
-        print('dct: choosing max_kernel %s' %max_kernel)
-    if gaussian_kernel is None:
-        gaussian_kernel = int(max_kernel)
-        print('dct: choosing gaussian_kernel %s' %gaussian_kernel)
-
-    print('calculating dct weights...')
     def determine_quality(vrs):
         # print('dw...')
 
@@ -1936,10 +1944,6 @@ def get_weights_dct(
         ds = []
         for v in vrs:
 
-            # if np.sum(v==0) > np.product(v.shape) / 10.:
-            #     ds.append([0])
-            #     continue
-
             if np.sum(v==0) > np.product(v.shape) * (4/5.):
                 ds.append([0])
                 continue
@@ -1947,51 +1951,25 @@ def get_weights_dct(
                 v[v==0] = v[v>0].min() # or nearest neighbor
 
             d = dctn(v,norm='ortho',axes=axes)
-            # cut = size//2
-            # d[:cut,:cut,:cut] = 0
             ds.append(d.flatten())
 
         ws = np.array([np.sum(np.abs(d)) for d in ds])
-        # print('watch out in dct fusion! using different dct measure')
-        # ws = np.array([np.sum(np.log(np.abs(d))) for d in ds])
 
         # replace value of zero view by lowest
         if not ws.max():
             ws = np.ones(len(ws))/float(len(ws))
 
-        # elif np.sum(ws == 0):
-        #     ws = ws * (ws != 0) + (ws == 0) * (ws[ws>0]).min()
-
-        # ws = np.array([(w - ws.min())/(ws.max() - ws.min()) for w in ws])
-        # ws = ws/np.sum(ws)
-
-        # res = np.ones(vrs.shape,dtype=np.float)
-        # for iw,w in enumerate(ws):
-        #     res[iw] *= w
-        #     # zeros = ndimage.binary_dilation(vrs[iw] == 0)
-            # res[iw][zeros] = 0
-
         return ws[:,None,None,None]
 
-    # def determine_quality(vrs):
-    #     ws = np.sum(np.sum(np.sum(vrs,-1),-1),-1)
-    #     # ws = np.max(np.max(np.max(vrs,-1),-1),-1)
-    #     # ws = np.array([(w - ws.min())/(ws.max() - ws.min()) for w in ws])
-    #     # ws = ws/np.sum(ws)
-    #     res = np.ones(vrs.shape)
-    #     for iw,w in enumerate(ws):
-    #         res[iw] *= w
-    #     return res
-
-
+    # use dask to parallelise quality calculation
     x = da.from_array(np.array(vs), chunks=(len(vs),size,size,size))
-    # ws=x.map_blocks(determine_quality,dtype=np.float)
-    # pdb.set_trace()
     ws = x.map_blocks(determine_quality,dtype=np.float,chunks=(len(vs),1,1,1))
 
+    print('calculating dct weights...')
     ws = ws.compute(scheduler = 'threads')
     ws = np.array(ws)
 
+    # interpolate qualities to full image
     ws = ImageArray(ws,
                     spacing= np.array([size]*3)*np.array(w_stack_properties['spacing']),
                     origin = w_stack_properties['origin'] + ((size-1)*w_stack_properties['spacing'])/2.,
@@ -2001,9 +1979,6 @@ def get_weights_dct(
     for iw in range(len(ws)):
         newws.append(transform_stack_sitk(ws[iw],
                             [1,0,0,0,1,0,0,0,1,0,0,0],
-                            # out_shape=stack_properties['size'],
-                            # out_origin=stack_properties['origin'],
-                            # out_spacing=stack_properties['spacing'],
                                out_origin=w_stack_properties['origin'],
                                out_shape=w_stack_properties['size'],
                                out_spacing=w_stack_properties['spacing'],
@@ -2011,6 +1986,9 @@ def get_weights_dct(
                              ))
     ws = np.array(newws)
 
+    # maximum filter to create more consistency around regions with high quality values
+    # (which are typically seen around strong structures and less around good quality
+    # areas without signal)
     for iw,w in enumerate(ws):
         print('filtering')
         ws[iw] = ndimage.maximum_filter(ws[iw],max_kernel)
@@ -2018,28 +1996,21 @@ def get_weights_dct(
     for iw,w in enumerate(ws):
         ws[iw][vdils[iw]] = 0
 
+    # rescale
     wsmin = ws.min(0)
     wsmax = ws.max(0)
     ws = np.array([(w - wsmin)/(wsmax - wsmin + 0.01) for w in ws])
-    # ws = np.array([(w - wsmin)/(wsmax - wsmin) for w in ws])
 
-    # for iw,w in enumerate(ws):
-    #     ws[iw][vdils[iw]] = 0.00001
-
+    # normalise
     wsum = np.sum(ws,0)
     wsum[wsum==0] = 1
     for iw,w in enumerate(ws):
         ws[iw] /= wsum
 
-    # tifffile.imshow(np.array([np.array(ts)*10,ws]).swapaxes(-3,-2),vmax=10000)
+    # blur
     for iw,w in enumerate(ws):
         print('filtering')
-        # ws[iw] = ndimage.maximum_filter(ws[iw],10)
-        # ws[iw][vdils[iw]] = 0.00001
         ws[iw] = ndimage.gaussian_filter(ws[iw],gaussian_kernel)
-        # zeros = ndimage.binary_dilation(vs[iw] == 0)
-        # ws[iw][zeros] = 0.00001
-        # ws[iw][vdils[iw]] = 0.00001
         ws[iw][vdils[iw]] = 0
 
     wsum = np.sum(ws,0)
@@ -2070,20 +2041,50 @@ def fuse_LR_with_weights_dct(
         stack_properties,
         num_iterations = 25,
         sz = 4,
-        sxy = 0.1
+        sxy = 0.5
 ):
     """
+    Combine
+    - LR multiview fusion
+      (adapted from python code given in https://code.google.com/archive/p/iterative-fusion/
+       from publication https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3986040/)
+    - DCT weights
+
+    This addresses the problems that
+    1) multi-view deconvolution is highly dependent on high precision registration
+    between views. However, an affine transformation is often not enough due to
+    optical aberrations and results in poor overlap.
+    2) due to scattering, the psf strongly varies within each view
+
+    In the case of highly scattering samples, FFT+elastix typically results in good
+    registration accuracy in regions of good image quality (those with small psfs
+    and short optical paths through the sample). These regions are found using a DCT
+    quality measure and weighted accordingly. Therefore, to reduce the contribution
+    to multi-view LR of unwanted regions in the individual views, the weights are
+    applied in each iteration during convolution with the psf.
+
+    Adaptations and details:
+    - convolve views in original space
+     - recapitulates imaging process and trivially deals with view parameters
+     - allows for iterative raw data reconstruction without deconvolution
+     - disadvantage: slow in current implementation
+    - apply DCT weights in each blurring iteration to account for strong scattering
+    - simulate convolution by psf with gaussian blurring
+
+    Interesting case: sz,sxy=0
+    - formally no deconvolution but iterative multi-view raw data reconstruction
+
     works well:
     - sz6 it 10, some rings
     - sz5 it 20, looks good (good compromise between sz and its)
     - sz4 it 30, good and no rings
 
-    :param views:
-    :param params:
-    :param stack_properties:
-    :param num_iterations:
-    :param sz:
-    :param sxy:
+    :param views: original views
+    :param params: parameters mapping views into target space
+    :param stack_properties: properties of target space
+    :param num_iterations: number of deconvolution iterations
+    :param sz: sigma z
+    :param sxy: sigma xy
     :return:
     """
 
@@ -2097,6 +2098,7 @@ def fuse_LR_with_weights_dct(
         prop_dict['spacing'] = views[ip].spacing
         orig_prop_list.append(prop_dict)
 
+    # get DCT weights
     weights = get_weights_dct(
                        views,
                        params,
@@ -2108,6 +2110,7 @@ def fuse_LR_with_weights_dct(
                        # gaussian_kernel=10)
                        gaussian_kernel=None)
 
+    # transform weights into sitk images
     for iw in range(len(weights)):
         tmp = sitk.GetImageFromArray(weights[iw])
         tmp.SetSpacing(stack_properties['spacing'][::-1])
@@ -2115,21 +2118,7 @@ def fuse_LR_with_weights_dct(
         tmp = sitk.Cast(tmp,sitk.sitkFloat32)
         weights[iw] = tmp
 
-    # print('getting weights..')
-    # weight_stack_properties = stack_properties.copy()
-    # # weight_stack_properties['spacing'] = weight_stack_properties['spacing']*
-    # weights = get_lambda_weights(views,params,weight_stack_properties)
-    #
-    # for iw in range(len(weights)):
-    #     tmp = sitk.GetImageFromArray(weights[iw])
-    #     tmp.SetSpacing(weight_stack_properties['spacing'][::-1])
-    #     tmp.SetOrigin(weight_stack_properties['origin'][::-1])
-    #     tmp = sitk.Cast(tmp,sitk.sitkFloat32)
-    #     weights[iw] = tmp
-
-    # views = []
-    # masks = []
-
+    # transform views into target space
     nviews = []
     for iview,view in enumerate(views):
         tmp = transform_stack_sitk(view,params[iview],
@@ -2161,12 +2150,13 @@ def fuse_LR_with_weights_dct(
         # tmp = tmp[:,500:550,:]
         views[ip] = tmp
 
-    noisy_multiview_data = views
 
     """
     Time for deconvolution!!!
+    This part is adapted from https://code.google.com/archive/p/iterative-fusion/
     """
 
+    noisy_multiview_data = views
     estimate = sitk.Image(
         int(stack_properties['size'][2]),
         int(stack_properties['size'][1]),
@@ -2179,11 +2169,6 @@ def fuse_LR_with_weights_dct(
     estimate.SetSpacing(stack_properties['spacing'][::-1])
     estimate.SetOrigin(stack_properties['origin'][::-1])
 
-    # estimate = np.ones(views[0].shape, dtype=np.float64)
-    # expected_data = np.zeros_like(noisy_multiview_data)
-    # correction_factor = np.zeros_like(estimate)
-    # history = np.zeros(((1+num_iterations,) + estimate.shape), dtype=np.float64)
-    # history[0, :, :, :] = estimate
     for i in range(num_iterations):
         print("Iteration", i)
         """
@@ -2220,7 +2205,7 @@ def fuse_LR_with_weights_dct(
             sz,
             sxy,
             weights,
-        )#, out=correction_factor)
+        )
         """
         Multiply the old estimate by the correction factor to get the new estimate
         """
@@ -2232,6 +2217,7 @@ def fuse_LR_with_weights_dct(
         """
         Update the history
         """
+
     print("Done deconvolving")
 
     estimate = ImageArray(sitk.GetArrayFromImage(estimate).astype(np.uint16),spacing=np.array(estimate.GetSpacing())[::-1],origin=np.array(estimate.GetOrigin())[::-1])
