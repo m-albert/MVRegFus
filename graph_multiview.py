@@ -10,14 +10,16 @@ multiview_fused_label               = 'mv_%03d_%03d_c%02d.imagear.h5'
 multiview_fusion_seg_label          = 'mv_fusion_seg_%03d_%03d_c%02d.imagear.h5'
 multiview_view_reg_label            = 'view_reg_%03d_%03d_v%03d_c%02d'
 multiview_view_fullres_label        = 'view_fullres_%03d_%03d_v%03d_c%02d'
+multiview_weights_label             = 'mv_weight_%03d_%03d_c%02d.imagear.h5'
 multiview_view_corr_label           = 'view_corr_%03d_%03d_v%03d_c%02d'
 multiview_metadata_label            = 'mv_metadata_%03d_%03d.dict.h5'
 multiview_data_label                = 'mv_data_%03d_%03d.image.h5'
-fusion_params_pair_label            = 'mv_params_%03d_%03d_pair%03d.prealignment.h5'
+fusion_params_pair_label            = 'mv_params_%03d_%03d_vfix%03d_vmov%03d.prealignment.h5'
 time_alignment_pair_params_label    = 'mv_time_alignment_pair_params_%03d_%03d.prealignment.h5'
 time_alignment_params_label         = 'mv_time_alignment_params_%03d_%03d.prealignment.h5'
 fusion_view_params_label            = 'mv_view_params_%03d_%03d.prealignment.h5'
-fusion_params_label                 = 'mv_params_%03d_%03d.prealignment.h5' # final params, after combining view and time alignment
+fusion_params0_label                = 'mv_params0_%03d_%03d.prealignment.h5' # params from pairs, after combining view and time alignment
+fusion_params_label                 = 'mv_params_gw_%03d_%03d.prealignment.h5' # final params after groupwise registration
 # chromatic_correction_params_label   = 'mv_params_%03d_%03d_c%02d.prealignment.h5'
 chromatic_correction_params_label   = 'chromcorr_params_%03d_%03d_refch%02d_ch%02d.prealignment.h5'
 stack_properties_label              = 'mv_stack_props_%03d_%03d.dict.h5'
@@ -38,25 +40,52 @@ def build_multiview_graph(
     mv_final_spacing = np.array([3.]*3), # orig resolution
     # pairs = [[1,0],[1,2],[0,3],[2,3],[1,4],[4,5],[4,6],[6,7],[5,7]],
     pairs = [[1,0],[1,2],[0,3],[2,3]],
+    view_dict = None,
     background_level = 200,
     perform_chromatic_correction = True,
-    dct_size = 10,
-    dct_max_kernel = 5,
-    dct_gaussian_kernel = 3,
+    ref_channel_chrom = 0,
+    fusion_method = 'mv_deconvolution',
+    fusion_weights = 'dct',
+    dct_size = None,
+    dct_max_kernel = None,
+    dct_gaussian_kernel = None,
+    LR_niter = 25,  # iters
+    LR_sigma_z = 4,  # sigma z
+    LR_sigma_xy = 0.5,  # sigma xy
+    LR_tol = 5e-5,  # tol
     final_volume_mode = 'sample',
     # ref_channel_index_chrom = 0,
     chromatic_correction_file = None,
     time_alignment = False,
     time_alignment_ref_sample = 0,
     time_alignment_ref_view = 0,
+    raw_input_binning = None,
     elastix_dir = '/scratch/malbert/dependencies_linux/elastix_linux64_v4.8',
-    raw_input_binning = None, # x,y,z
     ):
 
+    mv_final_spacing = np.array(mv_final_spacing).astype(np.float64)
+
     # ref_channel_chrom = channels[ref_channel_index_chrom]
-    ref_channel_chrom = reg_channel
+    # ref_channel_chrom = reg_channel
+
+    if pairs is None:
+        info_dict = dipy_multiview.getStackInfoFromCZI(filepath)
+        n_views = len(info_dict['origins'])
+        pairs = [(i,i+1) for i in range(n_views-1)] + [(n_views-1,0)]
 
     all_views = np.sort(np.unique(np.array(pairs).flatten()))
+    if ref_view not in all_views: raise(Exception('chosen reference view is incompatible with chose registration pairs'))
+    # add details for views
+    # in case of defining registration pairs when having illuminations:
+    # consider views A and B
+    # A.rotation<B.rotation
+    # then register A.ill0 with B.ill1 (20190425, derived from Max file zurich z1)
+    if view_dict is None:
+        view_dict = dict()
+        for view in all_views:
+            view_dict[view] = dict()
+            view_dict[view]['view'] = view
+            view_dict[view]['ill'] = None
 
     graph = dict()
 
@@ -85,8 +114,10 @@ def build_multiview_graph(
     for ipair,pair in enumerate(pairs):
 
         print('WARNING: set registration degree to 2 (trans+rot+aff) (standard for chemoatlas!)')
-        graph[fusion_params_pair_label %(ds,sample,ipair)] = (
+        # graph[fusion_params_pair_label %(ds,sample,ipair)] = (
+        graph[fusion_params_pair_label %(ds,sample,pair[0],pair[1])] = (
                                                                    dipy_multiview.register_linear_elastix,
+                                                                   os.path.join(out_dir,fusion_params_pair_label % (ds, sample, pair[0], pair[1])),
                                                                    # dipy_multiview.register_linear_projections,
                                                                    # os.path.join('/tmp/', fusion_params_pair_label %(ds,sample,ipair)),
                                                                    multiview_view_reg_label %(ds,sample,pair[0],reg_channel),
@@ -95,28 +126,52 @@ def build_multiview_graph(
                                                                    elastix_dir,
                                                                    )
 
-    graph[fusion_params_label %(ds,sample)] = (
-                                               dipy_multiview.get_final_params,
-                                               os.path.join(out_dir,fusion_params_label %(ds,sample)),
+    graph[fusion_params0_label %(ds,sample)] = (
+                                               dipy_multiview.get_params_from_pairs,
+                                               os.path.join(out_dir,fusion_params0_label %(ds,sample)),
                                                ref_view,
                                                pairs,
-                                               [fusion_params_pair_label %(ds,sample,ipair) for ipair,pair in enumerate(pairs)],
+                                               [fusion_params_pair_label %(ds,sample,pair[0],pair[1]) for ipair,pair in enumerate(pairs)],
                                                time_alignment_params_label %(ds,sample),
                                                )
 
-    # graph[fusion_params_label %(ds,sample)] = io_utils.process_input_element('/data/malbert/atlas/data8/new_fusions_large/mv_params_%03d_%03d.prealignment.h5' %(ds,sample))
+    # print('WARNING: groupwise registration with relative z scaling from pairwise registration')
 
-    if os.path.exists(os.path.join(out_dir,stack_properties_label %(ds,sample))):
-        graph[stack_properties_label %(ds,sample)] = os.path.join(out_dir,stack_properties_label %(ds,sample))
+    try:
+        import SimpleITK as sitk
+        sitk.ElastixImageFilter()
+        simple_elastix_available = True
+    except:
+        print("No groupwise registration because SimpleElastix is not available")
+        simple_elastix_available = False
+
+    if simple_elastix_available and len(all_views) >= 4:  # restiction given by current elastix groupwise registration implementatin
+        graph[fusion_params_label % (ds, sample)] = (
+            dipy_multiview.register_groupwise,
+            os.path.join(out_dir, fusion_params_label % (ds, sample)),
+            [multiview_view_corr_label % (ds, sample, view, reg_channel) for view in all_views],
+            fusion_params0_label % (ds, sample),
+            ref_view,
+            int(mv_registration_bin_factors[2]),
+            final_volume_mode,
+        )
     else:
-        graph[stack_properties_label %(ds,sample)] = (
-                                                    dipy_multiview.calc_stack_properties_from_views_and_params,
-                                                    os.path.join(out_dir,stack_properties_label %(ds,sample)),
-                                                    [multiview_view_corr_label %(ds,sample,view,reg_channel) for view in all_views],
-                                                    fusion_params_label %(ds,sample),
-                                                    mv_final_spacing,
-                                                    final_volume_mode,
-                                                    )
+        graph[fusion_params_label % (ds, sample)] = fusion_params0_label % (ds, sample)
+
+    # print('WARNING: skipping groupwise registration!')
+    # graph[fusion_params_label % (ds, sample)] = fusion_params0_label %(ds,sample)
+
+    # if os.path.exists(os.path.join(out_dir,stack_properties_label %(ds,sample))):
+    #     graph[stack_properties_label %(ds,sample)] = os.path.join(out_dir,stack_properties_label %(ds,sample))
+    # else:
+    graph[stack_properties_label %(ds,sample)] = (
+                                                dipy_multiview.calc_stack_properties_from_views_and_params,
+                                                os.path.join(out_dir,stack_properties_label %(ds,sample)),
+                                                [multiview_view_corr_label %(ds,sample,view,reg_channel) for view in all_views],
+                                                fusion_params_label %(ds,sample),
+                                                mv_final_spacing,
+                                                final_volume_mode,
+                                                )
 
     graph[multiview_metadata_label %(ds,sample)] = (dipy_multiview.getStackInfoFromCZI,
                                                    filepath,
@@ -167,29 +222,61 @@ def build_multiview_graph(
                                             stack_properties_label %(ds,sample),
                                             )
 
-        # graph[multiview_fused_label %(ds,sample,ch)] = (
-        #                                     # dipy_multiview_test.fuse_views,
-        #                                     dipy_multiview.fuse_views_lambda,
-        #                                     os.path.join(out_dir,multiview_fused_label %(ds,sample,ch)),
-        #                                    [multiview_view_corr_label %(ds,sample,view,ch) for view in all_views],
-        #                                     fusion_params_label %(ds,sample),
-        #                                     # mv_final_spacing,
-        #                                     stack_properties_label %(ds,sample),
-        #                                     multiview_fusion_seg_label %(ds,sample,ch),
-        #                                     )
+        if fusion_weights == 'dct':
 
-        print('WARNING: FUSING WITH LR (with dct weights)')
-        graph[multiview_fused_label %(ds,sample,ch)] = (
-                                            dipy_multiview.fuse_LR_with_weights_dct,
-                                            os.path.join(out_dir,multiview_fused_label %(ds,sample,ch)),
-                                           [multiview_view_corr_label %(ds,sample,view,ch) for view in all_views],
-                                            fusion_params_label %(ds,sample),
-                                            # mv_final_spacing,
-                                            stack_properties_label %(ds,sample),
-                                            20, # iters
-                                            5,  # sigma z
-                                            0.1,# sigma xy
-                                            )
+            graph[multiview_weights_label %(ds,sample,ch)] = (
+                dipy_multiview.get_weights_dct,
+                [multiview_view_corr_label % (ds, sample, view, ch) for view in all_views],
+                fusion_params_label % (ds, sample),
+                stack_properties_label % (ds, sample),
+                dct_size,
+                dct_max_kernel,
+                dct_gaussian_kernel
+            )
+
+        elif fusion_weights == 'blending':
+
+            graph[multiview_weights_label %(ds,sample,ch)] = (
+                dipy_multiview.get_weights_simple,
+                [multiview_view_corr_label % (ds, sample, view, ch) for view in all_views],
+                fusion_params_label % (ds, sample),
+                stack_properties_label % (ds, sample),
+            )
+
+        else:
+            raise(Exception("can't understand fusion weights mode"))
+
+        if fusion_method == 'LR':
+            graph[multiview_fused_label %(ds,sample,ch)] = (
+                                                dipy_multiview.fuse_LR_with_weights,
+                                                os.path.join(out_dir,multiview_fused_label %(ds,sample,ch)),
+                                               [multiview_view_corr_label %(ds,sample,view,ch) for view in all_views],
+                                                fusion_params_label %(ds,sample),
+                                                # mv_final_spacing,
+                                                stack_properties_label %(ds,sample),
+                                                LR_niter,  # iters
+                                                LR_sigma_z,  # sigma z
+                                                LR_sigma_xy,  # sigma xy
+                                                LR_tol,  # tol
+                                                multiview_weights_label %(ds,sample,ch), # weight_func
+                                                False, # regularisation
+                                                dipy_multiview.blur_view_in_view_space, # blur_func
+                                                )
+        elif fusion_method == 'weighted_average':
+            graph[multiview_fused_label %(ds,sample,ch)] = (
+                                                # dipy_multiview_test.fuse_views,
+                                                # dipy_multiview.fuse_views_lambda,
+                                                dipy_multiview.fuse_views_weights,
+                                                os.path.join(out_dir,multiview_fused_label %(ds,sample,ch)),
+                                               [multiview_view_corr_label %(ds,sample,view,ch) for view in all_views],
+                                                fusion_params_label %(ds,sample),
+                                                # mv_final_spacing,
+                                                stack_properties_label %(ds,sample),
+                                                multiview_weights_label % (ds, sample, ch),  # weight_func
+            )
+
+        else:
+            raise(Exception("can't understand fusion mode"))
 
         # print('WARNING: FUSING ADDITIVE WITH DCT WEIGHTS')
         # graph[multiview_fused_label %(ds,sample,ch)] = (
@@ -199,6 +286,18 @@ def build_multiview_graph(
         #                                     fusion_params_label %(ds,sample),
         #                                     # mv_final_spacing,
         #                                     stack_properties_label %(ds,sample),
+        #                                     )
+
+        # graph[multiview_fused_label %(ds,sample,ch)] = (
+        #                                     # dipy_multiview_test.fuse_views,
+        #                                     dipy_multiview.fuse_views_lambda,
+        #                                     # dipy_multiview.fuse_LR,
+        #                                     os.path.join(out_dir,multiview_fused_label %(ds,sample,ch)),
+        #                                    [multiview_view_corr_label %(ds,sample,view,ch) for view in all_views],
+        #                                     fusion_params_label %(ds,sample),
+        #                                     # mv_final_spacing,
+        #                                     stack_properties_label %(ds,sample),
+        #                                     multiview_fusion_seg_label %(ds,sample,ch),
         #                                     )
 
         if chromatic_correction_file is not None:
@@ -213,6 +312,7 @@ def build_multiview_graph(
                                                                 False,#extract_rotation
                                                                 False,#despeckle
                                                                 raw_input_binning,
+                                                                None, # default: fuse illuminations for correction
                                                                 )
         else:
             graph[multiview_chrom_correction_channel_label %(ds,sample,ref_channel_chrom)]  = multiview_view_reg_label %(ds,sample,ref_view,ref_channel_chrom)
@@ -256,7 +356,8 @@ def build_multiview_graph(
             # print('WARNING: NOOOOOOOO DESPECKLING')
             graph[multiview_view_fullres_label %(ds,sample,view,ch)] = (dipy_multiview.readStackFromMultiviewMultiChannelCzi,
                                                                 filepath,
-                                                                view,
+                                                                # view,
+                                                                view_dict[view]['view'],
                                                                 ch,
                                                                 background_level,
                                                                 multiview_metadata_label %(ds,sample),
@@ -266,6 +367,7 @@ def build_multiview_graph(
                                                                 # True,#despeckle
                                                                 False,#despeckle
                                                                 raw_input_binning,
+                                                                view_dict[view]['ill'],
                                                                 )
 
             graph[transformed_view_label %(ds,sample,view,ch)] = (

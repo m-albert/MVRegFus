@@ -59,8 +59,9 @@ def recursive_func_application_with_list_output(l,f):
 
 def process_input_element(path):
 
-    if not type(path) == str or (type(path) == str and len(path.split('.'))==1) or 'elastix_' in path:
-        return path
+    if not is_io_path(path): return path
+    # if not type(path) == str or (type(path) == str and len(path.split('.'))==1) or 'elastix_' in path:
+    #     return path
     # else:
     #     try:
     #         lock_identifier = 'malbert_lock_'+path
@@ -74,8 +75,8 @@ def process_input_element(path):
     if path.endswith('.mhd') or path.endswith('.tif'):
         s = sitk.ReadImage(path)
         ar = ImageArray(sitk.GetArrayFromImage(s))
-        ar.spacing = s.GetSpacing()[::-1]
-        ar.origin = s.GetOrigin()[::-1]
+        ar.spacing = np.array(s.GetSpacing()[::-1])
+        ar.origin = np.array(s.GetOrigin()[::-1])
         res = ar
     elif path.startswith('prealignment') and path.endswith('.h5'):
         res =  h5py.File(path,mode='r')['prealignment'].value
@@ -94,9 +95,9 @@ def process_input_element(path):
     elif path.endswith('.imagear.h5'):
         tmpFile = h5py.File(path,mode='r')
         tmp = ImageArray(tmpFile['array'].value)
-        tmp.origin = tmpFile['origin'].value
-        tmp.spacing = tmpFile['spacing'].value
-        tmp.rotation = tmpFile['rotation'].value
+        tmp.origin = np.array(tmpFile['origin'].value)
+        tmp.spacing = np.array(tmpFile['spacing'].value)
+        tmp.rotation = np.array(tmpFile['rotation'].value)
         res = tmp
     elif path.endswith('hdf'):
         res = pd.read_hdf(path)
@@ -104,6 +105,11 @@ def process_input_element(path):
         res = h5py.File(path,mode='r')['prealignment'].value
     elif path.endswith('ilp'):
         res = path
+    elif path.endswith('pmap'):
+        tmpFile = open(path, 'w')
+        import pickle
+        res = pickle.load(tmpFile)
+        tmpFile.close()
     else:
         raise(Exception('unrecognized string input to function'))
 
@@ -162,8 +168,9 @@ def process_input_element(path):
 
 def get_mtime_from_path(path):
     # print('GETMTIME...')
-    if not type(path) == str or (type(path) == str and len(path.split('.'))==1):
-        return 0
+    if not is_io_path(path): return 0
+    # if not type(path) == str or (type(path) == str and len(path.split('.'))==1):
+    #     return 0
     elif os.path.exists(path):
         # return os.path.getmtime(path)
         return os.lstat(path).st_mtime # this function doesn't follow symlinks which is good when base data is linked
@@ -183,7 +190,7 @@ def process_output_element(element,path):
         lock.acquire()
         # print('acquired lock %s' %lock_identifier)
     except:
-        print('locking not working (maybe try redis_lock.reset_all(conn)')
+        print('locking not working (maybe try io_utils.redis_lock.reset_all(io_utils.conn)')
 
     if path.endswith('.mhd'):
         s = sitk.GetImageFromArray(element)
@@ -220,6 +227,23 @@ def process_output_element(element,path):
         for key,value in element.items():
             tmpFile[key] = value
         tmpFile.close()
+    elif path.endswith('hdf'): #pandas dataframe or panel
+        # element.to_hdf(path,'pandas',format='table')
+        element.to_hdf(path,'pandas')
+    elif path.endswith('pmap'):
+        tmpFile = open(path,'w')
+        import pickle
+        pickle.dump(element,tmpFile)
+        tmpFile.close()
+    # elif path.endswith('.mesh.h5'):
+    #     # dict with keys: 'labels' and 'vertices_%06d', 'faces_%06d' %label
+    #     tmpFile = h5py.File(path)
+    #     for
+    #     tmpFile['labels'] = element['labels']
+    #     tmpFile.clear()
+    #     for i in
+    #     # tmpFile['prealignment'] = element
+    #     tmpFile.close()
     else:
         raise(Exception('unrecognized string output from function'))
 
@@ -299,93 +323,11 @@ def process_output_element(element,path):
 
 
 def is_io_path(path):
-    if not type(path) == str or (type(path) == str and len(path.split('.'))==1) or 'elastix_' in path or path.endswith('.czi'):
+    if not type(path) == str or (type(path) == str and len(path.split('.'))==1) or 'elastix' in path or path.endswith('.czi'):
         return False
     else:
         return True
 
-# def io_decorator(func):
-# def io_decorator_distributed_20171227(func):
-#
-#     """
-#     decorator to use for io handling with functions that take as first argument an output filepath and  as further arguments strings that
-#     :param func:
-#     :return:
-#     """
-#
-#     def full_func(*args, **kwargs):
-#         # global funcs_to_debug
-#
-#         # funcs_to_debug = []
-#         print('DECORATOR distributed...',args)
-#
-#         if not is_io_path(args[0]):
-#             return func(*args,**kwargs)
-#
-#         # fileworker_address = '10.11.8.149:8795'
-#         # fileworker_address = '10.11.8.149'
-#
-#         # mtimes = []
-#          # this should be processed on a fileworker
-#         # recursive_func_application_with_linear_output(list(args),get_mtime_from_path,mtimes)
-#         # try:
-#         from distributed import worker_client
-#         with worker_client(timeout=1000) as e:
-#             mtimes = e.submit(recursive_func_application_with_list_output,
-#                      *(list(args),get_mtime_from_path),
-#                      resources={'files':1}).result()
-#         # except:
-#         #     mtimes = recursive_func_application_with_list_output(list(args),get_mtime_from_path)
-#
-#
-#         # recursive_func_application_with_linear_output(list(args),get_mtime_from_path,mtimes)
-#         # print(mtimes)
-#         highest_mtime = np.array(mtimes[1:]).max()
-#
-#         # print funcs_to_debug[0].orig_name
-#         # print func
-#         if not mtimes[0] == -1:
-#         # if os.path.exists(args[0]):
-#         #     if func.func_name not in [i.orig_name for i in funcs_to_debug]:
-#         #     if os.path.getmtime(args[0]) >= highest_mtime:
-#             if mtimes[0] >= highest_mtime:
-#                 return args[0]
-#
-#         # print('here its calculating!')
-#
-#         nargs = []
-#         for iarg,arg in enumerate(args):
-#             if not iarg: continue
-#             # try:
-#             from distributed import worker_client
-#             with worker_client(timeout=1000) as e:
-#             # with worker_client() as e:
-#                 res = e.submit(
-#                     recursive_func_application,
-#                     *(arg,process_input_element),
-#                      resources={'files':1}).result()
-#             # except:
-#             #     res = recursive_func_application(arg,process_input_element)
-#             # print(arg,res)
-#             nargs.append(res)
-#             # nargs.append(recursive_func_application(arg,process_input_element))
-#
-#         # print('la'+str(args))
-#         result = func(*nargs,**kwargs)
-#          # this should be processed on a fileworker
-#         # try:
-#         from distributed import worker_client
-#         with worker_client(timeout=1000) as e:
-#             nresult = e.submit(process_output_element,*(result,args[0]),
-#                                resources={'files':1}).result()
-#         # except:
-#         #     nresult = process_output_element(result,args[0])
-#         return nresult
-#
-#     # full_func.orig_name = func.func_name
-#     full_func.orig_name = func.__name__
-#
-#     return full_func
 
 def io_decorator_distributed(func):
 
@@ -470,10 +412,16 @@ def io_decorator_distributed(func):
     return full_func
 
 def io_decorator_local(func):
-# def io_decorator(func):
 
     """
-    decorator to use for io handling with functions that take as first argument an output filepath and  as further arguments strings that
+    decorator to use for io handling
+
+    checks whether arguments are io paths using is_io_path
+    and if so, loads them into memory
+
+    if the first argument is an is_io_path, it writes the result
+    of the function application to this path
+
     :param func:
     :return:
     """
@@ -481,34 +429,21 @@ def io_decorator_local(func):
     def full_func(*args, **kwargs):
 
         print('DECORATOR local... %s' %(func.__name__,))
-        # print('DECORATOR local... %s, %s' %(func.__name__,args[0]))
-        if not is_io_path(args[0]):
-            # return 0
-            return func(*args,**kwargs)
-        # else:
-        #     return args[0]
+        # if not is_io_path(args[0]):
+        #     return func(*args,**kwargs)
 
-        mtimes = recursive_func_application_with_list_output(list(args),get_mtime_from_path)
+        if is_io_path(args[0]):
+            mtimes = recursive_func_application_with_list_output(list(args),get_mtime_from_path)
 
-        # in case result is already there but dependencies not, for example on cluster
-        # try:
-        #     highest_mtime = np.array([i for i in mtimes[1:] if i>0]).max()
-        # except:
-        #     return args[0]
-        highest_mtime = np.array([i for i in mtimes[1:]]).max()
+            highest_mtime = np.array([i for i in mtimes[1:]]).max()
 
-        if not mtimes[0] == -1:
-            # if os.path.getmtime(args[0]) >= highest_mtime:
-            # print(mtimes[1:])
-            if not np.any(np.array(mtimes[1:]) == -1) and get_mtime_from_path(args[0]) >= highest_mtime:
-            # if not np.any(np.array(mtimes[1:]) == -1) and mtimes[0] >= highest_mtime:
-            # if 1:
-            #     print('ignoring output path times!')
-                return args[0]
+            if not mtimes[0] == -1:
+                if not np.any(np.array(mtimes[1:]) == -1) and get_mtime_from_path(args[0]) >= highest_mtime:
+                    return args[0]
 
         nargs = []
         for iarg,arg in enumerate(args):
-            if not iarg: continue
+            if is_io_path(args[0]) and not iarg: continue
             res = recursive_func_application(arg,process_input_element)
 
             nargs.append(res)
@@ -518,21 +453,21 @@ def io_decorator_local(func):
         # #     print(mtimes)
         #     pdb.set_trace()
 
-        print('producing %s' %args[0])
-
-        import time
-        # time.sleep(5)
+        if is_io_path(args[0]):
+            print('producing %s' %args[0])
 
         result = func(*nargs,**kwargs)
-        nresult = process_output_element(result,args[0])
-        return nresult
 
-    # full_func.orig_name = func.func_name
+        if is_io_path(args[0]):
+            result = process_output_element(result,args[0])
+        return result
+
     full_func.orig_name = func.__name__
 
     return full_func
 
-io_decorator = io_decorator_distributed
+# io_decorator = io_decorator_distributed
+io_decorator = io_decorator_local
 
 
 class diffmap_on_disk(object):

@@ -96,8 +96,9 @@ def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,
                                           extract_rotation=True,
                                           do_despeckle=False,
                                           raw_input_binning=None,
+                                          ill=None,
                                           ):
-    print('reading %s view %s ch %s' %(filepath,view,ch))
+    print('reading %s view %s ch %s ill %s' %(filepath,view,ch,ill))
     # return ImageArray(np.ones((10,10,10)))
     if infoDict is None:
         infoDict = getStackInfoFromCZI(filepath)
@@ -108,15 +109,19 @@ def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,
     # fuse illuminations
     illuminations = infoDict['originalShape'][1]
     if illuminations > 1:
-        print('fusing %s illuminations using simple mean' %illuminations)
-        # stack = np.mean([stack[i:stack.shape[0]:illuminations] for i in range(illuminations)],0).astype(np.uint16)
-        zshape = int(stack.shape[0]/illuminations)
-        for z in range(zshape):
-            if not z%50: print('fusing z plane: %s' %z)
-            stack[z] = np.mean(stack[z*illuminations:z*illuminations+illuminations],0).astype(np.uint16)
-        stack = stack[:zshape]
-        # print('choosing only illumination 1')
-        # stack = np.array(stack[1:stack.shape[0]:illuminations]).astype(np.uint16)
+        if ill is None:
+            print('fusing %s illuminations using simple mean' %illuminations)
+            # stack = np.mean([stack[i:stack.shape[0]:illuminations] for i in range(illuminations)],0).astype(np.uint16)
+            zshape = int(stack.shape[0]/illuminations)
+            for z in range(zshape):
+                if not z%50: print('fusing z plane: %s' %z)
+                stack[z] = np.mean(stack[z*illuminations:z*illuminations+illuminations],0).astype(np.uint16)
+            stack = stack[:zshape]
+            # print('choosing only illumination 1')
+            # stack = np.array(stack[1:stack.shape[0]:illuminations]).astype(np.uint16)
+        else:
+            print('picking illumination %s' %ill)
+            stack = np.array(stack[ill:stack.shape[0]:illuminations]).astype(np.uint16)
 
     if raw_input_binning is not None:
         print('WARNING: binning down raw input by xyz factors %s' %raw_input_binning)
@@ -246,6 +251,7 @@ def clean_pixels(im):
 
 @io_decorator
 def bin_stack(im,bin_factors=np.array([1,1,1])):
+    if np.allclose(bin_factors, [1, 1, 1]): return im
     bin_factors = np.array(bin_factors)
     origin = im.origin
     spacing = im.spacing
@@ -254,6 +260,7 @@ def bin_stack(im,bin_factors=np.array([1,1,1])):
     # binned_origin = origin + (spacing*bin_factors[::-1])/2
     # binned_origin = origin
     binned_origin = origin + (binned_spacing-spacing)/2.
+    # print('watch out with binning origin!')
 
     im = sitk.GetImageFromArray(im)
     im = sitk.BinShrink(im,[int(i) for i in bin_factors])
@@ -864,6 +871,7 @@ def translation3d(im0, im1):
     im1_m = np.copy(im1)
 
     print('WARNING: ADDING NOISE IN FFT REGISTRATION (added 20181109)')
+    print('stack size in FFT translation registration: %s' %list(im0.shape))
     # n0 = [im0_m[im0_m>0].min(),np.percentile(im0_m[im0_m>0],5)]
     n0 = [0.05,0.15] # typical border values resulting from applying clahe to Z1 background
     im0_m[im0==0] = np.random.random(np.sum(im0==0))*(n0[1]-n0[0])+n0[0]
@@ -898,14 +906,29 @@ def translation3d(im0, im1):
 
     return [t0, t1, t2]
 
+import transformations
+def get_affine_parameters_from_elastix_output(filepath_or_params,t0=None):
 
-def get_affine_parameters_from_elastix_output(filepath,t0=None):
 
-    import transformations
-    raw_out_params = open(filepath).read()
+    if type(filepath_or_params) == str:
 
-    elx_out_params = raw_out_params.split('\n')[2][:-1].split(' ')[1:]
-    elx_out_params = np.array([float(i) for i in elx_out_params])
+        raw_out_params = open(filepath_or_params).read()
+
+        elx_out_params = raw_out_params.split('\n')[2][:-1].split(' ')[1:]
+        elx_out_params = np.array([float(i) for i in elx_out_params])
+
+        if len(elx_out_params) in [6, 7, 12]:
+            outCenterOfRotation = raw_out_params.split('\n')[19][:-1].split(' ')[1:]
+            outCenterOfRotation = np.array([float(i) for i in outCenterOfRotation])
+
+    else:
+        elx_out_params = filepath_or_params
+
+        # when input is given as parameters, set center of rotation zero.
+        # affinelogstacktransform doesn't use it
+        # neither EulerStackTransform
+        outCenterOfRotation = np.zeros(3)
+
 
     if len(elx_out_params)==6:
         tmp = transformations.euler_matrix(elx_out_params[0],elx_out_params[1],elx_out_params[2])
@@ -936,8 +959,6 @@ def get_affine_parameters_from_elastix_output(filepath,t0=None):
         elx_affine_params[9:] = elx_out_params
 
     if len(elx_out_params) in [6,7,12]:
-        outCenterOfRotation = raw_out_params.split('\n')[19][:-1].split(' ')[1:]
-        outCenterOfRotation = np.array([float(i) for i in outCenterOfRotation])
 
         # outCenterOfRotation = np.dot(params_to_matrix(params_invert_coordinates(t0)),np.array(list(outCenterOfRotation)+[1]))[:3]
 
@@ -947,15 +968,16 @@ def get_affine_parameters_from_elastix_output(filepath,t0=None):
 
     # elx_affine_params = np.concatenate([elx_affine_params[:9],translation],0)
     # elx_affine_params_numpy = np.concatenate([elx_affine_params[:9][::-1,::-1],translation[::-1]],0)
-    dipy_parameters = np.diag((1,1,1,1)).astype(np.float64)
-    dipy_parameters[:3,:3] = elx_affine_params[:9].reshape((3,3))[::-1,::-1]
-    dipy_parameters[:3,3] = elx_affine_params[-3:][::-1]
+
+    # dipy_parameters = np.diag((1,1,1,1)).astype(np.float64)
+    # dipy_parameters[:3,:3] = elx_affine_params[:9].reshape((3,3))[::-1,::-1]
+    # dipy_parameters[:3,3] = elx_affine_params[-3:][::-1]
 
     inv_elx_affine_params = params_invert_coordinates(elx_affine_params)
-    dipy_parameters = params_to_matrix(inv_elx_affine_params)
+    final_params = params_to_matrix(inv_elx_affine_params)
 
     if t0 is not None:
-        final_params = mult_aff(dipy_parameters,params_to_matrix(t0))
+        final_params = mult_aff(final_params,params_to_matrix(t0))
 
     return final_params
 
@@ -1174,124 +1196,9 @@ def register_linear(static,moving,t0=None):
     # return params,[0]#metric.metric_evolution
     return params,[metric.metric_evolution,params_evolution]
 
-def register_nonlinear_dipy(static,moving,t0=None):
+def transform_stack_sitk(stack,p=None,out_shape=None,out_spacing=None,out_origin=None,interp='bspline',stack_properties=None):
 
-    static_origin = static.origin
-    static_spacing = static.spacing
-    moving_origin = moving.origin
-    moving_spacing = moving.spacing
-
-    if not np.any(np.array(static.shape)-np.array(moving.shape)):
-        if not np.any(static-moving):
-            return np.array([1,0,0,0,1,0,0,0,1,0,0,0]),[0]
-
-    if t0 is None:
-        t0 = np.array([1,0,0,0,1,0,0,0,1,0,0,0])
-
-    static = ImageArray(clahe(static,40,clip_limit=0.02),spacing=static.spacing,origin=static.origin)
-    moving = ImageArray(clahe(moving,40,clip_limit=0.02),spacing=moving.spacing,origin=moving.origin)
-
-    static_grid2world = np.eye(4)
-    moving_grid2world = np.eye(4)
-
-    np.fill_diagonal(static_grid2world,list(static_spacing)+[1])
-    np.fill_diagonal(moving_grid2world,list(moving_spacing)+[1])
-
-    static_grid2world[:3,3] = static_origin
-    moving_grid2world[:3,3] = moving_origin
-
-    # from dipy.align.metrics import CCMetric_affine as CCMetric
-    from dipy.align.metrics import CCMetric as CCMetric
-    from dipy_helpers_test import register_dipy_test
-
-    t0 = params_to_matrix(t0)
-
-    # mapping = register_dipy_test(
-    #               np.array(static),
-    #               np.array(moving),
-    #               t0,
-    #               scaling_factors = [4],
-    #               sigmas_image = [0],
-    #               sigmas_defo = [2],
-    #               clahe_kernel_sizes=None,
-    #               level_iters = [100]*1,
-    #               ccmetric_radius=4,
-    #               precomputed_clahe_fixed=None,
-    #               precomputed_clahe_moving=None,
-    #               pad=0,
-    #               CCMetric=CCMetric,
-    #               opt_tol = 1e-5,
-    #               )
-    from dipy.align.imwarp import SymmetricDiffeomorphicRegistration
-    from dipy.align.imwarp import DiffeomorphicMap
-    from dipy.align.metrics import CCMetric
-
-    metric = CCMetric(3,100)
-    level_iters = [50, 50]
-    sdr = SymmetricDiffeomorphicRegistration(metric, level_iters)
-    mapping = sdr.optimize(static, moving, static_grid2world, moving_grid2world, t0)
-
-    return mapping
-
-
-def get_grid2world(image):
-    w2g = np.diag(list(image.spacing)+[1])
-    w2g[:-1,-1] = image.origin
-    return w2g
-
-def get_world2grid(image):
-    # return params_to_matrix(invert_params(matrix_to_params(get_grid2world(image))))
-    return np.linalg.inv(get_grid2world(image))
-
-
-def transform_stack_dipy(stack,p=None,out_shape=None,out_spacing=None,out_origin=None,interp='linear'):
-
-    """
-    In [19]: %timeit transform_stack_numpy(stack00,a0)
-    4.17 s 8.1 ms per loop (mean std. dev. of 7 runs, 1 loop each)
-
-    In [20]: %timeit transform_stack_dipy(stack00,a0)
-    382 ms 2.85 ms per loop (mean std. dev. of 7 runs, 1 loop each)
-    """
-
-
-    if p is None:
-        p = np.array([1.,0,0,0,1,0,0,0,1,0,0,0])
-
-    p = np.array(p)
-    params = np.eye(4)
-    params[:3,:3] = p[:9].reshape((3,3))
-    params[:3,3] = p[9:]
-
-    if out_shape is None:
-        out_shape = stack.shape
-
-    if out_origin is None:
-        out_origin = stack.origin
-
-    if out_spacing is None:
-        out_spacing = stack.spacing
-
-    static_grid2world = np.eye(4)
-    moving_grid2world = np.eye(4)
-
-    np.fill_diagonal(static_grid2world,list(out_spacing)+[1])
-    np.fill_diagonal(moving_grid2world,list(stack.spacing)+[1])
-
-    static_grid2world[:3,3] = out_origin
-    moving_grid2world[:3,3] = stack.origin
-
-    affine_map = AffineMap(params,
-                           out_shape, static_grid2world,
-                           stack.shape, moving_grid2world)
-
-    resampled = affine_map.transform(stack,interp=interp)
-
-    resampled = ImageArray(resampled,origin=out_origin,spacing=out_spacing)
-
-    return resampled
-
-def transform_stack_sitk(stack,p=None,out_shape=None,out_spacing=None,out_origin=None,interp='linear'):
+    # print('WARNING: USING BSPLINE INTERPOLATION AS DEFAULT')
     if p is None:
         p = np.array([1.,0,0,0,1,0,0,0,1,0,0,0])
 
@@ -1299,19 +1206,26 @@ def transform_stack_sitk(stack,p=None,out_shape=None,out_spacing=None,out_origin
 
     p = params_invert_coordinates(p)
 
-    if out_shape is None:
-        out_shape = stack.shape
+    if stack_properties is not None:
+        out_shape = stack_properties['size']
+        out_origin = stack_properties['origin']
+        out_spacing = stack_properties['spacing']
 
-    if out_origin is None:
-        out_origin = stack.origin
+    else:
+        if out_shape is None:
+            out_shape = stack.shape
 
-    if out_spacing is None:
-        out_spacing = stack.spacing
+        if out_origin is None:
+            out_origin = stack.origin
 
-    sstack = sitk.GetImageFromArray(stack)
-    sstack.SetSpacing(stack.spacing[::-1])
-    sstack.SetOrigin(stack.origin[::-1])
+        if out_spacing is None:
+            out_spacing = stack.spacing
+    #
+    # sstack = sitk.GetImageFromArray(stack)
+    # sstack.SetSpacing(stack.spacing[::-1])
+    # sstack.SetOrigin(stack.origin[::-1])
 
+    sstack = image_to_sitk(stack)
     sstack = transformStack(p,sstack,
                             outShape=out_shape[::-1],
                             outSpacing=out_spacing[::-1],
@@ -1321,19 +1235,6 @@ def transform_stack_sitk(stack,p=None,out_shape=None,out_spacing=None,out_origin
     sstack = ImageArray(sstack,origin = out_origin, spacing=out_spacing)
 
     return sstack
-
-def transform_stack_numpy(stack,p,out_shape=None):
-
-    """
-    In [19]: %timeit transform_stack_numpy(stack00,a0)
-    4.17 s ± 8.1 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)
-
-    In [20]: %timeit transform_stack_dipy(stack00,a0)
-    382 ms ± 2.85 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)
-    """
-
-    p = np.array(p)
-    return ndimage.affine_transform(stack,p[:9].reshape((3,3)),p[9:],output_shape=out_shape)
 
 # def apply_chromatic_correction_parameters(stack,p):
 #
@@ -1367,8 +1268,8 @@ def apply_chromatic_correction_parameters_center(stack,p):
 
     # hack to be able to io_decorate chrom corr params
     # prolem is that we don't want to write to disk all the intermediate results
-    # if io_utils.is_io_path(p):
-    #     p = io_utils.process_input_element(p)
+    if io_utils.is_io_path(p):
+        p = io_utils.process_input_element(p)
     # pprime = np.array(p)
     # center = np.zeros(3)
     # center[1:] = np.array(stack.shape[1:])/2.
@@ -1604,7 +1505,7 @@ def get_mask_using_otsu(im):
     return seg.astype(np.uint16)
 
 @io_decorator
-def get_final_params(ref_view,pairs,params,time_alignment_params=None):
+def get_params_from_pairs(ref_view,pairs,params,time_alignment_params=None):
     """
     time_alignment_params: single params from longitudinal registration to be concatenated with view params
     """
@@ -1647,6 +1548,1190 @@ def get_final_params(ref_view,pairs,params,time_alignment_params=None):
         final_params.append(final_view_params)
 
     return np.array(final_params)
+
+def register_groupwise_cmd(ims, params0, ref_view = 0, elastix_dir='/scratch/malbert/dependencies_linux/elastix_linux64_v4.8'):
+
+    """
+    - perform groupwise registration (to refine and globally optimise after pair registration)
+    - first euler, then affine works well
+    - works only with elastix v4.9
+    - principle: use varianceoverlastdimension metric together with affinelogstacktransform
+    - relate parameters back to reference view
+
+    :param ims:
+    :param params0:
+    :param elastix_dir:
+    :return:
+    """
+
+    elx_param_string0 = \
+    """
+MaximumNumberOfIterations ('1000',)
+NumberOfResolutions ('4',)
+NumberOfSpatialSamples ('8192',)
+Transform ('EulerStackTransform',)
+
+AutomaticParameterEstimation ('true',)
+CheckNumberOfSamples ('true',)
+DefaultPixelValue ('0.0',)
+FinalBSplineInterpolationOrder ('3',)
+FinalGridSpacingInPhysicalUnits ('8',)
+FixedImagePyramid ('FixedSmoothingImagePyramid',)
+FixedInternalImagePixelType ('float',)
+GridSpacingSchedule ('2.80322', '1.9881', '1.41', '1')
+ImageSampler ('RandomCoordinate',)
+Interpolator ('ReducedDimensionBSplineInterpolator',)
+MaximumNumberOfSamplingAttempts ('8',)
+Metric ('VarianceOverLastDimensionMetric',)
+MovingImagePyramid ('MovingSmoothingImagePyramid',)
+MovingInternalImagePixelType ('float',)
+NewSamplesEveryIteration ('true',)
+NumberOfSamplesForExactGradient ('4096',)
+Optimizer ('AdaptiveStochasticGradientDescent',)
+Registration ('MultiResolutionRegistration',)
+ResampleInterpolator ('FinalReducedDimensionBSplineInterpolator',)
+Resampler ('DefaultResampler',)
+ResultImageFormat ('nii',)
+WriteIterationInfo ('false',)
+WriteResultImage ('true',)
+    """
+
+    elx_param_string1 = \
+        """
+MaximumNumberOfIterations ('1000',)
+NumberOfResolutions ('1',)
+NumberOfSpatialSamples ('8192',)
+Transform ('AffineLogStackTransform',)
+        
+AutomaticParameterEstimation ('true',)
+CheckNumberOfSamples ('true',)
+DefaultPixelValue ('0.0',)
+FinalBSplineInterpolationOrder ('3',)
+FinalGridSpacingInPhysicalUnits ('8',)
+FixedImagePyramid ('FixedSmoothingImagePyramid',)
+FixedInternalImagePixelType ('float',)
+GridSpacingSchedule ('2.80322', '1.9881', '1.41', '1')
+ImageSampler ('RandomCoordinate',)
+Interpolator ('ReducedDimensionBSplineInterpolator',)
+MaximumNumberOfSamplingAttempts ('8',)
+Metric ('VarianceOverLastDimensionMetric',)
+MovingImagePyramid ('MovingSmoothingImagePyramid',)
+MovingInternalImagePixelType ('float',)
+NewSamplesEveryIteration ('true',)
+NumberOfSamplesForExactGradient ('4096',)
+Optimizer ('AdaptiveStochasticGradientDescent',)
+Registration ('MultiResolutionRegistration',)
+ResampleInterpolator ('FinalReducedDimensionBSplineInterpolator',)
+Resampler ('DefaultResampler',)
+ResultImageFormat ('nii',)
+WriteIterationInfo ('false',)
+WriteResultImage ('true',)
+        """
+
+    # if len(ims) < 4: raise(Exception('groupwise registration needs at least four images'))
+
+    elastix_bin = os.path.join(elastix_dir,'bin/elastix')
+    os.environ['LD_LIBRARY_PATH'] = os.path.join(elastix_dir,'lib')
+
+    temp_dir_obj = tempfile.TemporaryDirectory()
+    temp_dir = temp_dir_obj.name
+
+    param_strings = [elx_param_string0, elx_param_string1]
+    param_paths = [os.path.join(temp_dir, 'elx_params_%s.txt' % i) for i in range(len(param_strings))]
+
+    # if params0 is not None:
+    #     t0 = np.array(t0)
+    #     t0_inv = np.array(params_invert_coordinates(t0))
+    #     elx_initial_transform_path = os.path.join(temp_dir,'elx_initial_transform.txt')
+    #     createInitialTransformFile(np.array(fixed_spacing), t0_inv, elx_initial_transform_template_string, elx_initial_transform_path)
+
+    # createParameterFile(np.array([1,1,1]),elx_initial_transform_path, param_strings[0], param_paths[0])
+    for i in range(0,len(param_strings)):
+        open(param_paths[i],'w').write(param_strings[i])
+
+    elx_initial_transform_path = 0
+
+    vectorOfImages = sitk.VectorOfImage()
+    for iim,im in enumerate(ims):
+        vectorOfImages.push_back(image_to_sitk(im))
+    fixed_path = os.path.join(temp_dir,'fixed.mhd')
+    vectorOfImages = sitk.JoinSeries(vectorOfImages)
+    sitk.WriteImage(vectorOfImages,fixed_path)
+
+    cmd = '%s -f %s -m %s' %(elastix_bin,fixed_path,fixed_path)#,elx_initial_transform_path)
+    if params0 is not None:
+        cmd += '-t0 %s' % elx_initial_transform_path
+    for i in range(len(param_strings)):
+        cmd += ' -p %s' %param_paths[i]
+    # cmd += ' -fMask %s' %fixed_mask_path
+    cmd += ' -out %s' %temp_dir
+    # cmd += ' -threads 1' %outdir
+    print(temp_dir)
+    # print(temp_dir)
+    #
+    cmd = cmd.split(' ')
+    # subprocess.Popen(cmd,stdout=FNULL).wait()
+    import subprocess
+    subprocess.Popen(cmd).wait()
+
+    # final_params = t0
+    # for i in range(len(param_strings)):
+    #     final_params = matrix_to_params(get_affine_parameters_from_elastix_output(os.path.join(temp_dir,'TransformParameters.%s.txt' %i),t0=final_params))
+
+    return cmd
+
+# from scipy.linalg import expm,logm
+# import transformations
+# @io_decorator
+# def register_groupwise(orig_ims, params0, ref_view_index=0, iso_reg_spacing_relative_to_input_z=1, volume_mode='sample',elastix_dir='/scratch/malbert/dependencies_linux/elastix_linux64_v4.8'):
+#     """
+#     - perform groupwise registration (to refine and globally optimise after pair registration)
+#     - first euler, then affine works well
+#     - works only with elastix v4.9
+#     - principle: use varianceoverlastdimension metric together with affinelogstacktransform
+#     - relate parameters back to reference view
+#
+#     :param ims:
+#     :param params0:
+#     :param elastix_dir:
+#     :return:
+#     """
+#
+#     reg_spacing = np.array([orig_ims[0].spacing[0]*iso_reg_spacing_relative_to_input_z]*3).astype(np.float32)
+#     stack_properties = calc_stack_properties_from_views_and_params(orig_ims,params0,reg_spacing,volume_mode)
+#
+#     ims = []
+#     for iview in range(len(orig_ims)):
+#         im = transform_stack_sitk(orig_ims[iview], params0[iview],
+#                                      out_origin=stack_properties['origin'],
+#                                      out_shape=stack_properties['size'],
+#                                      out_spacing=stack_properties['spacing'])
+#         ims.append(im)
+#
+#     vectorOfImages = sitk.VectorOfImage()
+#     for iim,im in enumerate(ims):
+#         vectorOfImages.push_back(image_to_sitk(im))
+#
+#     image = sitk.JoinSeries(vectorOfImages)
+#
+#     log_affine_params = []
+#     for i in range(len(orig_ims)):
+#         tmpparams = params_to_matrix(params0[i])
+#         tmpparams = logm(tmpparams)
+#         tmpparams = matrix_to_params(tmpparams)
+#         log_affine_params += list(tmpparams)
+#
+#     log_affine_params_string = ' '.join([float(i) for i in log_affine_params])
+#
+#     import subprocess, shutil
+#
+#     elastix_bin = os.path.join(elastix_dir, 'bin/elastix')
+#     os.environ['LD_LIBRARY_PATH'] = os.path.join(elastix_dir, 'lib')
+#
+#     # temp_dir = tempfile.mkdtemp(prefix = '/data/malbert/tmp/tmp_')
+#     temp_dir_obj = tempfile.TemporaryDirectory()
+#     temp_dir = temp_dir_obj.name
+#
+#     init_transform_path = os.path.join(temp_dir,'initial_affine_log.txt')
+#     image_path = os.path.join(temp_dir,'im4d.mhd')
+#     params_paths = [os.path.join(temp_dir,'p_euler.mhd'),os.path.join(temp_dir,'p_bspline.mhd')]
+#
+#     sitk.WriteImage(image,image_path)
+#
+# initialTransform = '\n(TransformParameters %s)' %log_affine_params_string +"""
+# (Transform "AffineLogStackTransform")
+# (NumberOfParameters %s)
+#
+# (HowToCombineTransforms "Compose")
+#
+# (InitialTransformParametersFileName "NoInitialTransform")
+#
+# // Image specific
+# (FixedImageDimension 3)
+# (MovingImageDimension 3)
+# (FixedInternalImagePixelType "short")
+# (MovingInternalImagePixelType "short")
+# //(UseDirectionCosines "false")
+#
+# (CenterOfRotationPoint 0 0 0)
+# """ %len(log_affine_params)
+#
+# groupwiseParameterMap1 =
+# """
+# (InitialTransformParametersFileName %s)
+# (AutomaticParameterEstimation "true")
+# (CheckNumberOfSamples "true")
+# (DefaultPixelValue 0.0)
+# (FinalBSplineInterpolationOrder 3)
+# (FinalGridSpacingInPhysicalUnits 8)
+# (FixedImagePyramid "FixedSmoothingImagePyramid")
+# (FixedInternalImagePixelType "float")
+# (GridSpacingSchedule 2.80322 1.9881 1.41 1)
+# (ImageSampler "RandomCoordinate")
+# (Interpolator "ReducedDimensionBSplineInterpolator")
+# (MaximumNumberOfIterations 500)
+# (MaximumNumberOfSamplingAttempts 8)
+# (Metric "VarianceOverLastDimensionMetric")
+# (MovingImagePyramid "MovingSmoothingImagePyramid")
+# (MovingInternalImagePixelType "float")
+# (NewSamplesEveryIteration "true")
+# (NumberOfResolutions 6)
+# (NumberOfSamplesForExactGradient 4096)
+# (NumberOfSpatialSamples 16384)
+# (Optimizer "AdaptiveStochasticGradientDescent")
+# (Registration "MultiResolutionRegistration")
+# (ResampleInterpolator "FinalReducedDimensionBSplineInterpolator")
+# (Resampler "DefaultResampler")
+# (ResultImageFormat "nii")
+# (Transform "EulerStackTransform")
+# (WriteIterationInfo "false")
+# (WriteResultImage "true")
+# """ %s(init_transform_path)
+#
+# groupwiseParameterMap2 =
+# """
+# (AutomaticParameterEstimation "true")
+# (CheckNumberOfSamples "true")
+# (DefaultPixelValue 0.0)
+# (FinalBSplineInterpolationOrder 3)
+# (FinalGridSpacingInPhysicalUnits 150)
+# (FixedImagePyramid "FixedSmoothingImagePyramid")
+# (FixedInternalImagePixelType "float")
+# (GridSpacingSchedule 2.80322 1.9881 1.41 1)
+# (ImageSampler "RandomCoordinate")
+# (Interpolator "ReducedDimensionBSplineInterpolator")
+# (MaximumNumberOfIterations 500)
+# (MaximumNumberOfSamplingAttempts 8)
+# (Metric "VarianceOverLastDimensionMetric")
+# (MovingImagePyramid "MovingSmoothingImagePyramid")
+# (MovingInternalImagePixelType "float")
+# (NewSamplesEveryIteration "true")
+# (NumberOfResolutions 3)
+# (NumberOfSamplesForExactGradient 4096)
+# (NumberOfSpatialSamples 16384)
+# (Optimizer "AdaptiveStochasticGradientDescent")
+# (Registration "MultiResolutionRegistration")
+# (ResampleInterpolator "FinalReducedDimensionBSplineInterpolator")
+# (Resampler "DefaultResampler")
+# (ResultImageFormat "nii")
+# (Transform "BSplineStackTransform")
+# (WriteIterationInfo "false")
+# (WriteResultImage "true")
+# """
+#     for i in range(3):
+#         string = [initialTransform,groupwiseParameterMap1,groupwiseParameterMap2][i]
+#         filepath = ([init_transform_path] + params_paths)[i]
+#         outFile = open(filepath, 'w')
+#         outFile.write(string)
+#         outFile.close()
+#
+#     elastixImageFilter = sitk.ElastixImageFilter()
+#     elastixImageFilter.SetFixedImage(image)
+#     elastixImageFilter.SetMovingImage(image)
+#     elastixImageFilter.SetParameterMap([groupwiseParameterMap1,groupwiseParameterMap2])
+#     elastixImageFilter.Execute()
+#
+#     p1 = elastixImageFilter.GetTransformParameterMap()[0]
+#     p2 = elastixImageFilter.GetTransformParameterMap()[1]
+#
+#     raw_params = []
+#     for p in [p1,p2]:
+#         for line in p.iteritems():
+#             if line[0] == 'TransformParameters':
+#                 tmp = np.array([float(i) for i in line[1]])
+#                 tmp = tmp.reshape((len(ims),-1))
+#                 raw_params.append(tmp)
+#                 break
+#
+#     def apply_center_of_rotation(p,cr):
+#         translation = p[-3:] - np.dot(p[:9].reshape((3, 3)), cr) + cr
+#         resp = np.concatenate([p[:9], translation], 0)
+#         return resp
+#
+#     # center of rotation
+#     cr = (ims[0].origin + ims[0].spacing * np.array(ims[0].shape) / 2)[::-1]
+#
+#     final_params = []
+#     for iim in range(len(ims)):
+#
+#         # process euler transform
+#         raw_p = raw_params[0][iim]
+#         tmp = transformations.euler_matrix(raw_p[0],raw_p[1],raw_p[2])
+#         affine_params = np.zeros(12)
+#         affine_params[:9] = tmp[:3,:3].flatten()
+#         affine_params[-3:] = np.array([raw_p[3],raw_p[4],raw_p[5]])
+#         # euler doesn't seem to need center of rotation application
+#         # (or center of rotation is 0)
+#         # affine_params = apply_center_of_rotation(affine_params,cr)
+#         t0 = params_to_matrix(affine_params)
+#
+#         # process affine transform
+#         raw_p = raw_params[1][iim]
+#         affine_params = params_to_matrix(raw_p)
+#         affine_params = expm(affine_params)
+#         affine_params = matrix_to_params(affine_params)
+#         # affine params needs center of rotation application (physical center of the image)
+#         affine_params = apply_center_of_rotation(affine_params,cr)
+#         t1 = params_to_matrix(affine_params)
+#
+#         t10 = matrix_to_params(mult_aff(t1,t0))
+#         t10 = params_invert_coordinates(t10)
+#         final_params.append(t10)
+#
+#     # relate all final parameters to ref_view
+#     final_ref_params = []
+#     for iim in range(len(ims)):
+#         t0 = invert_params(final_params[ref_view_index])
+#         t1 = final_params[iim]
+#         tmp = mult_aff(params_to_matrix(t1),params_to_matrix(t0))
+#         tmp = matrix_to_params(tmp)
+#         final_ref_params.append(tmp)
+#
+#     # concatenate with input parameters
+#     final_ref_params_concat = []
+#     for iim in range(len(ims)):
+#         t0 = final_ref_params[iim]
+#         t1 = params0[iim]
+#         tmp = mult_aff(params_to_matrix(t1),params_to_matrix(t0))
+#         tmp = matrix_to_params(tmp)
+#         final_ref_params_concat.append(tmp)
+#
+#     return np.array(final_ref_params_concat)
+
+@io_decorator
+def register_groupwise_bspline(orig_ims, params0, ref_view_index=0, iso_reg_spacing_relative_to_input_z=1,
+                           volume_mode='sample'):
+    """
+    - perform groupwise registration (to refine and globally optimise after pair registration)
+    - first euler, then affine works well
+    - works only with elastix v4.9
+    - principle: use varianceoverlastdimension metric together with affinelogstacktransform
+    - relate parameters back to reference view
+
+    :param ims:
+    :param params0:
+    :param elastix_dir:
+    :return:
+    """
+
+    reg_spacing = np.array([orig_ims[0].spacing[0] * iso_reg_spacing_relative_to_input_z] * 3).astype(np.float32)
+    stack_properties = calc_stack_properties_from_views_and_params(orig_ims, params0, reg_spacing, volume_mode)
+
+    ims = []
+    for iview in range(len(orig_ims)):
+        im = transform_stack_sitk(orig_ims[iview], params0[iview],
+                                  out_origin=stack_properties['origin'],
+                                  out_shape=stack_properties['size'],
+                                  out_spacing=stack_properties['spacing'])
+        ims.append(im)
+
+    vectorOfImages = sitk.VectorOfImage()
+    for iim, im in enumerate(ims):
+        vectorOfImages.push_back(image_to_sitk(im))
+
+    image = sitk.JoinSeries(vectorOfImages)
+
+    # pdb.set_trace()
+
+    # Register
+    groupwiseParameterMap1 = sitk.GetDefaultParameterMap('groupwise')
+    groupwiseParameterMap1['FixedInternalImagePixelType'] = ['float']
+    groupwiseParameterMap1['MovingInternalImagePixelType'] = ['float']
+    groupwiseParameterMap1['NumberOfResolutions'] = ['2']  # default is 4
+    groupwiseParameterMap1['MaximumNumberOfIterations'] = ['250']  # default is 250
+    # groupwiseParameterMap1['NumberOfResolutions'] = ['6']  # default is 4
+    # groupwiseParameterMap1['MaximumNumberOfIterations'] = ['5000']  # default is 250
+    # groupwiseParameterMap1['NumberOfSpatialSamples'] = ['16384']  # default is 2048
+    # groupwiseParameterMap1['NumberOfSpatialSamples'] = ['32768']  # default is 2048
+    groupwiseParameterMap1['NumberOfSpatialSamples'] = ['8192']  # default is 2048
+    # groupwiseParameterMap1['NumberOfSpatialSamples'] = ['2048']  # default is 2048
+
+    groupwiseParameterMap1['Transform'] = ['EulerStackTransform']  # default is 2048
+    # groupwiseParameterMap1['Scales'] = [' '.join(['10000 10000 10000 1 1 1']*len(ims))]  # default is 2048
+
+    groupwiseParameterMap2 = sitk.GetDefaultParameterMap('groupwise')
+    groupwiseParameterMap2['FixedInternalImagePixelType'] = ['float']
+    groupwiseParameterMap2['MovingInternalImagePixelType'] = ['float']
+    # groupwiseParameterMap2['NumberOfResolutions'] = ['3']  # default is 4
+    groupwiseParameterMap2['NumberOfResolutions'] = ['3']  # default is 4
+    groupwiseParameterMap2['MaximumNumberOfIterations'] = ['250']  # default is 250
+    groupwiseParameterMap2['NumberOfSpatialSamples'] = ['8192']  # default is 2048
+    # groupwiseParameterMap2['NumberOfSpatialSamples'] = ['16384']  # default is 2048
+    # groupwiseParameterMap2['NumberOfSpatialSamples'] = ['32768']  # default is 2048
+    groupwiseParameterMap2['Transform'] = ['BSplineStackTransform']  # default is 2048
+    groupwiseParameterMap2['FinalGridSpacingInPhysicalUnits'] = ['300']  # default is 2048
+    groupwiseParameterMap2['GridSpacingSchedule'] = ['2','1.5','1']  # default is 2048
+    # groupwiseParameterMap2['Scales'] = [' '.join(['10000 10000 10000 10000 10000 10000 10000 10000 10000 1 1 1']*len(ims))]  # default is 2048
+
+    elastixImageFilter = sitk.ElastixImageFilter()
+    elastixImageFilter.SetFixedImage(image)
+    elastixImageFilter.SetMovingImage(image)
+    elastixImageFilter.SetParameterMap([groupwiseParameterMap1, groupwiseParameterMap2])
+    # elastixImageFilter.SetParameterMap([groupwiseParameterMap1])#, groupwiseParameterMap2])
+
+    # elastixImageFilter.LogToConsoleOn()
+    # elastixImageFilter.LogToFileOn()
+
+    elastixImageFilter.Execute()
+
+    # p1 = elastixImageFilter.GetTransformParameterMap()[0]
+    # p2 = elastixImageFilter.GetTransformParameterMap()[1]
+
+    ps = elastixImageFilter.GetTransformParameterMap()
+
+    # turn into normal dicts for pickling
+    dictps = []
+    for p in ps:
+        tmpdict = dict()
+        for k,v in p.items():
+            tmpdict[k] = v
+        dictps.append(tmpdict)
+
+    transformed_img = elastixImageFilter.GetResultImage()
+    extract_filter = sitk.ExtractImageFilter()
+    size = list(transformed_img.GetSize())
+    size[3] = 0 # set t to 0 to collapse this dimension
+    extract_filter.SetSize(size)
+    imgs = []
+    for i in range(len(vectorOfImages)):
+        extract_filter.SetIndex([0, 0, 0, i]) # x, y, z, t
+        img = extract_filter.Execute(transformed_img)
+        imgs.append(sitk_to_image(img))
+
+    return dictps,imgs
+
+# def transform_stacks_simpleelastix(ims,pmaps,stack_properties,t0s=None):
+#     """
+#     transform stacks using list of stacktransforms
+#     :param stack:
+#     :param pmaps:
+#     :param out_shape:
+#     :param out_spacing:
+#     :param out_origin:
+#     :return:
+#     """
+#
+#     vectorOfImages = sitk.VectorOfImage()
+#     for iim, im in enumerate(ims):
+#         # vectorOfImages.push_back(image_to_sitk(im))
+#         vectorOfImages.push_back(image_to_sitk(ims[0]))
+#
+#     image = sitk.JoinSeries(vectorOfImages)
+#
+#     cr = (ims[0].origin + ims[0].spacing * np.array(ims[0].shape) / 2)[::-1]
+#
+#     if t0s is not None:
+#         pmaps = [params_to_stackpmap(t0s)] + list(pmaps)
+#
+#     for pmap in pmaps:
+#         if 'CenterOfRotation' is not in pmap.keys():
+#             pmap['CenterOfRotation'] = tuple([str(i) for i in cr])
+#         pmap['Size']        = tuple([str(i) for i in list(stack_properties['size']   [::-1])+[1]])
+#         pmap['Origin']      = tuple([str(i) for i in list(stack_properties['origin'] [::-1])+[0]])
+#         pmap['Spacing']     = tuple([str(i) for i in list(stack_properties['spacing'][::-1])+[1]])
+#         pmap['StackOrigin'] = tuple([str(i) for i in list(stack_properties['origin'] [::-1])+[0]])
+#         pmap['StackSpacing']= tuple([str(i) for i in list(stack_properties['spacing'][::-1])+[1]])
+#         pmap['NumberOfSubTransforms']= ("%s"%len(ims),)
+#         # pmap = sitk.ParameterMap(pmap)
+#
+#
+#     imaget = sitk.Transformix(image,pmaps)
+#
+#     size = list(imaget.GetSize())
+#     size[3] = 0 # set t to 0 to collapse this dimension
+#     extract_filter.SetSize(size)
+#     imgs = []
+#     for i in range(len(vectorOfImages)):
+#         extract_filter.SetIndex([0, 0, 0, i]) # x, y, z, t
+#         img = extract_filter.Execute(imaget)
+#         imgs.append(sitk_to_image(img))
+#
+#     return imgs
+
+def transform_stack_simpleelastix(im,pmaps,stack_properties,t0=None):
+    """
+    transform stacks using list of stacktransforms
+    :param stack:
+    :param pmaps:
+    :param out_shape:
+    :param out_spacing:
+    :param out_origin:
+    :return:
+    """
+
+    # vectorOfImages = sitk.VectorOfImage()
+    # for iim, im in enumerate(ims):
+    #     # vectorOfImages.push_back(image_to_sitk(im))
+    #     vectorOfImages.push_back(image_to_sitk(ims[0]))
+    #
+    # image = sitk.JoinSeries(vectorOfImages)
+
+    # cr = (im.origin + im.spacing * np.array(im.shape) / 2)[::-1]
+
+    if t0 is not None:
+        pmaps = [params_to_pmap(t0)] + pmaps
+
+    for pmap in pmaps:
+        # if not 'CenterOfRotation' in pmap.keys():
+        #     pmap['CenterOfRotation'] = tuple([str(i) for i in cr])
+        # pmap['Size']        = tuple([str(i) for i in list(stack_properties['size']   [::-1])+[1]])
+        # pmap['Origin']      = tuple([str(i) for i in list(stack_properties['origin'] [::-1])+[0]])
+        # pmap['Spacing']     = tuple([str(i) for i in list(stack_properties['spacing'][::-1])+[1]])
+        # pmap['StackOrigin'] = tuple([str(i) for i in list(stack_properties['origin'] [::-1])+[0]])
+        # pmap['StackSpacing']= tuple([str(i) for i in list(stack_properties['spacing'][::-1])+[1]])
+        # pmap['NumberOfSubTransforms']= ("%s"%len(ims),)
+        # pmap = sitk.ParameterMap(pmap)
+        pmap['Size']        = tuple([str(i) for i in list(stack_properties['size']   [::-1])])
+        pmap['Origin']      = tuple([str(i) for i in list(stack_properties['origin'] [::-1])])
+        pmap['Spacing']     = tuple([str(i) for i in list(stack_properties['spacing'][::-1])])
+
+        pmap['UseDirectionCosines']     = ("true",)
+        pmap['UseBinaryFormatForTransformationParameters']     = ("false",)
+        pmap['ResampleInterpolator']     = ("FinalBSplineInterpolator",)
+
+    image = image_to_sitk(im)
+    # order of pmaps for transformix seems to be:
+    # first transformation closest to target space, then those close to moving space
+    # example: bspline, affine
+    # example: final_params, final_params0
+    imaget = sitk.Transformix(image,pmaps[::-1])
+    imaget = sitk_to_image(imaget)
+
+    # size = list(imaget.GetSize())
+    # size[3] = 0 # set t to 0 to collapse this dimension
+    # extract_filter.SetSize(size)
+    # imgs = []
+    # for i in range(len(vectorOfImages)):
+    #     extract_filter.SetIndex([0, 0, 0, i]) # x, y, z, t
+    #     img = extract_filter.Execute(imaget)
+    #     imgs.append(sitk_to_image(img))
+
+    return imaget
+
+from scipy.linalg import expm
+def stackpmaps_to_pmaps(stackpmaps,n_subtransforms=4):
+
+    n_subtransforms = int(n_subtransforms)
+
+    def apply_center_of_rotation(p, cr):
+        translation = p[-3:] - np.dot(p[:9].reshape((3, 3)), cr) + cr
+        resp = np.concatenate([p[:9], translation], 0)
+        return resp
+
+    pmaps = []
+    for st in range(n_subtransforms):
+        stpmaps = []
+        for sm in range(len(stackpmaps)):
+            n_params = int(len(stackpmaps[sm]['TransformParameters']) / n_subtransforms)
+            pmap = dict()
+            pmap['FinalBSplineInterpolationOrder'] = ("1",)
+            pmap['FixedImageDimension'] = ("3",)
+            pmap['MovingImageDimension'] = ("3",)
+            pmap['FixedInternalImagePixelType'] = ("float",)
+            pmap['MovingInternalImagePixelType'] = ("float",)
+            pmap['ResultImagePixelType'] = ("float",)
+            pmap['HowToCombineTransforms'] = ("Compose",)
+            pmap['Index'] = ("0", "0", "0")
+            pmap['Direction'] = tuple([str(i) for i in matrix_to_params(np.eye(4))[:9]])
+            pmap['InitialTransformParametersFileName'] = ("NoInitialTransform",)
+            pmap['DefaultPixelValue'] = ("0",)
+            pmap['Resampler'] = ("DefaultResampler",)
+            # pmap['ResampleInterpolator'] = ("FinalReducedDimensionBSplineInterpolator",)
+            pmap['CompressResultImage'] = ("false",)
+
+            size = np.array([float(i) for i in stackpmaps[sm]['Size'][:3]])
+            origin = np.array([float(i) for i in stackpmaps[sm]['Origin'][:3]])
+            spacing = np.array([float(i) for i in stackpmaps[sm]['Spacing'][:3]])
+
+            if stackpmaps[sm]['Transform'][0] == 'EulerStackTransform':
+                pmap['Transform'] = ("EulerTransform",)
+                pmap['TransformParameters'] = stackpmaps[sm]['TransformParameters'][st * n_params:(st + 1) * n_params]
+            elif stackpmaps[sm]['Transform'][0] == 'AffineLogStackTransform':
+                pmap['Transform'] = ("AffineTransform",)
+                tmpparams = stackpmaps[sm]['TransformParameters'][st * n_params:(st + 1) * n_params]
+                tmpparams = matrix_to_params(expm(params_to_matrix(tmpparams)))
+                # affine params needs center of rotation application (physical center of the image)
+                cr = (origin + spacing * size / 2)
+                tmpparams = apply_center_of_rotation(tmpparams, cr)
+                pmap['TransformParameters'] = tmpparams
+            elif stackpmaps[sm]['Transform'][0] == 'BSplineStackTransform':
+                pmap['Transform'] = ("BSplineTransform",)
+                pmap['TransformParameters'] = stackpmaps[sm]['TransformParameters'][st * n_params:(st + 1) * n_params]
+                pmap['BSplineTransformSplineOrder'] = ("3",)
+                copy_keys = ['GridDirection','GridIndex','GridOrigin','GridSize','GridSpacing']
+                for copy_key in copy_keys:
+                    pmap[copy_key] = stackpmaps[sm][copy_key]
+            # BSplineTransformSplineOrder('3', )
+            # CompressResultImage('false', )
+            # DefaultPixelValue('0.0', )
+            # Direction('1', '0', '0', '0', '0', '1', '0', '0', '0', '0', '1', '0', '0', '0', '0', '1')
+            # FixedImageDimension('4', )
+            # FixedInternalImagePixelType('float', )
+            # GridDirection('1', '0', '0', '0', '1', '0', '0', '0', '1')
+            # GridIndex('0', '0', '0')
+            # GridOrigin('-511.5', '-630.5', '-649')
+            # GridSize('4', '6', '5')
+            # GridSpacing('500', '500', '500')
+            # HowToCombineTransforms('Compose', )
+            # Index('0', '0', '0', '0')
+            # InitialTransformParametersFileName('NoInitialTransform', )
+            # MovingImageDimension('4', )
+            # MovingInternalImagePixelType('float', )
+            # NumberOfParameters('1440', )
+            # NumberOfSubTransforms('4', )
+            # Origin('0', '0', '0', '0')
+            # ResampleInterpolator('FinalReducedDimensionBSplineInterpolator', )
+            # Resampler('DefaultResampler', )
+            # ResultImageFormat('nii', )
+            # ResultImagePixelType('float', )
+            # Size('160', '414', '235', '4')
+            # Spacing('3', '3', '3', '1')
+            # StackOrigin('0', )
+            # StackSpacing('1', )
+            # Transform('BSplineStackTransform', )
+
+            else:
+                print(stackpmaps[sm]['Transform'])
+                raise(Exception())
+
+            pmap['NumberOfParameters'] = ("%s" % len(pmap['TransformParameters']),)
+            # pmap['CenterOfRotation'] = tuple([str(i) for i in origin])
+            # pmap['CenterOfRotation'] = tuple([str(i) for i in [0, 0, 0]])
+            pmap['CenterOfRotationPoint'] = tuple([str(i) for i in [0, 0, 0]])
+
+
+            stpmaps.append(pmap)
+        pmaps.append(stpmaps)
+
+    return pmaps
+
+# from scipy.linalg import logm
+# def params_to_stackpmap(params):
+#
+#     logparams = []
+#     for p in params:
+#         logparams += list(matrix_to_params(logm(params_to_matrix(p))))
+#
+#     pmap = dict()
+#     pmap['FixedImageDimension'] = ("4",)
+#     pmap['MovingImageDimension'] = ("4",)
+#     pmap['FixedInternalImagePixelType'] = ("float",)
+#     pmap['MovingInternalImagePixelType'] = ("float",)
+#     pmap['ResultImagePixelType'] = ("float",)
+#     pmap['HowToCombineTransforms'] = ("Compose",)
+#     pmap['Index'] = ("0","0","0","0")
+#     pmap['InitialTransformParametersFileName'] = ("NoInitialTransform",)
+#     pmap['DefaultPixelValue'] = ("0",)
+#     pmap['Resampler'] = ("DefaultResampler",)
+#     pmap['ResampleInterpolator'] = ("FinalReducedDimensionBSplineInterpolator",)
+#     pmap['CompressResultImage'] = ("false",)
+#
+#     pmap['Transform'] = ("AffineLogStackTransform",)
+#     pmap['NumberOfParameters'] = ("%s"%len(logparams),)
+#     pmap['TransformParameters'] = tuple([str(i) for i in logparams])
+#     pmap['CenterOfRotation'] = tuple([str(i) for i in [0,0,0]])
+#
+#     return pmap
+
+from scipy.linalg import logm
+def params_to_pmap(params):
+
+    # params[-3:] = np.dot(params[:9].reshape((3,3)),
+
+    params = params_invert_coordinates(params)
+
+    pmap = dict()
+    # pmap['ResampleInterpolator'] = ("BSplineResampleInterpolatorFloat",)
+    pmap['FinalBSplineInterpolationOrder'] = ("1",)
+    pmap['Index'] = ("0", "0", "0")
+    pmap['Direction'] = tuple([str(i) for i in matrix_to_params(np.eye(4))[:9]])
+    pmap['FixedImageDimension'] = ("3",)
+    pmap['MovingImageDimension'] = ("3",)
+    pmap['FixedInternalImagePixelType'] = ("float",)
+    pmap['MovingInternalImagePixelType'] = ("float",)
+    pmap['ResultImagePixelType'] = ("float",)
+    pmap['HowToCombineTransforms'] = ("Compose",)
+    # pmap['Index'] = ("0", "0", "0", "0")
+    pmap['InitialTransformParametersFileName'] = ("NoInitialTransform",)
+    pmap['DefaultPixelValue'] = ("0",)
+    pmap['Resampler'] = ("DefaultResampler",)
+    # pmap['ResampleInterpolator'] = ("FinalReducedDimensionBSplineInterpolator",)
+    pmap['CompressResultImage'] = ("false",)
+
+    pmap['Transform'] = ("AffineTransform",)
+    pmap['NumberOfParameters'] = ("%s" % len(params),)
+    pmap['TransformParameters'] = tuple([str(i) for i in params])
+    # pmap['CenterOfRotation'] = tuple([str(i) for i in [0, 0, 0]])
+    pmap['CenterOfRotationPoint'] = tuple([str(i) for i in [0, 0, 0]])
+
+    return pmap
+
+# # compute mean image
+# transformed_img = elastixImageFilter.GetResultImage()
+# extract_filter = sitk.ExtractImageFilter()
+# size = list(transformed_img.GetSize())
+# size[3] = 0 # set t to 0 to collapse this dimension
+# extract_filter.SetSize(size)
+# imgs = []
+# for i in range(len(vectorOfImages)):
+#     extract_filter.SetIndex([0, 0, 0, i]) # x, y, z, t
+#     img = extract_filter.Execute(transformed_img)
+#     imgs.append(sitk.GetArrayFromImage(img))
+#
+
+from scipy.linalg import expm, logm
+import transformations
+@io_decorator
+def register_groupwise(orig_ims, params0, ref_view_index=0, iso_reg_spacing_relative_to_input_z=1,
+                           volume_mode='sample'):
+    """
+    - perform groupwise registration (to refine and globally optimise after pair registration)
+    - first euler, then affine works well
+    - works only with elastix v4.9
+    - principle: use varianceoverlastdimension metric together with affinelogstacktransform
+    - relate parameters back to reference view
+
+    :param ims:
+    :param params0:
+    :param elastix_dir:
+    :return:
+    """
+
+    reg_spacing = np.array([orig_ims[0].spacing[0] * iso_reg_spacing_relative_to_input_z] * 3).astype(np.float32)
+    stack_properties = calc_stack_properties_from_views_and_params(orig_ims, params0, reg_spacing, volume_mode)
+
+    ims = []
+    for iview in range(len(orig_ims)):
+        im = transform_stack_sitk(orig_ims[iview], params0[iview],
+                                  out_origin=stack_properties['origin'],
+                                  out_shape=stack_properties['size'],
+                                  out_spacing=stack_properties['spacing'])
+        ims.append(im)
+
+    vectorOfImages = sitk.VectorOfImage()
+    for iim, im in enumerate(ims):
+        vectorOfImages.push_back(image_to_sitk(im))
+
+    image = sitk.JoinSeries(vectorOfImages)
+
+    # Register
+    groupwiseParameterMap1 = sitk.GetDefaultParameterMap('groupwise')
+    groupwiseParameterMap1['FixedInternalImagePixelType'] = ['float']
+    groupwiseParameterMap1['MovingInternalImagePixelType'] = ['float']
+    groupwiseParameterMap1['NumberOfResolutions'] = ['6']  # default is 4
+    # groupwiseParameterMap1['MaximumNumberOfIterations'] = ['5000']  # default is 250
+    groupwiseParameterMap1['MaximumNumberOfIterations'] = ['500']  # default is 250
+    groupwiseParameterMap1['NumberOfSpatialSamples'] = ['16384']  # default is 2048
+    # groupwiseParameterMap1['NumberOfSpatialSamples'] = ['32768']  # default is 2048
+    # groupwiseParameterMap1['NumberOfSpatialSamples'] = ['8192']  # default is 2048
+    # groupwiseParameterMap1['NumberOfSpatialSamples'] = ['2048']  # default is 2048
+
+    groupwiseParameterMap1['Transform'] = ['EulerStackTransform']  # default is 2048
+    # groupwiseParameterMap1['Scales'] = [' '.join(['10000 10000 10000 1 1 1']*len(ims))]  # default is 2048
+
+    # groupwiseParameterMap2 = sitk.GetDefaultParameterMap('groupwise')
+    # groupwiseParameterMap2['FixedInternalImagePixelType'] = ['float']
+    # groupwiseParameterMap2['MovingInternalImagePixelType'] = ['float']
+    # groupwiseParameterMap2['NumberOfResolutions'] = ['3']  # default is 4
+    # groupwiseParameterMap2['MaximumNumberOfIterations'] = ['500']  # default is 250
+    # groupwiseParameterMap2['NumberOfSpatialSamples'] = ['16384']  # default is 2048
+    # # groupwiseParameterMap2['NumberOfSpatialSamples'] = ['32768']  # default is 2048
+    # groupwiseParameterMap2['Transform'] = ['AffineLogStackTransform']  # default is 2048
+    # # groupwiseParameterMap2['Scales'] = [' '.join(['10000 10000 10000 10000 10000 10000 10000 10000 10000 1 1 1']*len(ims))]  # default is 2048
+
+    elastixImageFilter = sitk.ElastixImageFilter()
+    elastixImageFilter.SetFixedImage(image)
+    elastixImageFilter.SetMovingImage(image)
+    elastixImageFilter.SetParameterMap([groupwiseParameterMap1])#, groupwiseParameterMap2])
+    elastixImageFilter.Execute()
+
+    p1 = elastixImageFilter.GetTransformParameterMap()[0]
+    # p2 = elastixImageFilter.GetTransformParameterMap()[1]
+
+    raw_params = []
+    for p in [p1]:
+        for line in p.iteritems():
+            if line[0] == 'TransformParameters':
+                tmp = np.array([float(i) for i in line[1]])
+                tmp = tmp.reshape((len(ims), -1))
+                raw_params.append(tmp)
+                break
+
+    def apply_center_of_rotation(p, cr):
+        translation = p[-3:] - np.dot(p[:9].reshape((3, 3)), cr) + cr
+        resp = np.concatenate([p[:9], translation], 0)
+        return resp
+
+    # center of rotation
+    cr = (ims[0].origin + ims[0].spacing * np.array(ims[0].shape) / 2)[::-1]
+
+    final_params = []
+    for iim in range(len(ims)):
+        # process euler transform
+        raw_p = raw_params[0][iim]
+        tmp = transformations.euler_matrix(raw_p[0], raw_p[1], raw_p[2])
+        affine_params = np.zeros(12)
+        affine_params[:9] = tmp[:3, :3].flatten()
+        affine_params[-3:] = np.array([raw_p[3], raw_p[4], raw_p[5]])
+        # euler doesn't seem to need center of rotation application
+        # (or center of rotation is 0)
+        # affine_params = apply_center_of_rotation(affine_params,cr)
+        t0 = params_to_matrix(affine_params)
+
+        # process affine transform
+        # raw_p = raw_params[1][iim]
+        # affine_params = params_to_matrix(raw_p)
+        # affine_params = expm(affine_params)
+        # affine_params = matrix_to_params(affine_params)
+        # # affine params needs center of rotation application (physical center of the image)
+        # affine_params = apply_center_of_rotation(affine_params, cr)
+        # t1 = params_to_matrix(affine_params)
+        #
+        # t10 = matrix_to_params(mult_aff(t1, t0))
+        # t10 = params_invert_coordinates(t10)
+        t0 = matrix_to_params(t0)
+        t0 = params_invert_coordinates(t0)
+        final_params.append(t0)
+
+    # relate all final parameters to ref_view
+    final_ref_params = []
+    for iim in range(len(ims)):
+        t0 = invert_params(final_params[ref_view_index])
+        t1 = final_params[iim]
+        tmp = mult_aff(params_to_matrix(t1), params_to_matrix(t0))
+        tmp = matrix_to_params(tmp)
+        final_ref_params.append(tmp)
+
+    # concatenate with input parameters
+    final_ref_params_concat = []
+    for iim in range(len(ims)):
+        t0 = final_ref_params[iim]
+        t1 = params0[iim]
+        tmp = mult_aff(params_to_matrix(t1), params_to_matrix(t0))
+        tmp = matrix_to_params(tmp)
+        final_ref_params_concat.append(tmp)
+
+    return np.array(final_ref_params_concat)
+
+from scipy.linalg import expm, logm
+import transformations
+@io_decorator
+def register_groupwise_euler_and_affine(orig_ims, params0, ref_view_index=0, iso_reg_spacing_relative_to_input_z=1,
+                           volume_mode='sample'):
+    """
+    - perform groupwise registration (to refine and globally optimise after pair registration)
+    - first euler, then affine works well
+    - works only with elastix v4.9
+    - principle: use varianceoverlastdimension metric together with affinelogstacktransform
+    - relate parameters back to reference view
+
+    :param ims:
+    :param params0:
+    :param elastix_dir:
+    :return:
+    """
+
+    reg_spacing = np.array([orig_ims[0].spacing[0] * iso_reg_spacing_relative_to_input_z] * 3).astype(np.float32)
+    stack_properties = calc_stack_properties_from_views_and_params(orig_ims, params0, reg_spacing, volume_mode)
+
+    ims = []
+    for iview in range(len(orig_ims)):
+        im = transform_stack_sitk(orig_ims[iview], params0[iview],
+                                  out_origin=stack_properties['origin'],
+                                  out_shape=stack_properties['size'],
+                                  out_spacing=stack_properties['spacing'])
+        ims.append(im)
+
+    vectorOfImages = sitk.VectorOfImage()
+    for iim, im in enumerate(ims):
+        vectorOfImages.push_back(image_to_sitk(im))
+
+    image = sitk.JoinSeries(vectorOfImages)
+
+    # Register
+    groupwiseParameterMap1 = sitk.GetDefaultParameterMap('groupwise')
+    groupwiseParameterMap1['FixedInternalImagePixelType'] = ['float']
+    groupwiseParameterMap1['MovingInternalImagePixelType'] = ['float']
+    groupwiseParameterMap1['NumberOfResolutions'] = ['6']  # default is 4
+    # groupwiseParameterMap1['MaximumNumberOfIterations'] = ['5000']  # default is 250
+    groupwiseParameterMap1['MaximumNumberOfIterations'] = ['500']  # default is 250
+    groupwiseParameterMap1['NumberOfSpatialSamples'] = ['16384']  # default is 2048
+    # groupwiseParameterMap1['NumberOfSpatialSamples'] = ['32768']  # default is 2048
+    # groupwiseParameterMap1['NumberOfSpatialSamples'] = ['8192']  # default is 2048
+    # groupwiseParameterMap1['NumberOfSpatialSamples'] = ['2048']  # default is 2048
+
+    groupwiseParameterMap1['Transform'] = ['EulerStackTransform']  # default is 2048
+    # groupwiseParameterMap1['Scales'] = [' '.join(['10000 10000 10000 1 1 1']*len(ims))]  # default is 2048
+
+    groupwiseParameterMap2 = sitk.GetDefaultParameterMap('groupwise')
+    groupwiseParameterMap2['FixedInternalImagePixelType'] = ['float']
+    groupwiseParameterMap2['MovingInternalImagePixelType'] = ['float']
+    groupwiseParameterMap2['NumberOfResolutions'] = ['3']  # default is 4
+    groupwiseParameterMap2['MaximumNumberOfIterations'] = ['500']  # default is 250
+    groupwiseParameterMap2['NumberOfSpatialSamples'] = ['16384']  # default is 2048
+    # groupwiseParameterMap2['NumberOfSpatialSamples'] = ['32768']  # default is 2048
+    groupwiseParameterMap2['Transform'] = ['AffineLogStackTransform']  # default is 2048
+    # groupwiseParameterMap2['Scales'] = [' '.join(['10000 10000 10000 10000 10000 10000 10000 10000 10000 1 1 1']*len(ims))]  # default is 2048
+
+    elastixImageFilter = sitk.ElastixImageFilter()
+    elastixImageFilter.SetFixedImage(image)
+    elastixImageFilter.SetMovingImage(image)
+    elastixImageFilter.SetParameterMap([groupwiseParameterMap1, groupwiseParameterMap2])
+    elastixImageFilter.Execute()
+
+    p1 = elastixImageFilter.GetTransformParameterMap()[0]
+    p2 = elastixImageFilter.GetTransformParameterMap()[1]
+
+    raw_params = []
+    for p in [p1, p2]:
+        for line in p.iteritems():
+            if line[0] == 'TransformParameters':
+                tmp = np.array([float(i) for i in line[1]])
+                tmp = tmp.reshape((len(ims), -1))
+                raw_params.append(tmp)
+                break
+
+    def apply_center_of_rotation(p, cr):
+        translation = p[-3:] - np.dot(p[:9].reshape((3, 3)), cr) + cr
+        resp = np.concatenate([p[:9], translation], 0)
+        return resp
+
+    # center of rotation
+    cr = (ims[0].origin + ims[0].spacing * np.array(ims[0].shape) / 2)[::-1]
+
+    final_params = []
+    for iim in range(len(ims)):
+        # process euler transform
+        raw_p = raw_params[0][iim]
+        tmp = transformations.euler_matrix(raw_p[0], raw_p[1], raw_p[2])
+        affine_params = np.zeros(12)
+        affine_params[:9] = tmp[:3, :3].flatten()
+        affine_params[-3:] = np.array([raw_p[3], raw_p[4], raw_p[5]])
+        # euler doesn't seem to need center of rotation application
+        # (or center of rotation is 0)
+        # affine_params = apply_center_of_rotation(affine_params,cr)
+        t0 = params_to_matrix(affine_params)
+
+        # process affine transform
+        raw_p = raw_params[1][iim]
+        affine_params = params_to_matrix(raw_p)
+        affine_params = expm(affine_params)
+        affine_params = matrix_to_params(affine_params)
+        # affine params needs center of rotation application (physical center of the image)
+        affine_params = apply_center_of_rotation(affine_params, cr)
+        t1 = params_to_matrix(affine_params)
+
+        t10 = matrix_to_params(mult_aff(t1, t0))
+        t10 = params_invert_coordinates(t10)
+        final_params.append(t10)
+
+    # relate all final parameters to ref_view
+    final_ref_params = []
+    for iim in range(len(ims)):
+        t0 = invert_params(final_params[ref_view_index])
+        t1 = final_params[iim]
+        tmp = mult_aff(params_to_matrix(t1), params_to_matrix(t0))
+        tmp = matrix_to_params(tmp)
+        final_ref_params.append(tmp)
+
+    # concatenate with input parameters
+    final_ref_params_concat = []
+    for iim in range(len(ims)):
+        t0 = final_ref_params[iim]
+        t1 = params0[iim]
+        tmp = mult_aff(params_to_matrix(t1), params_to_matrix(t0))
+        tmp = matrix_to_params(tmp)
+        final_ref_params_concat.append(tmp)
+
+    return np.array(final_ref_params_concat)
+
+    # # compute mean image
+    # transformed_img = elastixImageFilter.GetResultImage()
+    # extract_filter = sitk.ExtractImageFilter()
+    # size = list(transformed_img.GetSize())
+    # size[3] = 0 # set t to 0 to collapse this dimension
+    # extract_filter.SetSize(size)
+    # imgs = []
+    # for i in range(len(vectorOfImages)):
+    #     extract_filter.SetIndex([0, 0, 0, i]) # x, y, z, t
+    #     img = extract_filter.Execute(transformed_img)
+    #     imgs.append(sitk.GetArrayFromImage(img))
+    #
+    #
+    # img_mean = np.mean(imgs, axis=0)
+    # img_fused = sitk.GetImageFromArray(img_mean)
+    # sitk.WriteImage(img_fused,'/data/malbert/regtest/mv_transf_view_mean.imagear.mhd')
+    #
+    # for i in range(len(vectorOfImages)):
+    #     sitk.WriteImage(sitk.GetImageFromArray(imgs[i]), '/data/malbert/regtest/mv_transf_view_after_groupwise_%02d.imagear.mhd' %i)
+    #
+    # params = 0
+    # return params
+
+# @io_decorator
+# def get_final_params_global(ref_view,pairs,params,time_alignment_params=None):
+#     """
+#     time_alignment_params: single params from longitudinal registration to be concatenated with view params
+#     """
+#
+#     import networkx
+#     g = networkx.DiGraph()
+#     for ipair,pair in enumerate(pairs):
+#         # g.add_edge(pair[0],pair[1],{'p': params[ipair]})
+#         g.add_edge(pair[0],pair[1], p = params[ipair]) # after update 201809 networkx seems to have changed
+#
+#     all_views = np.unique(np.array(pairs).flatten())
+#     # views_to_transform = np.sort(np.array(list(set(all_views).difference(set([ref_view])))))
+#
+#     # calculate params mapping coords in common space to those in the views
+#     params_common_space_to_view = dict()
+#     for iview0,view0 in enumerate(all_views):
+#
+#         params_to_other_views = []
+#         for iview1, view1 in enumerate(all_views):
+#
+#             if view0 == view1: params_to_other_views.append(matrix_to_params(np.eye(4)))
+#             else:
+#                 paths = networkx.all_shortest_paths(g,view0,view1)
+#                 paths_params = []
+#                 for ipath,path in enumerate(paths):
+#                     path_pairs = [[path[i],path[i+1]] for i in range(len(path)-1)]
+#                     print(path_pairs)
+#                     path_params = np.eye(4)
+#                     for edge in path_pairs:
+#                         tmp_params = params_to_matrix(g.get_edge_data(edge[0],edge[1])['p'])
+#                         path_params = mult_aff(tmp_params,path_params)
+#                         print(path_params)
+#                     paths_params.append(matrix_to_params(path_params))
+#
+#                 # params_pairwise['%03d_%03d' %(view0,view1)] = np.mean(paths_params,0)
+#                 params_to_other_views.append(np.mean(paths_params,0))
+#
+#         mean_to_other_views = np.mean(params_to_other_views,0)
+#
+#         if view0 == ref_view:
+#             params_ref_to_common = mean_to_other_views
+#             print(params_ref_to_common)
+#
+#         mean_to_other_views_inv = invert_params(mean_to_other_views)
+#         params_common_space_to_view[view0] = mean_to_other_views_inv
+#
+#     # compose params such that params map coords in ref_view to coords in the views
+#
+#     final_params = []
+#     for iview, view in enumerate(all_views):
+#         if view == ref_view: final_view_params = matrix_to_params(np.eye(4))
+#         else:
+#             final_view_params = mult_aff(params_to_matrix(params_ref_to_common), params_to_matrix(params_common_space_to_view[view]))
+#             final_view_params = matrix_to_params(final_view_params)
+#
+#         # concatenate with time alignment if given
+#         if time_alignment_params is not None:
+#             final_view_params = concatenate_view_and_time_params(time_alignment_params,final_view_params)
+#
+#         final_params.append(final_view_params)
+#
+#     return np.array(final_params)
+
+# @io_decorator
+# def get_final_params_global(ref_view,pairs,params,time_alignment_params=None):
+#     """
+#     time_alignment_params: single params from longitudinal registration to be concatenated with view params
+#     """
+#
+#     import networkx
+#     g = networkx.DiGraph()
+#     for ipair,pair in enumerate(pairs):
+#         g.add_edge(pair[0],pair[1], p = params[ipair]) # after update 201809 networkx seems to have changed
+#         g.add_edge(pair[1],pair[0], p = invert_params(params[ipair])) # after update 201809 networkx seems to have changed
+#
+#     all_views = np.unique(np.array(pairs).flatten())
+#     # views_to_transform = np.sort(np.array(list(set(all_views).difference(set([ref_view])))))
+#
+#     # calculate params mapping coords in common space to those in the views
+#     params_common_space_to_view = dict()
+#     params_pairwise = dict()
+#     for iview0,view0 in enumerate(all_views):
+#         for iview1, view1 in enumerate(all_views):
+#
+#             if view0 == view1: pairwise = matrix_to_params(np.eye(4))
+#             else:
+#                 paths = networkx.all_shortest_paths(g,view0,view1)
+#                 paths_params = []
+#                 for ipath,path in enumerate(paths):
+#                     path_pairs = [[path[i],path[i+1]] for i in range(len(path)-1)]
+#                     print(path_pairs)
+#                     path_params = np.eye(4)
+#                     for edge in path_pairs:
+#                         tmp_params = params_to_matrix(g.get_edge_data(edge[0],edge[1])['p'])
+#                         path_params = mult_aff(tmp_params,path_params)
+#                         print(path_params)
+#                     paths_params.append(matrix_to_params(path_params))
+#
+#                 # params_pairwise['%03d_%03d' %(view0,view1)] = np.mean(paths_params,0)
+#                 pairwise = np.mean(paths_params,0)
+#
+#             params_pairwise[(view0,view1)] = pairwise
+#
+#     # calc params to ref as mean over every intermediate
+#     final_params = []
+#     for iview, view in enumerate(all_views):
+#         intermediates = []
+#         for iview_interm, view_interm in enumerate(all_views):
+#             ref_to_intermediate  = params_to_matrix(params_pairwise[(ref_view   ,view_interm)])
+#             intermediate_to_view = params_to_matrix(params_pairwise[(view_interm,view       )])
+#             ref_to_view = matrix_to_params(mult_aff(intermediate_to_view, ref_to_intermediate))
+#             intermediates.append(ref_to_view)
+#         final_view_params = np.mean(intermediates,0)
+#
+#         # concatenate with time alignment if given
+#         if time_alignment_params is not None:
+#             final_view_params = concatenate_view_and_time_params(time_alignment_params,final_view_params)
+#
+#         final_params.append(final_view_params)
+#
+#     return np.array(final_params)
+
+# @io_decorator
+# def get_params_pairwise(ref_view,pairs,params,time_alignment_params=None):
+#     """
+#     time_alignment_params: single params from longitudinal registration to be concatenated with view params
+#     """
+#
+#     import networkx
+#     g = networkx.DiGraph()
+#     for ipair,pair in enumerate(pairs):
+#         g.add_edge(pair[0],pair[1], p = params[ipair]) # after update 201809 networkx seems to have changed
+#         g.add_edge(pair[1],pair[0], p = invert_params(params[ipair])) # after update 201809 networkx seems to have changed
+#
+#     all_views = np.unique(np.array(pairs).flatten())
+#     # views_to_transform = np.sort(np.array(list(set(all_views).difference(set([ref_view])))))
+#
+#     # calculate params mapping coords in common space to those in the views
+#     params_common_space_to_view = dict()
+#     params_pairwise = dict()
+#     for iview0,view0 in enumerate(all_views):
+#         for iview1, view1 in enumerate(all_views):
+#
+#             if view0 == view1: pairwise = matrix_to_params(np.eye(4))
+#             else:
+#                 paths = networkx.all_shortest_paths(g,view0,view1)
+#                 paths_params = []
+#                 for ipath,path in enumerate(paths):
+#                     path_pairs = [[path[i],path[i+1]] for i in range(len(path)-1)]
+#                     print(path_pairs)
+#                     path_params = np.eye(4)
+#                     for edge in path_pairs:
+#                         tmp_params = params_to_matrix(g.get_edge_data(edge[0],edge[1])['p'])
+#                         path_params = mult_aff(tmp_params,path_params)
+#                         print(path_params)
+#                     paths_params.append(matrix_to_params(path_params))
+#
+#                 # params_pairwise['%03d_%03d' %(view0,view1)] = np.mean(paths_params,0)
+#                 pairwise = np.mean(paths_params,0)
+#
+#             params_pairwise[(view0,view1)] = pairwise
+#     return params_pairwise
 
 def get_union_volume(ims, params):
     """
@@ -1734,13 +2819,443 @@ def calc_stack_properties_from_volume(volume,spacing):
 
     return properties_dict
 
-def fuse_views_simple(views,params,spacing=None):
+# @io_decorator
+# def get_weights_simple(
+#                     views,
+#                     params,
+#                     stack_properties,
+#                     ):
+#     """
+#     sigmoid on borders
+#     """
+#
+#     w_stack_properties = stack_properties.copy()
+#     minspacing = 3.
+#     changed_stack_properties = False
+#     if w_stack_properties['spacing'][0] < minspacing:
+#         changed_stack_properties = True
+#         print('using downsampled images for calculating simple weights..')
+#         w_stack_properties['spacing'] = np.array([minspacing]*3)
+#         w_stack_properties['size'] = (stack_properties['spacing'][0]/w_stack_properties['spacing'][0])*stack_properties['size']
+#
+#     ws = []
+#     for iview,view in enumerate(views):
+#
+#         tmporigin = views[iview].origin+views[iview].spacing/2.
+#         badplanes = int(0/views[iview].spacing[0]) # in microns
+#         tmporigin[0]+= views[iview].spacing[0]*badplanes
+#         # print('WATCH OUT! simple_weights: disregarding %s bad planes at the end of the stack' % badplanes)
+#         # sig =
+#
+#         # x,y,z = np.mgrid[:sig.shape[0],:sig.shape[1],:sig.shape[2]]
+#         # dists = np.ones(sig.shape)*np.max(sig.shape)
+#         # for d in range(3):
+#         #     ddists =
+#         #     dists = np.min([dists,ddists])
+#         reducedview = view[badplanes:-1,:-1,:-1]
+#         tmp_view = ImageArray(reducedview+1,spacing=views[iview].spacing,origin=tmporigin,rotation=views[iview].rotation)
+#         # tmp_view = ImageArray(view[:-1,:-1,:-1]+1,spacing=views[iview].spacing,origin=views[iview].origin+views[iview].spacing/2.,rotation=views[iview].rotation)
+#         mask = transform_stack_sitk(tmp_view,params[iview],
+#                                out_origin=w_stack_properties['origin'],
+#                                out_shape=w_stack_properties['size'],
+#                                out_spacing=w_stack_properties['spacing'],
+#                                 interp='nearest')
+#
+#         def sigmoid(x,borderwidth):
+#             x0 = float(borderwidth)/2.
+#             a = 12./borderwidth
+#             return 1/(1+np.exp(-a*(x-x0)))
+#
+#         r = 0.1 # relative border width
+#         sig = np.ones(reducedview.shape,dtype=np.float32)
+#         for d in range(3):
+#             borderwidth = int(r * sig.shape[d])
+#             print(borderwidth)
+#             slices = [slice(0, sig.shape[i]) for i in range(3)]
+#             for bx in range(borderwidth):
+#                 slices[d] = slice(bx, bx + 1)
+#                 sig[tuple(slices)] = np.min([sig[tuple(slices)] * 0 + sigmoid(bx, borderwidth), sig[tuple(slices)]], 0)
+#
+#             # don't blend best part of the image (assuming that is true for high zs)
+#             if d > 0: borderwidth = int(0.01 * sig.shape[d])
+#             for bx in range(borderwidth):
+#                 slices[d] = slice(sig.shape[d] - bx - 1, sig.shape[d] - bx)
+#                 sig[tuple(slices)] = np.min([sig[tuple(slices)] * 0 + sigmoid(bx, borderwidth), sig[tuple(slices)]], 0)
+#
+#         sig = ImageArray(sig,spacing=views[iview].spacing,origin=views[iview].origin)
+#         tmpvs = transform_stack_sitk(sig,params[iview],
+#                                out_origin=w_stack_properties['origin'],
+#                                out_shape=w_stack_properties['size'],
+#                                out_spacing=w_stack_properties['spacing'])
+#
+#
+#         mask = mask > 0
+#         # print('WARNING; 1 ITERATIONS FOR MASK DILATION (DCT WEIGHTS')
+#         # mask = ndimage.binary_dilation(mask == 0,iterations=1)
+#         ws.append(tmpvs*(mask))
+#
+#     if changed_stack_properties:
+#         for iview in range(len(ws)):
+#             ws[iview] = transform_stack_sitk(ws[iview],[1,0,0,0,1,0,0,0,1,0,0,0],
+#                                    out_origin=stack_properties['origin'],
+#                                    out_shape=stack_properties['size'],
+#                                    out_spacing=stack_properties['spacing'])
+#
+#     wsum = np.sum(ws,0)
+#     wsum[wsum==0] = 1
+#     for iw,w in enumerate(ws):
+#         # ws[iw] /= wsum
+#         ws[iw] = ws[iw] / wsum
+#
+#     return ws
 
-    if spacing is None:
-        spacing = np.max([view.spacing for view in views],0)
+@io_decorator
+def get_weights_simple(
+                    views,
+                    params,
+                    stack_properties,
+                    ):
+    """
+    sigmoid on borders
+    """
 
-    volume = get_union_volume(views,params)
-    stack_properties = calc_stack_properties_from_volume(volume,spacing)
+    w_stack_properties = stack_properties.copy()
+    minspacing = 3.
+    changed_stack_properties = False
+    if w_stack_properties['spacing'][0] < minspacing:
+        changed_stack_properties = True
+        print('using downsampled images for calculating simple weights..')
+        w_stack_properties['spacing'] = np.array([minspacing]*3)
+        w_stack_properties['size'] = (stack_properties['spacing'][0]/w_stack_properties['spacing'][0])*stack_properties['size']
+
+    ws = []
+    for iview,view in enumerate(views):
+
+        tmporigin = views[iview].origin+views[iview].spacing/2.
+        badplanes = int(0/views[iview].spacing[0]) # in microns
+        tmporigin[0]+= views[iview].spacing[0]*badplanes
+        # print('WATCH OUT! simple_weights: disregarding %s bad planes at the end of the stack' % badplanes)
+        # sig =
+
+        # x,y,z = np.mgrid[:sig.shape[0],:sig.shape[1],:sig.shape[2]]
+        # dists = np.ones(sig.shape)*np.max(sig.shape)
+        # for d in range(3):
+        #     ddists =
+        #     dists = np.min([dists,ddists])
+        reducedview = view[badplanes:-1,:-1,:-1]
+        tmp_view = ImageArray(reducedview+1,spacing=views[iview].spacing,origin=tmporigin,rotation=views[iview].rotation)
+        # tmp_view = ImageArray(view[:-1,:-1,:-1]+1,spacing=views[iview].spacing,origin=views[iview].origin+views[iview].spacing/2.,rotation=views[iview].rotation)
+        mask = transform_stack_sitk(tmp_view,params[iview],
+                               out_origin=w_stack_properties['origin'],
+                               out_shape=w_stack_properties['size'],
+                               out_spacing=w_stack_properties['spacing'],
+                                interp='nearest')
+
+        def sigmoid(x,borderwidth):
+            x0 = float(borderwidth)/2.
+            a = 12./borderwidth
+            return 1/(1+np.exp(-a*(x-x0)))
+
+        r = 0.1 # relative border width
+        # sig = np.ones(reducedview.shape,dtype=np.float32)
+        sigN = 200
+        sig = np.ones([sigN]*3,dtype=np.float32)
+
+        for d in range(3):
+            borderwidth = int(r * sig.shape[d])
+            print(borderwidth)
+            slices = [slice(0, sig.shape[i]) for i in range(3)]
+            for bx in range(borderwidth):
+                slices[d] = slice(bx, bx + 1)
+                sig[tuple(slices)] = np.min([sig[tuple(slices)] * 0 + sigmoid(bx, borderwidth), sig[tuple(slices)]], 0)
+
+            # don't blend best part of the image (assuming that is true for high zs)
+            if d > 0: borderwidth = int(0.01 * sig.shape[d])
+            for bx in range(borderwidth):
+                slices[d] = slice(sig.shape[d] - bx - 1, sig.shape[d] - bx)
+                sig[tuple(slices)] = np.min([sig[tuple(slices)] * 0 + sigmoid(bx, borderwidth), sig[tuple(slices)]], 0)
+
+        # sig = ImageArray(sig,spacing=views[iview].spacing,origin=views[iview].origin)
+
+        sigspacing = (np.array(views[iview].shape)-1)/(sigN-1)*views[iview].spacing
+        sig = ImageArray(sig,spacing=sigspacing,origin=views[iview].origin)
+
+        tmpvs = transform_stack_sitk(sig,params[iview],
+                               out_origin=w_stack_properties['origin'],
+                               out_shape=w_stack_properties['size'],
+                               out_spacing=w_stack_properties['spacing'])
+
+
+        mask = mask > 0
+        # print('WARNING; 1 ITERATIONS FOR MASK DILATION (DCT WEIGHTS')
+        # mask = ndimage.binary_dilation(mask == 0,iterations=1)
+        ws.append(tmpvs*(mask))
+
+    if changed_stack_properties:
+        for iview in range(len(ws)):
+            ws[iview] = transform_stack_sitk(ws[iview],[1,0,0,0,1,0,0,0,1,0,0,0],
+                                   out_origin=stack_properties['origin'],
+                                   out_shape=stack_properties['size'],
+                                   out_spacing=stack_properties['spacing'])
+
+    wsum = np.sum(ws,0)
+    wsum[wsum==0] = 1
+    for iw,w in enumerate(ws):
+        # ws[iw] /= wsum
+        ws[iw] = ws[iw] / wsum
+
+    return ws
+
+
+from scipy.fftpack import dctn,idctn
+from scipy import ndimage
+import dask.array as da
+@io_decorator
+def get_weights_dct(
+                    views,
+                    params,
+                    stack_properties,
+                    # size=50,
+                    # max_kernel=10,
+                    # gaussian_kernel=10,
+                    size=None,
+                    max_kernel=None,
+                    gaussian_kernel=None,
+                    ):
+    """
+    DCT Shannon Entropy, as in:
+    Adaptive light-sheet microscopy for long-term, high-resolution imaging in living organisms
+    http://www.nature.com/articles/nbt.3708
+
+    Adaptations:
+    - consider the full bandwidth, so set r0=d0 in their equation
+    - calculate on blocks of size <size> and then interpolate to full grid
+    - run maximum filter
+    - run smoothing gaussian filter
+    - final sigmoidal blending at view transitions
+
+    :param vrs:
+    :return:
+    """
+
+    w_stack_properties = stack_properties.copy()
+    minspacing = 3.
+    changed_stack_properties = False
+    if w_stack_properties['spacing'][0] < minspacing:
+        changed_stack_properties = True
+        print('using downsampled images for calculating weights..')
+        w_stack_properties['spacing'] = np.array([minspacing]*3)
+        w_stack_properties['size'] = (stack_properties['spacing'][0]/w_stack_properties['spacing'][0])*stack_properties['size']
+
+    vs = []
+    vdils = []
+    for iview,view in enumerate(views):
+        tmpvs = transform_stack_sitk(view,params[iview],
+                               out_origin=w_stack_properties['origin'],
+                               out_shape=w_stack_properties['size'],
+                               out_spacing=w_stack_properties['spacing'])
+
+        tmporigin = views[iview].origin+views[iview].spacing/2.
+        badplanes = int(0/views[iview].spacing[0]) # in microns
+        tmporigin[0]+= views[iview].spacing[0]*badplanes
+        # print('WATCH OUT! dct_weights: disregarding %s bad planes at the end of the stack' % badplanes)
+        tmp_view = ImageArray(view[badplanes:-1,:-1,:-1]+1,spacing=views[iview].spacing,origin=tmporigin,rotation=views[iview].rotation)
+        # tmp_view = ImageArray(view[:-1,:-1,:-1]+1,spacing=views[iview].spacing,origin=views[iview].origin+views[iview].spacing/2.,rotation=views[iview].rotation)
+        mask = transform_stack_sitk(tmp_view,params[iview],
+                               out_origin=w_stack_properties['origin'],
+                               out_shape=w_stack_properties['size'],
+                               out_spacing=w_stack_properties['spacing'],
+                                interp='nearest')
+        # tmp[tmp==0] = 10
+        # mask = mask > 0
+        # print('WARNING; 1 ITERATIONS FOR MASK DILATION (DCT WEIGHTS')
+        # vdils.append(ndimage.binary_dilation(mask == 0,iterations=1))
+        vdils.append(mask == 0)
+        vs.append(tmpvs*(mask>0))
+
+    if size is None:
+        size = np.max([4,int(50 / vs[0].spacing[0])]) # 50um
+        print('dct: choosing size %s' %size)
+    if max_kernel is None:
+        max_kernel = int(size/2.)
+        print('dct: choosing max_kernel %s' %max_kernel)
+    if gaussian_kernel is None:
+        gaussian_kernel = int(max_kernel)
+        print('dct: choosing gaussian_kernel %s' %gaussian_kernel)
+
+    print('calculating dct weights...')
+    def determine_quality(vrs):
+
+        """
+        DCT Shannon Entropy, as in:
+        Adaptive light-sheet microscopy for long-term, high-resolution imaging in living organisms
+        http://www.nature.com/articles/nbt.3708
+        Consider the full bandwidth, so set r0=d0 in their equation
+        :param vrs:
+        :return:
+        """
+        # print('dw...')
+
+        vrs = np.copy(vrs)
+
+        axes = [0,1,2]
+        ds = []
+        for v in vrs:
+
+            if np.sum(v==0) > np.product(v.shape) * (4/5.):
+                ds.append([0])
+                continue
+            elif v.min()<0.0001:
+                v[v==0] = v[v>0].min() # or nearest neighbor
+
+            d = dctn(v,norm='ortho',axes=axes)
+            # cut = size//2
+            # d[:cut,:cut,:cut] = 0
+            ds.append(d.flatten())
+
+        # l2 norm
+        dsl2 = np.array([np.sum(np.abs(d)) for d in ds])
+        # don't divide by zero below
+        dsl2[dsl2==0] = 1
+
+        def abslog(x):
+            res = np.zeros_like(x)
+            x = np.abs(x)
+            res[x==0] = 0
+            res[x>0] = np.log2(x[x>0])
+            return res
+
+        ws = np.array([-np.sum(np.abs(d)*abslog(d/dsl2[id])) for id,d in enumerate(ds)])
+
+        # simple weights in case everything is zero
+        if not ws.max():
+            ws = np.ones(len(ws))/float(len(ws))
+
+        return ws[:,None,None,None]
+
+
+    x = da.from_array(np.array(vs), chunks=(len(vs),size,size,size))
+    # ws=x.map_blocks(determine_quality,dtype=np.float)
+    ws = x.map_blocks(determine_quality,dtype=np.float,chunks=(len(vs),1,1,1))
+
+    ws = ws.compute(scheduler = 'threads')
+    ws = np.array(ws)
+
+    ws = ImageArray(ws,
+                    spacing= np.array([size]*3)*np.array(w_stack_properties['spacing']),
+                    origin = w_stack_properties['origin'] + ((size-1)*w_stack_properties['spacing'])/2.,
+                    )
+
+    newws = []
+    for iw in range(len(ws)):
+        newws.append(transform_stack_sitk(ws[iw],
+                            [1,0,0,0,1,0,0,0,1,0,0,0],
+                            # out_shape=stack_properties['size'],
+                            # out_origin=stack_properties['origin'],
+                            # out_spacing=stack_properties['spacing'],
+                               out_origin=w_stack_properties['origin'],
+                               out_shape=w_stack_properties['size'],
+                               out_spacing=w_stack_properties['spacing'],
+                            interp='linear',
+                             ))
+    ws = np.array(newws)
+
+    for iw,w in enumerate(ws):
+        print('filtering')
+        ws[iw] = ndimage.maximum_filter(ws[iw],max_kernel)
+
+    for iw,w in enumerate(ws):
+        ws[iw][vdils[iw]] = 0
+
+    wsmin = ws.min(0)
+    wsmax = ws.max(0)
+    ws = np.array([(w - wsmin)/(wsmax - wsmin + 0.01) for w in ws])
+    # ws = np.array([(w - wsmin)/(wsmax - wsmin) for w in ws])
+
+    # for iw,w in enumerate(ws):
+    #     ws[iw][vdils[iw]] = 0.00001
+
+    wsum = np.sum(ws,0)
+    wsum[wsum==0] = 1
+    for iw,w in enumerate(ws):
+        ws[iw] /= wsum
+
+    # tifffile.imshow(np.array([np.array(ts)*10,ws]).swapaxes(-3,-2),vmax=10000)
+    for iw,w in enumerate(ws):
+        print('filtering')
+        # ws[iw] = ndimage.maximum_filter(ws[iw],10)
+        # ws[iw][vdils[iw]] = 0.00001
+        ws[iw] = ndimage.gaussian_filter(ws[iw],gaussian_kernel)
+        # zeros = ndimage.binary_dilation(vs[iw] == 0)
+        # ws[iw][zeros] = 0.00001
+        # ws[iw][vdils[iw]] = 0.00001
+        ws[iw][vdils[iw]] = 0
+
+    ws = list(ws)
+    for iw,w in enumerate(ws):
+        ws[iw] = ImageArray(ws[iw],
+                            origin=w_stack_properties['origin'],
+                            spacing=w_stack_properties['spacing'])
+
+    if changed_stack_properties:
+        for iview in range(len(ws)):
+            ws[iview] = transform_stack_sitk(ws[iview],[1,0,0,0,1,0,0,0,1,0,0,0],
+                                   out_origin=stack_properties['origin'],
+                                   out_shape=stack_properties['size'],
+                                   out_spacing=stack_properties['spacing'])
+
+    # smooth edges
+    ws_simple = get_weights_simple(
+                    views,
+                    params,
+                    stack_properties
+    )
+
+    ws = [ws[i]*ws_simple[i] for i in range(len(ws))]
+
+    wsum = np.sum(ws,0)
+    wsum[wsum==0] = 1
+    for iw,w in enumerate(ws):
+        ws[iw] /= wsum
+
+    return ws
+
+@io_decorator
+def fuse_views_weights(views,params,stack_properties,weights=None):
+
+    # if spacing is None:
+    #     spacing = np.max([view.spacing for view in views],0)
+
+    # volume = get_union_volume(views,params)
+    # stack_properties = calc_stack_properties_from_volume(volume,spacing)
+
+    transformed = []
+    for iview,view in enumerate(views):
+        tmp = transform_stack_sitk(view,params[iview],
+                               out_origin=stack_properties['origin'],
+                               out_shape=stack_properties['size'],
+                               out_spacing=stack_properties['spacing'])
+
+        transformed.append(np.array(tmp))
+
+    if weights is not None:
+        f = np.zeros_like(transformed[0])
+        for iw in range(len(transformed)):
+                f += (weights[iw]*transformed[iw].astype(np.float)).astype(np.uint16)
+    else:
+        f = np.mean(transformed,0)
+
+    f = ImageArray(f.astype(np.uint16),spacing=stack_properties['spacing'],origin=stack_properties['origin'])
+
+    return f
+
+def fuse_views_simple(views,params,stack_properties):
+
+    # if spacing is None:
+    #     spacing = np.max([view.spacing for view in views],0)
+
+    # volume = get_union_volume(views,params)
+    # stack_properties = calc_stack_properties_from_volume(volume,spacing)
 
     transformed = []
     for iview,view in enumerate(views):
@@ -1776,505 +3291,12 @@ def fuse_views(views,params,spacing=None):
 
     return fused
 
-def blur_view(view,
-              p,
-              orig_properties,
-              stack_properties,
-              sz,
-              sxy,
-              ):
-    """
-    adapted from https://code.google.com/archive/p/iterative-fusion/
-
-    :param view:
-    :param p:
-    :param orig_properties:
-    :param stack_properties:
-    :param sz:
-    :param sxy:
-    :return:
-    """
-
-    print('blur view..')
-
-    p = params_invert_coordinates(p)
-    inv_p = invert_params(p)
-
-    o = transformStack(
-                         p          = inv_p,
-                         stack      = view,
-                         outShape   = orig_properties['size'][::-1],
-                         outSpacing = orig_properties['spacing'][::-1],
-                         outOrigin  = orig_properties['origin'][::-1],
-                        # interp='bspline',
-                       )
-    # print('not blurring!')
-
-    o = sitk.SmoothingRecursiveGaussian(o,[sxy,sxy,sz])
-
-    # print('transform to fused..')
-    o = transformStack(
-                         p          = p,
-                         stack      = o,
-                         outShape   = stack_properties['size'][::-1],
-                         outSpacing = stack_properties['spacing'][::-1],
-                         outOrigin  = stack_properties['origin'][::-1],
-                        # interp='bspline',
-                       )
-    return o
-
-def density_to_multiview_data(
-                              density,
-                              params,
-                              orig_prop_list,
-                              stack_properties,
-                              sz,
-                              sxy,
-                              ):
-    """
-    Takes a 3D image input, returns a stack of multiview data
-    adapted from https://code.google.com/archive/p/iterative-fusion/
-    """
-
-    """
-    Simulate the imaging process by applying multiple blurs
-    """
-    out = []
-    for ip,p in enumerate(params):
-        print('gauss dm %s' %ip)
-        o = blur_view(density,p,orig_prop_list[ip],stack_properties,sz,sxy)
-        out.append(o)
-    return out
-
-def multiview_data_to_density(
-                              multiview_data,
-                              params,
-                              orig_prop_list,
-                              stack_properties,
-                              sz,
-                              sxy,
-                              weights,
-                              ):
-    """
-    The transpose of the density_to_multiview_data operation we perform above.
-    adapted from https://code.google.com/archive/p/iterative-fusion/
-
-    - multiply with DCT weights here
-    """
-
-    density = multiview_data[0]*0.
-    density = sitk.Cast(density,sitk.sitkFloat32)
-    # outs = multiview_data[0]*0.
-    # outs = sitk.Cast(outs,sitk.sitkUInt16)
-    for ip,p in enumerate(params):
-        print('gauss md %s' %ip)
-        o = multiview_data[ip]
-
-        # smooth and resample in original view
-        o = blur_view(o,p,orig_prop_list[ip],stack_properties,sz,sxy)
-
-        o = sitk.Cast(o,sitk.sitkFloat32)
-
-        o = o*weights[ip]
-
-        density += o
-
-    density = sitk.Cast(density,sitk.sitkFloat32)
-    return density
-
-from scipy.fftpack import dctn,idctn
-from scipy import ndimage
-import dask.array as da
-def get_weights_dct(
-                    views,
-                    params,
-                    stack_properties,
-                    size=50,
-                    max_kernel=10,
-                    gaussian_kernel=10,
-                    ):
-
-    # heuristic for okayish default values if not set
-    if size is None:
-        size = np.max([4,int(50 / vs[0].spacing[0])]) # 50um
-        print('dct: choosing size %s' %size)
-    if max_kernel is None:
-        max_kernel = int(size/2.)
-        print('dct: choosing max_kernel %s' %max_kernel)
-    if gaussian_kernel is None:
-        gaussian_kernel = int(max_kernel)
-        print('dct: choosing gaussian_kernel %s' %gaussian_kernel)
-
-    # if input spacing is smaller than minspacing, downsample
-    w_stack_properties = stack_properties.copy()
-    minspacing = 3.
-    changed_stack_properties = False
-    if w_stack_properties['spacing'][0] < minspacing:
-        changed_stack_properties = True
-        print('using downsampled images for calculating weights..')
-        w_stack_properties['spacing'] = np.array([minspacing]*3)
-        w_stack_properties['size'] = (stack_properties['spacing'][0]/w_stack_properties['spacing'][0])*stack_properties['size']
-
-    # transform views to target space and take care of borders
-    vs = []
-    vdils = [] # strange variable name but ok: dilated sample mask
-    for iview,view in enumerate(views):
-        tmpvs = transform_stack_sitk(view,params[iview],
-                               out_origin=w_stack_properties['origin'],
-                               out_shape=w_stack_properties['size'],
-                               out_spacing=w_stack_properties['spacing'])
-
-        tmp_view = ImageArray(view[:-1,:-1,:-1]+1,spacing=views[iview].spacing,origin=views[iview].origin+views[iview].spacing/2.,rotation=views[iview].rotation)
-        mask = transform_stack_sitk(tmp_view,params[iview],
-                               out_origin=w_stack_properties['origin'],
-                               out_shape=w_stack_properties['size'],
-                               out_spacing=w_stack_properties['spacing'],
-                                interp='nearest')
-        # tmp[tmp==0] = 10
-        mask = mask > 0
-        vdils.append(ndimage.binary_dilation(mask == 0))
-        vs.append(tmpvs*(mask>0))
-
-    def determine_quality(vrs):
-        # print('dw...')
-
-        vrs = np.copy(vrs)
-
-        axes = [0,1,2]
-        ds = []
-        for v in vrs:
-
-            if np.sum(v==0) > np.product(v.shape) * (4/5.):
-                ds.append([0])
-                continue
-            elif v.min()<0.0001:
-                v[v==0] = v[v>0].min() # or nearest neighbor
-
-            d = dctn(v,norm='ortho',axes=axes)
-            ds.append(d.flatten())
-
-        ws = np.array([np.sum(np.abs(d)) for d in ds])
-
-        # replace value of zero view by lowest
-        if not ws.max():
-            ws = np.ones(len(ws))/float(len(ws))
-
-        return ws[:,None,None,None]
-
-    # use dask to parallelise quality calculation
-    x = da.from_array(np.array(vs), chunks=(len(vs),size,size,size))
-    ws = x.map_blocks(determine_quality,dtype=np.float,chunks=(len(vs),1,1,1))
-
-    print('calculating dct weights...')
-    ws = ws.compute(scheduler = 'threads')
-    ws = np.array(ws)
-
-    # interpolate qualities to full image
-    ws = ImageArray(ws,
-                    spacing= np.array([size]*3)*np.array(w_stack_properties['spacing']),
-                    origin = w_stack_properties['origin'] + ((size-1)*w_stack_properties['spacing'])/2.,
-                    )
-
-    newws = []
-    for iw in range(len(ws)):
-        newws.append(transform_stack_sitk(ws[iw],
-                            [1,0,0,0,1,0,0,0,1,0,0,0],
-                               out_origin=w_stack_properties['origin'],
-                               out_shape=w_stack_properties['size'],
-                               out_spacing=w_stack_properties['spacing'],
-                            interp='linear',
-                             ))
-    ws = np.array(newws)
-
-    # maximum filter to create more consistency around regions with high quality values
-    # (which are typically seen around strong structures and less around good quality
-    # areas without signal)
-    for iw,w in enumerate(ws):
-        print('filtering')
-        ws[iw] = ndimage.maximum_filter(ws[iw],max_kernel)
-
-    for iw,w in enumerate(ws):
-        ws[iw][vdils[iw]] = 0
-
-    # rescale
-    wsmin = ws.min(0)
-    wsmax = ws.max(0)
-    ws = np.array([(w - wsmin)/(wsmax - wsmin + 0.01) for w in ws])
-
-    # normalise
-    wsum = np.sum(ws,0)
-    wsum[wsum==0] = 1
-    for iw,w in enumerate(ws):
-        ws[iw] /= wsum
-
-    # blur
-    for iw,w in enumerate(ws):
-        print('filtering')
-        ws[iw] = ndimage.gaussian_filter(ws[iw],gaussian_kernel)
-        ws[iw][vdils[iw]] = 0
-
-    wsum = np.sum(ws,0)
-    wsum[wsum==0] = 1
-    for iw,w in enumerate(ws):
-        ws[iw] /= wsum
-
-    ws = list(ws)
-    for iw,w in enumerate(ws):
-        ws[iw] = ImageArray(ws[iw],
-                            origin=w_stack_properties['origin'],
-                            spacing=w_stack_properties['spacing'])
-
-    if changed_stack_properties:
-        for iview in range(len(ws)):
-            ws[iview] = transform_stack_sitk(ws[iview],[1,0,0,0,1,0,0,0,1,0,0,0],
-                                   out_origin=stack_properties['origin'],
-                                   out_shape=stack_properties['size'],
-                                   out_spacing=stack_properties['spacing'])
-
-
-    return ws
-
-@io_decorator
-def fuse_LR_with_weights_dct(
-        views,
-        params,
-        stack_properties,
-        num_iterations = 25,
-        sz = 4,
-        sxy = 0.5
-):
-    """
-    Combine
-    - LR multiview fusion
-      (adapted from python code given in https://code.google.com/archive/p/iterative-fusion/
-       from publication https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3986040/)
-    - DCT weights
-
-    This addresses the problems that
-    1) multi-view deconvolution is highly dependent on high precision registration
-    between views. However, an affine transformation is often not enough due to
-    optical aberrations and results in poor overlap.
-    2) due to scattering, the psf strongly varies within each view
-
-    In the case of highly scattering samples, FFT+elastix typically results in good
-    registration accuracy in regions of good image quality (those with small psfs
-    and short optical paths through the sample). These regions are found using a DCT
-    quality measure and weighted accordingly. Therefore, to reduce the contribution
-    to multi-view LR of unwanted regions in the individual views, the weights are
-    applied in each iteration during convolution with the psf.
-
-    Adaptations and details:
-    - convolve views in original space
-     - recapitulates imaging process and trivially deals with view parameters
-     - allows for iterative raw data reconstruction without deconvolution
-     - disadvantage: slow in current implementation
-    - apply DCT weights in each blurring iteration to account for strong scattering
-    - simulate convolution by psf with gaussian blurring
-
-    Interesting case: sz,sxy=0
-    - formally no deconvolution but iterative multi-view raw data reconstruction
-
-    works well:
-    - sz6 it 10, some rings
-    - sz5 it 20, looks good (good compromise between sz and its)
-    - sz4 it 30, good and no rings
-
-    :param views: original views
-    :param params: parameters mapping views into target space
-    :param stack_properties: properties of target space
-    :param num_iterations: number of deconvolution iterations
-    :param sz: sigma z
-    :param sxy: sigma xy
-    :return:
-    """
-
-    # get orig properties
-    # zfactor = float(1)
-    orig_prop_list = []
-    for ip in range(len(params)):
-        prop_dict = dict()
-        prop_dict['size'] = views[ip].shape
-        prop_dict['origin'] = views[ip].origin
-        prop_dict['spacing'] = views[ip].spacing
-        orig_prop_list.append(prop_dict)
-
-    # get DCT weights
-    weights = get_weights_dct(
-                       views,
-                       params,
-                       stack_properties,
-                       # size=50,
-                       size=None,
-                       # max_kernel=10,
-                       max_kernel=None,
-                       # gaussian_kernel=10)
-                       gaussian_kernel=None)
-
-    # transform weights into sitk images
-    for iw in range(len(weights)):
-        tmp = sitk.GetImageFromArray(weights[iw])
-        tmp.SetSpacing(stack_properties['spacing'][::-1])
-        tmp.SetOrigin(stack_properties['origin'][::-1])
-        tmp = sitk.Cast(tmp,sitk.sitkFloat32)
-        weights[iw] = tmp
-
-    # transform views into target space
-    nviews = []
-    for iview,view in enumerate(views):
-        tmp = transform_stack_sitk(view,params[iview],
-                               out_origin=stack_properties['origin'],
-                               out_shape=stack_properties['size'],
-                               out_spacing=stack_properties['spacing'])
-
-        # make sure to take only interpolations with full data
-        # tmp_view = ImageArray(views[iview][:-1,:-1,:-1]+1,spacing=views[iview].spacing,origin=views[iview].origin+views[iview].spacing/2.,rotation=views[iview].rotation)
-        tmp_view = ImageArray(views[iview][:-1,:-1,:-1]+1,spacing=views[iview].spacing,origin=views[iview].origin+views[iview].spacing/2.,rotation=views[iview].rotation)
-        mask = transform_stack_sitk(tmp_view,params[iview],
-                               out_origin=stack_properties['origin'],
-                               out_shape=stack_properties['size'],
-                               out_spacing=stack_properties['spacing'],
-                                interp='nearest')
-        # tmp[tmp==0] = 10
-        mask = mask > 0
-        nviews.append(tmp*(mask))
-        # masks.append(mask)
-    views = nviews
-
-    # convert to sitk images
-    for ip,p in enumerate(params):
-        tmp = sitk.GetImageFromArray(views[ip])
-        tmp = sitk.Cast(tmp,sitk.sitkFloat32)
-        tmp.SetSpacing(views[ip].spacing[::-1])
-        tmp.SetOrigin(views[ip].origin[::-1])
-        # debug crop
-        # tmp = tmp[:,500:550,:]
-        views[ip] = tmp
-
-
-    """
-    Time for deconvolution!!!
-    This part is adapted from https://code.google.com/archive/p/iterative-fusion/
-    """
-
-    noisy_multiview_data = views
-    estimate = sitk.Image(
-        int(stack_properties['size'][2]),
-        int(stack_properties['size'][1]),
-        int(stack_properties['size'][0]),
-        sitk.sitkFloat32,
-    )
-    estimate *= 0.
-    estimate += 1.
-
-    estimate.SetSpacing(stack_properties['spacing'][::-1])
-    estimate.SetOrigin(stack_properties['origin'][::-1])
-
-    for i in range(num_iterations):
-        print("Iteration", i)
-        """
-        Construct the expected data from the estimate
-        """
-        print("Constructing estimated data...")
-
-        expected_data = density_to_multiview_data(
-              estimate,
-              params,
-              orig_prop_list,
-              stack_properties,
-              sz,
-              sxy,
-        )
-        # multiview_data_to_visualization(expected_data, outfile='expected_data.tif')
-        "Done constructing."
-        """
-        Take the ratio between the measured data and the expected data.
-        Store this ratio in 'expected_data'
-        """
-        for ip in range(len(params)):
-            expected_data[ip] += 1e-6 #Don't want to divide by 0!
-        expected_data = [noisy_multiview_data[ip] / expected_data[ip] for ip in range(len(params))]
-
-        """
-        Apply the transpose of the expected data operation to the correction factor
-        """
-        correction_factor = multiview_data_to_density(
-            expected_data,
-            params,
-            orig_prop_list,
-            stack_properties,
-            sz,
-            sxy,
-            weights,
-        )
-        """
-        Multiply the old estimate by the correction factor to get the new estimate
-        """
-        estimate = estimate * correction_factor
-
-        estimate = estimate * sitk.Cast(estimate<2**16,sitk.sitkFloat32)
-        estimate = estimate * sitk.Cast(estimate>0,    sitk.sitkFloat32)
-
-        """
-        Update the history
-        """
-
-    print("Done deconvolving")
-
-    estimate = ImageArray(sitk.GetArrayFromImage(estimate).astype(np.uint16),spacing=np.array(estimate.GetSpacing())[::-1],origin=np.array(estimate.GetOrigin())[::-1])
-
-    return estimate
-
-@io_decorator
-def fuse_views_weights(views,params,stack_properties,weights=None):
-
-    # if spacing is None:
-    #     spacing = np.max([view.spacing for view in views],0)
-
-    # volume = get_union_volume(views,params)
-    # stack_properties = calc_stack_properties_from_volume(volume,spacing)
-
-    transformed = []
-    for iview,view in enumerate(views):
-        tmp = transform_stack_dipy(view,params[iview],
-                               out_origin=stack_properties['origin'],
-                               out_shape=stack_properties['size'],
-                               out_spacing=stack_properties['spacing'])
-
-        transformed.append(np.array(tmp))
-
-    if weights is not None:
-        f = np.zeros_like(transformed[0])
-        for iw in range(len(transformed)):
-                f += (weights[iw]*transformed[iw].astype(np.float)).astype(np.uint16)
-    else:
-        f = np.mean(transformed,0)
-
-
-    f = ImageArray(f.astype(np.uint16),spacing=stack_properties['spacing'],origin=stack_properties['origin'])
-
-    return f
-
-@io_decorator
-def fuse_dct(views,params,stack_properties):
-    weights = get_weights_dct(views,params,stack_properties)
-    return fuse_views_weights(views,params,stack_properties,weights=weights)
-
-def image_to_sitk(im):
-    sim = sitk.GetImageFromArray(im)
-    sim.SetOrigin(im.origin[::-1])
-    sim.SetSpacing(im.spacing[::-1])
-    return sim
-
-def sitk_to_image(sim):
-    im = sitk.GetArrayFromImage(sim)
-    im = ImageArray(im,spacing=np.array(sim.GetSpacing())[::-1],origin=np.array(sim.GetOrigin())[::-1])
-    return im
-
 @io_decorator
 def calc_stack_properties_from_views_and_params(views,params,spacing=None,mode='sample'):
 
+    spacing = np.array(spacing).astype(np.float64)
     if spacing is None:
-        spacing = np.max([view.spacing for view in views],0).astype(np.float)
+        spacing = np.max([view.spacing for view in views],0)
 
     if mode == 'sample':
         volume = get_sample_volume(views,params)
@@ -2301,6 +3323,101 @@ def transform_view_with_decorator(view,params,iview,stack_properties):
 
     return ImageArray(sitk.GetArrayFromImage(sview),spacing=stack_properties['spacing'])
 
+@io_decorator
+def fuse_dct(views,params,stack_properties):
+    weights = get_weights_dct(views,params,stack_properties)
+    return fuse_views_weights(views,params,stack_properties,weights=weights)
+
+@io_decorator
+def fuse_views_content(views,
+                       axisOfRotation=1,
+                       gaussian_kernel_size=1.,
+                       window_size=5,max_proj=100):
+
+    """
+    deprecated fusion
+    :param views:
+    :param axisOfRotation:
+    :param gaussian_kernel_size:
+    :param window_size:
+    :param max_proj:
+    :return:
+    """
+
+    spacing = views[0].spacing
+    views = np.array(views)
+    nviews = len(views)
+
+    def fuse_plane(iplane):
+
+        print(iplane)
+
+        plane_slice = [slice(0,views[0].shape[dim]) for dim in range(views[0].ndim)]
+        plane_slice[axisOfRotation] = iplane
+        plane_slice = tuple(plane_slice)
+        view_plane_slice = (slice(0,len(views)),)+plane_slice
+        plane = views[view_plane_slice].astype(np.float32)
+
+        axes = [0,1]
+        weights = []
+        derivss = []
+        for iview,view in enumerate(plane):
+            derivs = []
+            domain = view > 0
+            ndomain = view==0
+            ndomain = ndimage.binary_erosion(ndomain,iterations=1)
+            ndomain = ndimage.binary_dilation(ndomain,iterations=int(np.max([gaussian_kernel_size,window_size])))
+            for dim in axes:
+                deriv = np.abs(ndimage.gaussian_filter1d(view,gaussian_kernel_size,axis=dim,order=1))
+                deriv[ndomain] = 0.00
+                # this step above induces lines!!!
+                deriv[ndomain] = 0
+                deriv[domain] = deriv[domain] / view[domain]
+                deriv = ndimage.convolve1d(deriv,np.ones(window_size),axis=dim)
+                deriv = ndimage.filters.maximum_filter1d(deriv,max_proj,axis=dim)
+                derivs.append(deriv)
+            derivss.append(derivs)
+            weight = np.sum([np.abs(deriv)**5 for deriv in derivs],0)
+            # weight = np.sum([np.abs(deriv)**10 for deriv in derivs],0)
+            # print('watch out in fusion!')
+            weight[ndomain] = 0.00
+#             weight = ndimage.grey_dilation
+            weights.append(weight)
+
+        weights = np.array(weights)
+        weightsum = np.sum(weights,0)
+        domain = weightsum > 0
+        # weights[:,domain] /= weightsum[domain]
+        weights[:,domain] = weights[:,domain] / weightsum[domain]
+
+        result_array[plane_slice] = np.sum([weights[iview]*plane[iview] for iview in range(nviews)],0)
+
+        return
+
+    # slices = []
+    # for iplane in range(views[0].shape[axisOfRotation]):
+    #     plane_slice = [slice(0,view[0][dim]) for dim in range(views[0].ndim)]
+    #     plane_slice[axisOfRotation] = iplane
+    #     slices.append((slice(0,len(views)),)+tuple(plane_slice))
+
+#     from multiprocessing import Pool
+    from multiprocessing.dummy import Pool as ThreadPool
+    import ctypes,multiprocessing
+
+    result_array_base = multiprocessing.Array(ctypes.c_uint16, int(np.product(views[0].shape)))
+    result_array = np.ctypeslib.as_array(result_array_base.get_obj())
+    result_array = result_array.reshape(*views[0].shape)
+
+    pool = ThreadPool()
+    pmap = pool.map
+    # pmap = map
+    pmap(fuse_plane, [iplane for iplane in range(views[0].shape[axisOfRotation])])
+
+    pool.close()
+
+    # result_array = sitk.GetImageFromArray(result_array)
+    # drop origin for fused image
+    return ImageArray(result_array,origin=np.zeros(3),spacing=spacing)
 
 @io_decorator
 def calc_lambda_fusion_seg(
@@ -2360,6 +3477,863 @@ def calc_lambda_fusion_seg(
     seg = ImageArray(seg,spacing=ts[0].spacing,rotation=ts[0].rotation,origin=ts[0].origin)
 
     return seg
+
+
+def get_lambda_weights(
+                        views,
+                        params,
+                        stack_properties,
+                        seg = None,
+                        ):
+
+    """
+    weights are calculated before transforming
+    """
+    # stack_properties = calc_stack_properties_from_views_and_params(views,params,spacing)
+
+    # save views for later
+
+    # compress arrays in memory to save RAM in case of many zeros
+    import bcolz
+
+    ts = []
+    for i in range(len(views)):
+        print('transforming view %s' %i)
+        t = transform_stack_sitk(
+        # t = mv_utils.transform_stack_dipy(
+                                                # vsr[i],final_params[i],
+                                                views[i]+1,params[i], # adding one because of weights (taken away again further down)
+                                                out_shape=stack_properties['size'],
+                                                out_spacing=stack_properties['spacing'],
+                                                out_origin=stack_properties['origin'],
+                                                )
+
+        # make sure that only those pixels are kept which are interpolated from 100% valid interpolation pixels
+        tmp_view = ImageArray(views[i][:-1,:-1,:-1]+1,spacing=views[i].spacing,origin=views[i].origin+views[i].spacing/2.,rotation=views[i].rotation)
+
+        mask = transform_stack_sitk(
+        # t = mv_utils.transform_stack_dipy(
+                                                # vsr[i],final_params[i],
+                                                tmp_view, params[i],
+                                                out_shape=stack_properties['size'],
+                                                out_spacing=stack_properties['spacing'],
+                                                out_origin=stack_properties['origin'],
+                                                interp='nearest',
+                                                )
+        # mask = sitk.GetArrayFromImage((mask>0).astype(np.uint16))
+        # mask = sitk.BinaryErode(mask)
+        # barr = bcolz.carray(t*(mask>0))
+        barr = (t*(mask>0))
+        del t
+        ts.append(barr)
+        del tmp_view
+        del mask
+
+    # ts = np.array(ts)
+
+    if seg is None:
+        tmin = np.max(ts,0)
+        for t in ts: d = t>0; tmin[d] = np.min([tmin[d],t[d]],0)
+        del t,d
+        tmin = ndimage.gaussian_filter(tmin,2)
+        min_int = np.percentile(tmin.flatten()[1:-1:100],1)
+        mean_int = np.mean(tmin.flatten()[1:-1:100])
+        seg_level = min_int + (mean_int - min_int)*0.4
+        seg = (tmin > seg_level).astype(np.uint16)
+        seg = ImageArray(seg,spacing=ts[0].spacing,rotation=ts[0].rotation,origin=ts[0].origin)
+    else:
+        print('fusion lambda: loading seg from %s' %seg)
+        io_utils.process_input_element(seg)
+
+    weights = []
+    for i in range(len(views)):
+        print('calculating weight %s' %i)
+        inv_params = invert_params(params[i])
+        tmp_weights_spacing = np.array(stack_properties['spacing']) * 4
+        tmp_out_size = (views[i].spacing * np.array(views[i].shape) / tmp_weights_spacing).astype(np.int64)
+        tmp_out_origin = views[i].origin
+        pad = np.ones(3)*1
+        tmp_out_size = (tmp_out_size + 2*pad).astype(np.int64)
+        tmp_out_origin = tmp_out_origin - pad * tmp_weights_spacing
+        bt = transform_stack_sitk(seg,inv_params,
+                                                out_shape=tmp_out_size,
+                                                out_spacing=tmp_weights_spacing,
+                                                out_origin=tmp_out_origin,
+                                                )
+        bt = bt.astype(np.float32)
+
+        bt = np.cumsum(bt[::-1],axis=0)[::-1]
+
+        # orig is 0.1, 5
+        # bt = 0.1 + np.exp(-5/np.max(bt)*bt)
+
+        bt = 0.1 + np.exp(-5/np.max(bt)*bt)
+        bt = transform_stack_sitk(bt,params[i],
+                                                out_shape=stack_properties['size'],
+                                                out_spacing=stack_properties['spacing'],
+                                                out_origin=stack_properties['origin'],
+                                                )
+
+        barr = bcolz.carray(bt)
+        del bt
+        weights.append(barr)
+
+    del seg
+
+    # weights = [w**2 for w in weights]
+    # zero weights where there's no signal
+    # weights = [weights[i]*(ts[i]>0) for i in range(len(weights))]
+    for i in range(len(weights)):
+        # weights[i] = weights[i][:]**2 # from bcolz carray to np.ndarray
+        # weights[i] = weights[i]*(ts[i]>0)
+        # weights[i] = bcolz.carray(weights[i])
+        w = weights[i]
+        t = ts[i]
+        # weights[i] = bcolz.eval('w**2 * (t>0)')
+        weights[i] = bcolz.eval('w * (t>0)')
+
+
+    # tifffile.imshow(np.array([t/500.,mask>0,bt]),vmin=0,vmax=1)
+    # tifffile.imshow(np.array([ts[1]/500.,weights[1]]),vmin=0,vmax=1)
+
+    # normalise weights
+    # weight_sum = np.sum(weights,0)
+
+    weight_sum = np.zeros_like(weights[0])
+    for i in range(len(weights)):
+        weight_sum += weights[i][:] # from bcolz carray to np.ndarray
+
+    domain = weight_sum > 0
+    for i in range(len(weights)):
+        weights[i] = weights[i][:]
+        weights[i][domain] = weights[i][domain] / weight_sum[domain]
+        weights[i] = bcolz.carray(weights[i])
+
+    return weights
+
+def blur_view_in_view_space(view,
+              p,
+              orig_properties,
+              stack_properties,
+              sz,
+              sxy,
+              ):
+
+    # print('blur view..')
+    p = params_invert_coordinates(p)
+    inv_p = invert_params(p)
+    # print('transf md %s' %ip)
+    # o = transform_stack_sitk(density,
+    #                      p           = inv_p,
+    #                      out_shape   = orig_prop_list[ip]['size'],
+    #                      out_spacing = orig_prop_list[ip]['spacing'],
+    #                      out_origin  = orig_prop_list[ip]['origin'],
+    #                      interp      ='linear')
+    # print('transform to view..')
+    o = transformStack(
+                         p          = inv_p,
+                         stack      = view,
+                         outShape   = orig_properties['size'][::-1],
+                         outSpacing = orig_properties['spacing'][::-1],
+                         outOrigin  = orig_properties['origin'][::-1],
+                        # interp='bspline',
+                       )
+    # print('not blurring!')
+    # print('Warning: hard coded blur')
+    if sz:
+        # o = (sitk.SmoothingRecursiveGaussian(o,[0.2,0.2,2]) + 0.5*sitk.SmoothingRecursiveGaussian(o,[2,2,7]))/1.5
+        o = sitk.SmoothingRecursiveGaussian(o,[sxy,sxy,sz])
+    # else:
+        # print('not blurring! (not sz is True)')
+    # print('transform to fused..')
+    o = transformStack(
+                         p          = p,
+                         stack      = o,
+                         outShape   = stack_properties['size'][::-1],
+                         outSpacing = stack_properties['spacing'][::-1],
+                         outOrigin  = stack_properties['origin'][::-1],
+                        # interp='bspline',
+                       )
+    return o
+
+
+def blur_view_in_target_space(view,
+              p,
+              orig_properties_unused,
+              stack_properties,
+              sz,
+              sxy,
+              ):
+    """
+
+    :param view: in target space
+    :param p: normal view p
+    :param stack_properties:
+    :param sz:
+    :param sxy:
+    :return:
+    """
+
+    if not sz and not sxy:
+        print('not blurring because of zero sigmas')
+        return view
+
+    print('blur view..')
+
+    # construct psf with shape containing kernel radius three times
+    psf_shape = (np.array([np.max([1,np.max([sz,sxy,sxy])*3])]) / stack_properties['spacing']).astype(np.int64)
+    ## make shape odd
+    psf_shape = np.array([ps+[1,0][int(ps%2)] for ps in psf_shape]).astype(np.int64)
+    print('psf with sigma %s has shape %s' %([sxy,sxy,sz],list(psf_shape)))
+    psf_orig = np.zeros(psf_shape,dtype=np.float32)
+    psf_orig[psf_shape[0]//2,psf_shape[1]//2,psf_shape[2]//2]     = 1
+
+    ## blur
+    psf_orig = ndimage.gaussian_filter(psf_orig,np.array([sz,sxy,sxy])/stack_properties['spacing'])
+    ## assign metadata
+    psf_orig = ImageArray(psf_orig)
+    psf_orig.spacing = stack_properties['spacing']
+    psf_orig.origin = -stack_properties['spacing']*(psf_shape//2)
+    # psf_orig_sitk = image_to_sitk(psf_orig)
+
+    psf_stack_properties = dict()
+    psf_stack_properties['spacing'] = stack_properties['spacing']
+    psf_stack_properties['origin']  = psf_orig.origin
+    # psf_stack_properties['origin']  = np.zeros(3)
+    psf_stack_properties['size']    = psf_shape
+
+    # print(psf_orig.get_info())
+    # print(psf_stack_properties)
+
+    # eliminate translation component from parameters
+    tmpp = np.copy(p)
+    tmpp[-3:] = 0
+
+    psf_target = transform_stack_sitk(psf_orig, tmpp,
+                                out_origin=psf_stack_properties['origin'],
+                                out_shape=psf_stack_properties['size'],
+                                out_spacing=psf_stack_properties['spacing'],
+                                interp='linear')
+
+    # normalise
+    psf_target = psf_target / np.sum(psf_target)
+    psf_target = psf_target.astype(np.float32)
+
+    psf_target = image_to_sitk(psf_target)
+    # conv = sitk.Convolution(sitk.Cast(view,sitk.sitkFloat32),psf_target)
+    conv = sitk.FFTConvolution(sitk.Cast(view,sitk.sitkFloat32),psf_target)
+
+    return conv
+
+def density_to_multiview_data(
+                              density,
+                              params,
+                              orig_prop_list,
+                              stack_properties,
+                              sz,
+                              sxy,
+                              blur_func,
+                              ):
+    """
+    Takes a 3D image input, returns a stack of multiview data
+    adapted from https://code.google.com/archive/p/iterative-fusion/
+    """
+
+    """
+    Simulate the imaging process by applying multiple blurs
+    """
+    out = []
+    for ip,p in enumerate(params):
+        # print('gauss dm %s' %ip)
+        # o = sitk.SmoothingRecursiveGaussian(density,sigmas[ip])
+        o = blur_func(density,p,orig_prop_list[ip],stack_properties,sz,sxy)
+        o = sitk.Cast(o, sitk.sitkFloat32)
+        out.append(o)
+    return out
+
+def multiview_data_to_density(
+                              multiview_data,
+                              params,
+                              orig_prop_list,
+                              stack_properties,
+                              sz,
+                              sxy,
+                              weights,
+                              blur_func,
+                              ):
+    """
+    The transpose of the density_to_multiview_data operation we perform above.
+    adapted from https://code.google.com/archive/p/iterative-fusion/
+
+    - multiply with DCT weights here
+    """
+
+    density = multiview_data[0]*0.
+    density = sitk.Cast(density,sitk.sitkFloat32)
+    # outs = multiview_data[0]*0.
+    # outs = sitk.Cast(outs,sitk.sitkUInt16)
+    for ip,p in enumerate(params):
+        # print('gauss md %s' %ip)
+        o = multiview_data[ip]
+        # o = sitk.SmoothingRecursiveGaussian(multiview_data[ip],sigmas[ip])
+
+        # smooth and resample in original view
+        o = blur_func(o,p,orig_prop_list[ip],stack_properties,sz,sxy)
+
+        o = sitk.Cast(o,sitk.sitkFloat32)
+
+        o = o*weights[ip]
+
+        density += o
+
+    density = sitk.Cast(density,sitk.sitkFloat32)
+    return density
+
+@io_decorator
+def fuse_LR_with_weights(
+        views,
+        params,
+        stack_properties,
+        num_iterations = 25,
+        sz = 4,
+        sxy = 0.5,
+        tol = 5e-5,
+        weights = None,
+        regularisation = False,
+        blur_func = blur_view_in_view_space,
+):
+    """
+    Combine
+    - LR multiview fusion
+      (adapted from python code given in https://code.google.com/archive/p/iterative-fusion/
+       from publication https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3986040/)
+    - DCT weights
+
+    This addresses the problems that
+    1) multi-view deconvolution is highly dependent on high precision registration
+    between views. However, an affine transformation is often not enough due to
+    optical aberrations and results in poor overlap.
+    2) due to scattering, the psf strongly varies within each view
+
+    In the case of highly scattering samples, FFT+elastix typically results in good
+    registration accuracy in regions of good image quality (those with small psfs
+    and short optical paths through the sample). These regions are found using a DCT
+    quality measure and weighted accordingly. Therefore, to reduce the contribution
+    to multi-view LR of unwanted regions in the individual views, the weights are
+    applied in each iteration during convolution with the psf.
+
+    Adaptations and details:
+    - convolve views in original space
+     - recapitulates imaging process and trivially deals with view parameters
+     - allows for iterative raw data reconstruction without deconvolution
+     - disadvantage: slow in current implementation
+    - apply DCT weights in each blurring iteration to account for strong scattering
+    - simulate convolution by psf with gaussian blurring
+    - TV regularisation not working yet, to be optimised (Multiview Deblurring for 3-D Images from
+Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/6112225)
+
+    Interesting case: sz,sxy=0
+    - formally no deconvolution but iterative multi-view raw data reconstruction
+
+    works well:
+    - sz6 it 10, some rings
+    - sz5 it 20, looks good (good compromise between sz and its)
+    - sz4 it 30, good and no rings
+
+    :param views: original views
+    :param params: parameters mapping views into target space
+    :param stack_properties: properties of target space
+    :param num_iterations: max number of deconvolution iterations
+    :param sz: sigma z
+    :param sxy: sigma xy
+    :param tol: convergence threshold
+    :return:
+    """
+
+    # get orig properties
+    # zfactor = float(1)
+    orig_prop_list = []
+    for ip in range(len(params)):
+        prop_dict = dict()
+        prop_dict['size'] = views[ip].shape
+        prop_dict['origin'] = views[ip].origin
+        prop_dict['spacing'] = views[ip].spacing
+        orig_prop_list.append(prop_dict)
+
+    # weights = weight_func(
+    #                    views,
+    #                    params,
+    #                    stack_properties,
+    #                    **(weight_func_kwargs or {})
+    # )
+
+    # if weight_func == get_weights_dct:
+    #     weights = get_weights_dct(
+    #                        views,
+    #                        params,
+    #                        stack_properties,
+    #                        # size=50,
+    #                        size=None,
+    #                        # max_kernel=10,
+    #                        max_kernel=None,
+    #                        # gaussian_kernel=10)
+    #                        gaussian_kernel=None)
+    # else:
+    #     weights = weight_func(
+    #                        views,
+    #                        params,
+    #                        stack_properties,
+    #     )
+
+    # tmp_fused = fuse_views_weights(views, params, stack_properties, weights = weights)
+
+    weights = list(weights)
+    for iw in range(len(weights)):
+        tmp = sitk.GetImageFromArray(weights[iw])
+        tmp.SetSpacing(stack_properties['spacing'][::-1])
+        tmp.SetOrigin(stack_properties['origin'][::-1])
+        tmp = sitk.Cast(tmp,sitk.sitkFloat32)
+        weights[iw] = tmp
+
+    nviews = []
+    for iview,view in enumerate(views):
+        tmp = transform_stack_sitk(view,params[iview],
+                               out_origin=stack_properties['origin'],
+                               out_shape=stack_properties['size'],
+                               out_spacing=stack_properties['spacing'])
+
+        # make sure to take only interpolations with full data
+        # tmp_view = ImageArray(views[iview][:-1,:-1,:-1]+1,spacing=views[iview].spacing,origin=views[iview].origin+views[iview].spacing/2.,rotation=views[iview].rotation)
+
+        # tmp_view = ImageArray(views[iview][:-1,:-1,:-1]+1,spacing=views[iview].spacing,origin=views[iview].origin+views[iview].spacing/2.,rotation=views[iview].rotation)
+        # mask = transform_stack_sitk(tmp_view,params[iview],
+        #                        out_origin=stack_properties['origin'],
+        #                        out_shape=stack_properties['size'],
+        #                        out_spacing=stack_properties['spacing'],
+        #                         interp='nearest')
+        # # tmp[tmp==0] = 10
+        # mask = mask > 0
+        # nviews.append(tmp*(mask))
+
+        nviews.append(tmp)
+        # masks.append(mask)
+    views = nviews
+
+    # convert to sitk images
+    for ip,p in enumerate(params):
+        tmp = sitk.GetImageFromArray(views[ip])
+        tmp = sitk.Cast(tmp,sitk.sitkFloat32)
+        tmp.SetSpacing(views[ip].spacing[::-1])
+        tmp.SetOrigin(views[ip].origin[::-1])
+        # debug crop
+        # tmp = tmp[:,500:550,:]
+        views[ip] = tmp
+
+    noisy_multiview_data = views
+
+    """
+    Time for deconvolution!!!
+    """
+
+    def calc_imsum(im):
+        tmp = sitk.Abs(im)
+        for d in range(3):
+            tmp = sitk.SumProjection(tmp, d)  # [0]
+        return tmp[0, 0, 0]
+    # estimate = sitk.Image(
+    #     int(stack_properties['size'][2]),
+    #     int(stack_properties['size'][1]),
+    #     int(stack_properties['size'][0]),
+    #     sitk.sitkFloat32,
+    # )
+    # estimate *= 0.
+    # estimate += 1.
+    print('WARNING: Initialising with fused views')
+    estimate = weights[0]*views[0]
+    for i in range(1,len(params)):
+        estimate += weights[i]*views[i]
+    estimate = sitk.Cast(estimate,sitk.sitkFloat32)
+
+    estimate.SetSpacing(stack_properties['spacing'][::-1])
+    estimate.SetOrigin(stack_properties['origin'][::-1])
+
+    # return sitk_to_image(estimate),tmp_fused
+
+    # estimate = np.ones(views[0].shape, dtype=np.float64)
+    # expected_data = np.zeros_like(noisy_multiview_data)
+    # correction_factor = np.zeros_like(estimate)
+    # history = np.zeros(((1+num_iterations,) + estimate.shape), dtype=np.float64)
+    # history[0, :, :, :] = estimate
+    # for i in range(num_iterations):
+
+    curr_imsum = calc_imsum(estimate)
+
+    i = 0
+    while 1:
+        print("Iteration", i)
+
+        """
+        Construct the expected data from the estimate
+        """
+        # print("Constructing estimated data...")
+        # print('WARNING: saving each iteration')
+        # sitk.WriteImage(sitk.Cast(estimate,sitk.sitkUInt16),'/data/malbert/regtest/ills/ills_gw_reg2_fus1/iter%03d.mhd' %i)
+
+        expected_data = density_to_multiview_data(
+              estimate,
+              params,
+              orig_prop_list,
+              stack_properties,
+              sz,
+              sxy,
+              blur_func,
+        )
+        # multiview_data_to_visualization(expected_data, outfile='expected_data.tif')
+        "Done constructing."
+        """
+        Take the ratio between the measured data and the expected data.
+        Store this ratio in 'expected_data'
+        """
+        for ip in range(len(params)):
+            expected_data[ip] += 1e-6 #Don't want to divide by 0!
+        expected_data = [sitk.Cast(noisy_multiview_data[ip] / expected_data[ip],sitk.sitkFloat32) for ip in range(len(params))]
+
+        # multiply with mask to reduce border artifacts
+        for ip in range(len(params)):
+            expected_data[ip] = expected_data[ip] * sitk.Cast(weights[ip]>0,sitk.sitkFloat32)
+        """
+        Apply the transpose of the expected data operation to the correction factor
+        """
+        correction_factor = multiview_data_to_density(
+            expected_data,
+            params,
+            orig_prop_list,
+            stack_properties,
+            sz,
+            sxy,
+            weights,
+            blur_func,
+        )#, out=correction_factor)
+
+        # pdb.set_trace()
+
+        """
+        Multiply the old estimate by the correction factor to get the new estimate
+        """
+        if regularisation:
+            print('WARNING: regularising')
+            correction_factor = sitk.Cast(correction_factor / get_LR_regularisation(estimate,len(params)), sitk.sitkFloat32)
+
+        estimate = estimate * correction_factor
+
+        estimate = estimate * sitk.Cast(estimate<2**16,sitk.sitkFloat32)
+        estimate = estimate * sitk.Cast(estimate>0,    sitk.sitkFloat32)
+
+        # if num_iterations < 1:
+        new_imsum = calc_imsum(estimate)
+        conv = np.abs(1-new_imsum/curr_imsum)
+        print('convergence: %s' %conv)
+
+        if conv < tol and i>=10: break
+        if i >= num_iterations-1: break
+
+        curr_imsum = new_imsum
+        i += 1
+
+        """
+        Update the history
+        """
+    print("Done deconvolving")
+
+    estimate = ImageArray(sitk.GetArrayFromImage(estimate).astype(np.uint16),spacing=np.array(estimate.GetSpacing())[::-1],origin=np.array(estimate.GetOrigin())[::-1])
+
+    return estimate
+
+# @io_decorator
+# def fuse_LR_with_weights_dct(
+#         views,
+#         params,
+#         stack_properties,
+#         num_iterations = 25,
+#         sz = 4,
+#         sxy = 0.5,
+#         tol = 5e-5,
+#         weight_func = get_weights_dct,
+#         regularisation = False,
+#         blur_func = blur_view_in_view_space,
+#         weight_func_kwargs = None,
+# ):
+#     """
+#     Combine
+#     - LR multiview fusion
+#       (adapted from python code given in https://code.google.com/archive/p/iterative-fusion/
+#        from publication https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3986040/)
+#     - DCT weights
+#
+#     This addresses the problems that
+#     1) multi-view deconvolution is highly dependent on high precision registration
+#     between views. However, an affine transformation is often not enough due to
+#     optical aberrations and results in poor overlap.
+#     2) due to scattering, the psf strongly varies within each view
+#
+#     In the case of highly scattering samples, FFT+elastix typically results in good
+#     registration accuracy in regions of good image quality (those with small psfs
+#     and short optical paths through the sample). These regions are found using a DCT
+#     quality measure and weighted accordingly. Therefore, to reduce the contribution
+#     to multi-view LR of unwanted regions in the individual views, the weights are
+#     applied in each iteration during convolution with the psf.
+#
+#     Adaptations and details:
+#     - convolve views in original space
+#      - recapitulates imaging process and trivially deals with view parameters
+#      - allows for iterative raw data reconstruction without deconvolution
+#      - disadvantage: slow in current implementation
+#     - apply DCT weights in each blurring iteration to account for strong scattering
+#     - simulate convolution by psf with gaussian blurring
+#     - TV regularisation not working yet, to be optimised (Multiview Deblurring for 3-D Images from
+# Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/6112225)
+#
+#     Interesting case: sz,sxy=0
+#     - formally no deconvolution but iterative multi-view raw data reconstruction
+#
+#     works well:
+#     - sz6 it 10, some rings
+#     - sz5 it 20, looks good (good compromise between sz and its)
+#     - sz4 it 30, good and no rings
+#
+#     :param views: original views
+#     :param params: parameters mapping views into target space
+#     :param stack_properties: properties of target space
+#     :param num_iterations: max number of deconvolution iterations
+#     :param sz: sigma z
+#     :param sxy: sigma xy
+#     :param tol: convergence threshold
+#     :return:
+#     """
+#
+#     # get orig properties
+#     # zfactor = float(1)
+#     orig_prop_list = []
+#     for ip in range(len(params)):
+#         prop_dict = dict()
+#         prop_dict['size'] = views[ip].shape
+#         prop_dict['origin'] = views[ip].origin
+#         prop_dict['spacing'] = views[ip].spacing
+#         orig_prop_list.append(prop_dict)
+#
+#     weights = weight_func(
+#                        views,
+#                        params,
+#                        stack_properties,
+#                        **(weight_func_kwargs or {})
+#     )
+#
+#     # if weight_func == get_weights_dct:
+#     #     weights = get_weights_dct(
+#     #                        views,
+#     #                        params,
+#     #                        stack_properties,
+#     #                        # size=50,
+#     #                        size=None,
+#     #                        # max_kernel=10,
+#     #                        max_kernel=None,
+#     #                        # gaussian_kernel=10)
+#     #                        gaussian_kernel=None)
+#     # else:
+#     #     weights = weight_func(
+#     #                        views,
+#     #                        params,
+#     #                        stack_properties,
+#     #     )
+#
+#     # tmp_fused = fuse_views_weights(views, params, stack_properties, weights = weights)
+#
+#     weights = list(weights)
+#     for iw in range(len(weights)):
+#         tmp = sitk.GetImageFromArray(weights[iw])
+#         tmp.SetSpacing(stack_properties['spacing'][::-1])
+#         tmp.SetOrigin(stack_properties['origin'][::-1])
+#         tmp = sitk.Cast(tmp,sitk.sitkFloat32)
+#         weights[iw] = tmp
+#
+#     nviews = []
+#     for iview,view in enumerate(views):
+#         tmp = transform_stack_sitk(view,params[iview],
+#                                out_origin=stack_properties['origin'],
+#                                out_shape=stack_properties['size'],
+#                                out_spacing=stack_properties['spacing'])
+#
+#         # make sure to take only interpolations with full data
+#         # tmp_view = ImageArray(views[iview][:-1,:-1,:-1]+1,spacing=views[iview].spacing,origin=views[iview].origin+views[iview].spacing/2.,rotation=views[iview].rotation)
+#
+#         # tmp_view = ImageArray(views[iview][:-1,:-1,:-1]+1,spacing=views[iview].spacing,origin=views[iview].origin+views[iview].spacing/2.,rotation=views[iview].rotation)
+#         # mask = transform_stack_sitk(tmp_view,params[iview],
+#         #                        out_origin=stack_properties['origin'],
+#         #                        out_shape=stack_properties['size'],
+#         #                        out_spacing=stack_properties['spacing'],
+#         #                         interp='nearest')
+#         # # tmp[tmp==0] = 10
+#         # mask = mask > 0
+#         # nviews.append(tmp*(mask))
+#
+#         nviews.append(tmp)
+#         # masks.append(mask)
+#     views = nviews
+#
+#     # convert to sitk images
+#     for ip,p in enumerate(params):
+#         tmp = sitk.GetImageFromArray(views[ip])
+#         tmp = sitk.Cast(tmp,sitk.sitkFloat32)
+#         tmp.SetSpacing(views[ip].spacing[::-1])
+#         tmp.SetOrigin(views[ip].origin[::-1])
+#         # debug crop
+#         # tmp = tmp[:,500:550,:]
+#         views[ip] = tmp
+#
+#     noisy_multiview_data = views
+#
+#     """
+#     Time for deconvolution!!!
+#     """
+#
+#     def calc_imsum(im):
+#         tmp = sitk.Abs(im)
+#         for d in range(3):
+#             tmp = sitk.SumProjection(tmp, d)  # [0]
+#         return tmp[0, 0, 0]
+#     # estimate = sitk.Image(
+#     #     int(stack_properties['size'][2]),
+#     #     int(stack_properties['size'][1]),
+#     #     int(stack_properties['size'][0]),
+#     #     sitk.sitkFloat32,
+#     # )
+#     # estimate *= 0.
+#     # estimate += 1.
+#     print('WARNING: Initialising with fused views')
+#     estimate = weights[0]*views[0]
+#     for i in range(1,len(params)):
+#         estimate += weights[i]*views[i]
+#     estimate = sitk.Cast(estimate,sitk.sitkFloat32)
+#
+#     estimate.SetSpacing(stack_properties['spacing'][::-1])
+#     estimate.SetOrigin(stack_properties['origin'][::-1])
+#
+#     # return sitk_to_image(estimate),tmp_fused
+#
+#     # estimate = np.ones(views[0].shape, dtype=np.float64)
+#     # expected_data = np.zeros_like(noisy_multiview_data)
+#     # correction_factor = np.zeros_like(estimate)
+#     # history = np.zeros(((1+num_iterations,) + estimate.shape), dtype=np.float64)
+#     # history[0, :, :, :] = estimate
+#     # for i in range(num_iterations):
+#
+#     curr_imsum = calc_imsum(estimate)
+#
+#     i = 0
+#     while 1:
+#         print("Iteration", i)
+#
+#         """
+#         Construct the expected data from the estimate
+#         """
+#         # print("Constructing estimated data...")
+#         # print('WARNING: saving each iteration')
+#         # sitk.WriteImage(sitk.Cast(estimate,sitk.sitkUInt16),'/data/malbert/regtest/ills/ills_gw_reg2_fus1/iter%03d.mhd' %i)
+#
+#         expected_data = density_to_multiview_data(
+#               estimate,
+#               params,
+#               orig_prop_list,
+#               stack_properties,
+#               sz,
+#               sxy,
+#               blur_func,
+#         )
+#         # multiview_data_to_visualization(expected_data, outfile='expected_data.tif')
+#         "Done constructing."
+#         """
+#         Take the ratio between the measured data and the expected data.
+#         Store this ratio in 'expected_data'
+#         """
+#         for ip in range(len(params)):
+#             expected_data[ip] += 1e-6 #Don't want to divide by 0!
+#         expected_data = [sitk.Cast(noisy_multiview_data[ip] / expected_data[ip],sitk.sitkFloat32) for ip in range(len(params))]
+#
+#         # multiply with mask to reduce border artifacts
+#         for ip in range(len(params)):
+#             expected_data[ip] = expected_data[ip] * sitk.Cast(weights[ip]>0,sitk.sitkFloat32)
+#         """
+#         Apply the transpose of the expected data operation to the correction factor
+#         """
+#         correction_factor = multiview_data_to_density(
+#             expected_data,
+#             params,
+#             orig_prop_list,
+#             stack_properties,
+#             sz,
+#             sxy,
+#             weights,
+#             blur_func,
+#         )#, out=correction_factor)
+#
+#         # pdb.set_trace()
+#
+#         """
+#         Multiply the old estimate by the correction factor to get the new estimate
+#         """
+#         if regularisation:
+#             print('WARNING: regularising')
+#             correction_factor = sitk.Cast(correction_factor / get_LR_regularisation(estimate,len(params)), sitk.sitkFloat32)
+#
+#         estimate = estimate * correction_factor
+#
+#         estimate = estimate * sitk.Cast(estimate<2**16,sitk.sitkFloat32)
+#         estimate = estimate * sitk.Cast(estimate>0,    sitk.sitkFloat32)
+#
+#         # if num_iterations < 1:
+#         new_imsum = calc_imsum(estimate)
+#         conv = np.abs(1-new_imsum/curr_imsum)
+#         print('convergence: %s' %conv)
+#
+#         if conv < tol and i>=10: break
+#         if i >= num_iterations-1: break
+#
+#         curr_imsum = new_imsum
+#         i += 1
+#
+#         """
+#         Update the history
+#         """
+#     print("Done deconvolving")
+#
+#     estimate = ImageArray(sitk.GetArrayFromImage(estimate).astype(np.uint16),spacing=np.array(estimate.GetSpacing())[::-1],origin=np.array(estimate.GetOrigin())[::-1])
+#
+#     return estimate
+
+def get_LR_regularisation(u,nviews,l=0.005):
+    """
+    TV regularisation as in:
+    https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=6112225
+    not working well, seems to amplify noise for real data
+    works okayish for synthetic data (tested on blurred box)
+    :param u:
+    :param nviews:
+    :param l:
+    :return:
+    """
+    # l = 0.02
+    # u = sitk.SmoothingRecursiveGaussian(u,u.GetSpacing()[0]*3)
+    gm  = sitk.GradientMagnitude(u,useImageSpacing=False)
+    gm  = gm + sitk.Cast(gm == 0,sitk.sitkFloat32)
+    # gm = gm + sitk.Cast(gm < 1e-2, sitk.sitkFloat32)
+    lapl = sitk.Laplacian(u,useImageSpacing=False)
+    # lapl = sitk.Clamp(lapl, sitk.sitkFloat32, -2, 2)
+    rf = 1 - l/nviews * lapl/gm
+    rf = sitk.Cast(rf,sitk.sitkFloat32)
+    # rf = sitk.Clamp(rf, sitk.sitkFloat32, 1e-9, 1e9)
+
+    return rf
+
 
 @io_decorator
 def fuse_views_lambda(
@@ -2518,6 +4492,22 @@ def fuse_views_lambda(
     # return f,weights,seg
     return ImageArray(f,spacing=stack_properties['spacing'])
 
+def image_to_sitk(im):
+    sim = sitk.GetImageFromArray(im)
+    sim.SetOrigin(im.origin[::-1])
+    sim.SetSpacing(im.spacing[::-1])
+    return sim
+
+def sitk_to_image(sim):
+    im = sitk.GetArrayFromImage(sim)
+    im = ImageArray(im,spacing=np.array(sim.GetSpacing())[::-1],origin=np.array(sim.GetOrigin())[::-1])
+    return im
+
+
+@io_decorator
+def fuse_dct(views,params,stack_properties):
+    weights = get_weights_dct(views,params,stack_properties)
+    return fuse_views_weights(views,params,stack_properties,weights=weights)
 
 def transformStack(p,stack,outShape=None,outSpacing=None,outOrigin=None,interp='linear'):
     # can handle composite transformations (len(p)%12)
@@ -2535,8 +4525,7 @@ def transformStack(p,stack,outShape=None,outSpacing=None,outOrigin=None,interp='
     else:
         shape = np.ceil(np.array(outShape))
         shape = [int(i) for i in shape]
-    if outSpacing is None:
-        outSpacing = stack.GetSpacing()
+    if outSpacing is None: outSpacing = stack.GetSpacing()
     else: outSpacing = np.array(outSpacing)
     outSpacing = np.array(outSpacing).astype(np.float)
     if outOrigin is None: outOrigin = stack.GetOrigin()
@@ -2544,7 +4533,9 @@ def transformStack(p,stack,outShape=None,outSpacing=None,outOrigin=None,interp='
 
     # don't do anything if stack nothing is to be done
     def vectors_are_same(v1,v2):
-        return np.sum(np.abs(np.array(v1).astype(np.uint8) - np.array(v2).astype(np.uint8))) == 0
+        # return np.sum(np.abs(np.array(v1).astype(np.uint8) - np.array(v2).astype(np.uint8))) == 0
+        return np.allclose(v1,v2)
+
     p_is_identity = vectors_are_same(p,[1,0,0,0,1,0,0,0,1,0,0,0])
     out_shape_same = vectors_are_same(outShape,stack.GetSize())
     out_spacing_same = vectors_are_same(outSpacing,stack.GetSpacing())
@@ -2563,10 +4554,22 @@ def transformStack(p,stack,outShape=None,outSpacing=None,outOrigin=None,interp='
         interpolator = sitk.sitkLinear
     elif interp == 'nearest':
         interpolator = sitk.sitkNearestNeighbor
-
+    elif interp == 'gaussian':
+        # addresses the problem that when downsampling, pixel information is disregarded
+        # if new spacing is larger, smooth input with new 0.8*spacing
+        # see https://www.insight-journal.org/browse/publication/705
+        # implementation from publication does not consider spacing or is strangely implemented
+        # therefore manually here
+        if np.any(np.array(outSpacing) > np.array(stack.GetSpacing())):
+            stack = sitk.SmoothingRecursiveGaussian(stack,0.8*np.array(outSpacing))
+        interpolator = sitk.sitkLinear
+    else:
+        interpolator = interp
     newim = sitk.Resample(stack,shape,transf,interpolator,outOrigin,outSpacing)
     if numpyarray:
         newim = sitk.GetArrayFromImage(newim)
+
+    #
 
     return newim
 
@@ -2587,39 +4590,6 @@ def transformStack(p,stack,outShape=None,outSpacing=None,outOrigin=None,interp='
 
 (CenterOfRotationPoint 0 0 0)
 """
-
-def register_linear_projections_iter(im0,im1,t0=None):
-
-    # im0 = ImageArray(clahe(im0,10,clip_limit=0.02),spacing=im0.spacing,origin=im0.origin)
-    # im1 = ImageArray(clahe(im1,10,clip_limit=0.02),spacing=im1.spacing,origin=im1.origin)
-
-    # if t0 is None:
-    #     t0 = np.eye(4)
-    # else:
-    #     t0 = params_to_matrix(t0)
-
-    # projs0 = [np.max(im0,dim) for dim in range(3)]
-    # # projs1 = [np.max(im1,dim) for dim in range(3)]
-    #
-    # for dim in range(3):
-    #     projs0[dim].spacing = np.delete(projs0[dim].spacing,dim,axis=0)
-    #     # projs1[dim].spacing = np.delete(projs1[dim].spacing,dim,axis=0)
-    #     projs0[dim].origin = np.delete(projs0[dim].origin,dim,axis=0)
-    #     # projs1[dim].origin = np.delete(projs1[dim].origin,dim,axis=0)
-
-    cur_params = t0
-    # for dim in [0,1,2]:
-    for i in range(2):
-        for dim in [0,1,2]:
-            cur_params = register_linear_2d_from3d(im0,im1,cur_params,dim,transform='translation')
-
-    for i in range(10):
-        for dim in [0,1,2]:
-            cur_params = register_linear_2d_from3d(im0,im1,cur_params,dim)
-            # cur_params = get_affine_parameters_from_elastix_output_2d(im0,im1,cur_params,dim)
-
-    # return matrix_to_params(cur_params)
-    return cur_params
 
 def get_t0(fixed,moving):
 
@@ -2678,104 +4648,6 @@ def get_t0(fixed,moving):
     t0[10] = 0
 
     return t0
-
-def register_linear_projections(fixed,moving):
-
-    """
-    estimate t0 and crop images to intersection in y
-    :param fixed:
-    :param moving:
-    :return:
-    """
-
-    lower_y0 = fixed.origin[1]
-    upper_y0 = fixed.origin[1] + fixed.shape[1]*fixed.spacing[1]
-
-    lower_y1 = moving.origin[1]
-    upper_y1 = moving.origin[1] + moving.shape[1]*moving.spacing[1]
-
-    lower_overlap = np.max([lower_y0,lower_y1])
-    upper_overlap = np.min([upper_y0,upper_y1])
-
-    yl0 = int((lower_overlap - lower_y0) / (upper_y0-lower_y0) * fixed.shape[1])
-    yu0 = int((upper_overlap - lower_y0) / (upper_y0-lower_y0) * fixed.shape[1])
-    yl1 = int((lower_overlap - lower_y1) / (upper_y1-lower_y1) * moving.shape[1])
-    yu1 = int((upper_overlap - lower_y1) / (upper_y1-lower_y1) * moving.shape[1])
-
-    # images can have different overlaps because of rounding to integer
-
-    origin_overlap0 = np.zeros(3)
-    origin_overlap1 = np.zeros(3)
-
-    origin_overlap0[:] = fixed.origin
-    origin_overlap1[:] = moving.origin
-
-    origin_overlap0[1] = lower_y0 + yl0 * fixed.spacing[1]
-    origin_overlap1[1] = lower_y1 + yl1 * moving.spacing[1]
-
-    # c0 = clahe(fixed,10,clip_limit=0.02)
-    # c1 = clahe(moving,10,clip_limit=0.02)
-
-    static = ImageArray(fixed[:,yl0:yu0,:],spacing=fixed.spacing,origin=origin_overlap0)
-    mov = ImageArray(moving[:,yl1:yu1,:],spacing=moving.spacing,origin=origin_overlap1)
-
-    m0 = get_mask_using_otsu(static)
-    m1 = get_mask_using_otsu(mov)
-
-    mean0 = ndimage.center_of_mass(m0) * fixed.spacing + origin_overlap0
-    mean1 = ndimage.center_of_mass(m1) * moving.spacing + origin_overlap1
-
-    print(mean0,mean1)
-
-    matrix = geometry.euler_matrix(0,+ fixed.rotation - moving.rotation,0)
-    # matrix = geometry.euler_matrix(0,- positions[iview0][3] + positions[iview1][3],0)
-    t0 = np.append(matrix[:3, :3].flatten(), matrix[:3, 3])
-
-    offset = mean1 - np.dot(matrix[:3,:3],mean0)
-    t0[9:] = offset
-    t0[10] = 0
-
-    parameters = register_linear_projections_iter(static,mov,t0)
-
-    return parameters
-
-def register_linear_2d_from3d(im0,im1,t0=None,dim=0,
-                              iterations=10,
-                              transform='rigid',
-                              ):
-
-    if t0 is None:
-        t0 = matrix_to_params(np.eye(4))
-    # im0 = ImageArray(clahe(im0,10,clip_limit=0.02),spacing=im0.spacing,origin=im0.origin)
-    # im1 = ImageArray(clahe(im1,10,clip_limit=0.02),spacing=im1.spacing,origin=im1.origin)
-
-    t0 = params_to_matrix(t0)
-    im10 = transform_stack_dipy(im1,matrix_to_params(t0),
-                                   out_shape=im0.shape,
-                                   out_spacing=im0.spacing,
-                                   out_origin=im0.origin)
-
-    proj0 = np.max(im0.astype(np.float),dim)
-    proj1 = np.max(im10.astype(np.float),dim)
-    proj0.spacing = np.delete(proj0.spacing,dim,axis=0)
-    proj1.spacing = np.delete(proj1.spacing,dim,axis=0)
-    proj0.origin = np.delete(proj0.origin,dim,axis=0)
-    proj1.origin = np.delete(proj1.origin,dim,axis=0)
-
-    # params2d = register_linear_2d(proj0,proj1)#),cur_params2d)
-    params2d = register_linear_2d_pyelastix(proj0,proj1,
-                                            iterations=iterations,
-                                            transform=transform,
-                                            )#),cur_params2d)
-    params3d = params2d
-    params3d = np.insert(params3d,dim,np.zeros(3),axis=0)
-    params3d = np.insert(params3d,dim,np.zeros(4),axis=1)
-    params3d[dim,dim] = 1
-    # cur_params = params3d
-    # cur_params = mult_aff(params3d,t0)
-    cur_params = np.dot(t0,params3d)
-    return matrix_to_params(cur_params)
-    # return matrix_to_params(params3d)
 
 params_translation = """
 (SubtractMean "false")
@@ -2864,8 +4736,8 @@ params_similarity = """
 (DefaultPixelValue 0.000000)
 (FinalBSplineInterpolationOrder 1.000000)
 (FixedImagePyramid "FixedRecursiveImagePyramid")
-//(NumberOfResolutions 4.000000)
-//(ImagePyramidSchedule 16 16 16  8.000000 8.000000 8.000000 4.000000 4.000000 4.000000 2.000000 2.000000 2.000000)
+(NumberOfResolutions 4.000000)
+(ImagePyramidSchedule 8 8 8  4 4 4  2 2 2  1 1 1)
 //(ImageSampler "RandomCoordinate")
 (ImageSampler "Full")
 (Interpolator "LinearInterpolator")
@@ -2879,7 +4751,7 @@ params_similarity = """
 (NumberOfSpatialSamples 2048.000000)
 //(Optimizer "AdaptiveStochasticGradientDescent")
 (Optimizer "QuasiNewtonLBFGS")
-(GradientMagnitudeTolerance 1e-8)
+(GradientMagnitudeTolerance 1e-7)
 (Registration "MultiResolutionRegistration")
 (ResampleInterpolator "FinalBSplineInterpolator")
 (Resampler "DefaultResampler")

@@ -1,55 +1,108 @@
 import sys
-# import dipy_multiview_test
 import numpy as np
 import pdb,os,sys
-from scipy import misc
-import dask
-import pickle
 import io_utils
-
-# import tifffile
-import importlib
-
-# print('watch out, cache!')
-# from dask.cache import Cache
-# cache_size = 50e9 #20gb
-# cache = Cache(cache_size)  # Leverage two gigabytes of memory
-# cache.register()    # Turn cache on globall
-
 import sys
-elastix_dir = os.path.join('../elastix')
-
 import graph_multiview
 
-graph_multiview.multiview_fused_label = graph_multiview.multiview_fused_label[:-2]+'mhd'
-graph_multiview.transformed_view_label = graph_multiview.transformed_view_label[:-2]+'mhd'
+##########################
+#### parameters to modify
+#### in descending order of relevance
+##########################
+
+# where elastix can be found (top folder)
+elastix_dir = '../elastix'
+
+# files to fuse
+filepaths = ['/Users/marvin/data/dbspim/20140911_cxcr7_wt/wt_01.czi']
+
+# channels to fuse
+channels = [0]#*len(filepaths)
+channelss = [channels]*len(filepaths)
+
+# channel to use for registration
+reg_channel = 0
+reg_channels = [reg_channel] *len(filepaths)
+
+# reference view for final fusion
+ref_view = 0
+ref_views = [ref_view] *len(filepaths)
+
+# list of pairwise view indices to perform registration on
+# registration_pairs = [[0,1]]
+registration_pairs = None
+registration_pairss = [registration_pairs] *len(filepaths)
+
+# how to calculate final fusion volume
+# 'sample': takes best quality z plane of every view to define the volume
+# 'union': takes the union of all view volumes
+final_volume_mode = 'sample'
+
+# where to save the output
+out_dir = os.path.dirname(filepaths[0])
+
+# whether to perform an affine chromatic correction
+# and which channel to use as reference
+perform_chromatic_correction = False
+ref_channel_chrom = 0
+
+# binning of raw input from views (x,y,z)
+# [1,1,1]: no binning
+raw_input_binning = [8,8,2]
+
+# background level to subtract
+background_level = 200
+
+# which binning to use for registration
+mv_registration_bin_factors = np.array([8,8,2])
+
+# final output spacing in um
+mv_final_spacing = np.array([5.]*3)
+
+# options for fusion
+# fusion_method
+# 'weighted_average': weighted average of views using the given weights
+# 'LR': Lucy-Richardson multi-view deconvolution
+# fusion_method = 'LR'
+fusion_method = 'weighted_average'
+
+# fusion weights
+# 'blending': uniform weights with blending at the stack borders
+# 'dct': weights derived from DCT image quality metric
+# fusion_weights = 'dct'
+fusion_weights = 'blending'
+
+# options for DCT image quality metric for fusion
+# setting None automatically calculates good values
+
+# size of the cubic volume blocks on which to calc quality
+dct_size = None
+# size of maximum filter kernel
+dct_max_kernel = None
+# size of gaussian kernel
+dct_gaussian_kernel = None
+
+# options for weighted Lucy Richardson multi-view deconvolution
+# maximum number of iterations
+LR_niter = 25  # iters
+# convergence criterion
+LR_tol = 5e-5  # tol
+# gaussian PSF sigmas
+LR_sigma_z = 4  # sigma z
+LR_sigma_xy = 0.5  # sigma xy
+
+
+##########################
+#### end of parameters to modify
+##########################
+
 
 if __name__ == '__main__':
 
     from dask import multiprocessing,threaded
 
-    # filepaths = [
-    #     '/data/malbert/lucien/Fish1.czi',
-    #     '/data/malbert/lucien/Fish2.czi',
-    #     '/data/malbert/lucien/Venus1.czi',
-    #     '/data/malbert/lucien/Venus2.czi',
-    #     '/data/malbert/lucien/Venus3.czi',
-    #     '/data/malbert/lucien/Venus4.czi',
-    #     '/data/malbert/lucien/Venus5.czi',
-    #     '/data/malbert/lucien/Venus6.czi',
-    # ]
-    # filepaths = ['/data/malbert/data/dbspim/chemokine/20180319_36hpf_4_gfp_7_rfp/4g7r_06.czi']+['/data/malbert/data/dbspim/chemokine/20180319_36hpf_4_gfp_7_rfp/4g7r_06(%s).czi' %i for i in range(1,18)]
-    # filepaths = ['/data/malbert/data/dbspim/chemokine/20180606_36dpf_lyntimer/lyntimer_7m_hetero_tl_2(%s).czi' %i for i in range(1,11)]
-    # filepaths = ['/data/malbert/data/dbspim/Lucien/2018-07-11/%s' %fn for fn in ['Fish1_t2.czi','Fish2_t2.czi','Fish3.czi','Fish4.czi','Fish5.czi']]
-    # filepaths = ['/data/malbert/data/dbspim/Lucien/2018-07-25/%s' %fn for fn in ['Fish1.czi','Stack1.czi','Stack2.czi']]
-    # filepaths = ['/data/malbert/lucien/2018-06-14/Fish1.czi','/data/malbert/lucien/2018-06-14/Fish2.czi']
-    # filepaths = [os.path.join(sys.path[0],'../../__for_Marvin/SPIRIT-cldnbGFP-bact_h2a_mcherry_24hpf.czi')]
-    filepaths = ['/Users/malbert/Documents/projects/data/chemokine/20140911_cxcr7/wt_01.czi']
-
-    channelss = [[0]]*len(filepaths)
-    reg_channel = 0
-    # pairss = [[[0,1],[1,2],[2,3],[3,0],[1,4],[4,5],[4,6],[6,7]]]*len(filepaths)
-    # pairss = [[[0,1],[1,2],[2,3],[3,0],[1,4],[4,5],[4,6],[6,7]]]*len(filepaths)
+    graph_multiview.multiview_fused_label = graph_multiview.multiview_fused_label[:-2] + 'mhd'
+    graph_multiview.transformed_view_label = graph_multiview.transformed_view_label[:-2] + 'mhd'
 
     graph = dict()
     result_keys = []
@@ -61,36 +114,31 @@ if __name__ == '__main__':
         graph.update(
             graph_multiview.build_multiview_graph(
             filepath = filepath,
-            # pairs = [[0,1],[1,2],[3,2],[3,0]],
-            pairs = [[1,0]],
-            # pairs = [[0,1],[1,2],[2,3],[4,3],[5,4],[5,0]],
-            # pairs = [[0,1]],#,[1,2],[2,3],[3,0]],
-            # pairs = pairs,
-            ref_view = 0,
+            pairs = registration_pairss[ifile],
+            ref_view = ref_views[ifile],
             # mv_registration_bin_factors = np.array([8,8,2]),
-            mv_registration_bin_factors = np.array([8,8,2]), # x,y,z
-            # mv_final_spacing = np.array([10.]*3), # orig resolution
-            # mv_final_spacing = np.array([1.]*3), # orig resolution
-            # mv_final_spacing = np.array([1.06]*3), # orig resolution
-            mv_final_spacing = np.array([4.]*3), # orig resolution
+            mv_registration_bin_factors = mv_registration_bin_factors, # x,y,z
+            mv_final_spacing = mv_final_spacing, # orig resolution
             reg_channel = reg_channel,
             channels = channels,
             ds = 0,
             sample = ifile,
-            out_dir = os.path.dirname(filepath),
-            perform_chromatic_correction = False,
-            # perform_chromatic_correction = False,
-            # dct_size = 10, #size
-            # dct_max_kernel = 7, #max_kernel
-            # dct_gaussian_kernel = 7, #gauss_kernel
-            # dct_size = 50, #size
-            # dct_max_kernel = 11, #max_kernel
-            # dct_gaussian_kernel = 7, #gauss_kernel
-            final_volume_mode = 'sample',
+            out_dir = out_dir,
+            perform_chromatic_correction = perform_chromatic_correction,
+            ref_channel_chrom = ref_channel_chrom,
+            final_volume_mode = final_volume_mode,
             elastix_dir = elastix_dir,
-            # raw_input_binning = None,
-            raw_input_binning = [4,4,2], # x,y,z
-            background_level = 200,
+            raw_input_binning = raw_input_binning, # x,y,z
+            background_level = background_level,
+            dct_size = dct_size,
+            dct_max_kernel = dct_max_kernel,
+            dct_gaussian_kernel = dct_gaussian_kernel,
+            LR_niter = LR_niter,  # iters
+            LR_sigma_z = LR_sigma_z,  # sigma z
+            LR_sigma_xy = LR_sigma_xy,  # sigma xy
+            LR_tol = LR_tol,  # tol
+            fusion_method = fusion_method,
+            fusion_weights = fusion_weights,
             )
         )
 
@@ -98,7 +146,9 @@ if __name__ == '__main__':
         # if ifile:
         #     graph[graph_multiview.stack_properties_label %(0,ifile)] = graph_multiview.stack_properties_label %(0,0)
 
-        # if os.path.exists(os.path.join(os.path.dirname(filepath),graph_multiview.multiview_fused_label %(0,ifile,0))):
+        # out_file = os.path.join(os.path.dirname(filepath),graph_multiview.multiview_fused_label %(0,ifile,0))
+        # if os.path.exists(out_file):
+        #     print('WARNING: skipping %s because %s already exists' %(filepath,out_file))
         #     continue
 
         multiview_fused_labels              = [graph_multiview.multiview_fused_label %(0,ifile,ch) for ch in channels]
@@ -107,6 +157,10 @@ if __name__ == '__main__':
             # p = threaded.get(graph,fusion_params_label)
 
     o = io_utils.get(graph,result_keys,local=True)
+
+
+
+
     # o = dask.local.get_sync(graph,result_keys)
     #
     # N = 1

@@ -17,7 +17,7 @@ import importlib
 # cache.register()    # Turn cache on globall
 
 import sys
-elastix_dir = '../elastix-4.9.0-win64'
+elastix_dir = os.path.join('../elastix')
 
 import graph_multiview
 
@@ -44,7 +44,7 @@ if __name__ == '__main__':
     # filepaths = ['/data/malbert/data/dbspim/Lucien/2018-07-25/%s' %fn for fn in ['Fish1.czi','Stack1.czi','Stack2.czi']]
     # filepaths = ['/data/malbert/lucien/2018-06-14/Fish1.czi','/data/malbert/lucien/2018-06-14/Fish2.czi']
     # filepaths = [os.path.join(sys.path[0],'../../__for_Marvin/SPIRIT-cldnbGFP-bact_h2a_mcherry_24hpf.czi')]
-    filepaths = ['../test_data/wt_01.czi']
+    filepaths = ['/Users/marvin/data/dbspim/20140911_cxcr7_wt/wt_01.czi']
 
     channelss = [[0]]*len(filepaths)
     reg_channel = 0
@@ -61,8 +61,8 @@ if __name__ == '__main__':
         graph.update(
             graph_multiview.build_multiview_graph(
             filepath = filepath,
-            # pairs = [[0,1],[1,2],[2,3],[3,0]],
-            pairs = [[0,1]],
+            # pairs = [[0,1],[1,2],[3,2],[3,0]],
+            pairs = [[1,0]],
             # pairs = [[0,1],[1,2],[2,3],[4,3],[5,4],[5,0]],
             # pairs = [[0,1]],#,[1,2],[2,3],[3,0]],
             # pairs = pairs,
@@ -83,13 +83,11 @@ if __name__ == '__main__':
             # dct_size = 10, #size
             # dct_max_kernel = 7, #max_kernel
             # dct_gaussian_kernel = 7, #gauss_kernel
-            # dct_size = 50, #size
-            # dct_max_kernel = 11, #max_kernel
-            # dct_gaussian_kernel = 7, #gauss_kernel
             final_volume_mode = 'sample',
             elastix_dir = elastix_dir,
             # raw_input_binning = None,
-            raw_input_binning = [2,2,1], # x,y,z
+            raw_input_binning = [4,4,2], # x,y,z
+            background_level = 200,
             )
         )
 
@@ -97,8 +95,8 @@ if __name__ == '__main__':
         # if ifile:
         #     graph[graph_multiview.stack_properties_label %(0,ifile)] = graph_multiview.stack_properties_label %(0,0)
 
-        if os.path.exists(os.path.join(os.path.dirname(filepath),graph_multiview.multiview_fused_label %(0,ifile,0))):
-            continue
+        # if os.path.exists(os.path.join(os.path.dirname(filepath),graph_multiview.multiview_fused_label %(0,ifile,0))):
+        #     continue
 
         multiview_fused_labels              = [graph_multiview.multiview_fused_label %(0,ifile,ch) for ch in channels]
         # fusion_params_label                 = 'mv_params_%03d_%03d.prealignment.h5' %(ikey,s)
