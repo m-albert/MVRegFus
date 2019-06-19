@@ -1,4 +1,4 @@
-name: z1
+name: z1regfus
 channels:
   - defaults
 dependencies:
@@ -107,5 +107,5 @@ dependencies:
     - simpleitk==1.2.0
     - tifffile==2019.5.30
     - transformations==2019.4.22
-prefix: /Users/marvin/miniconda3/envs/z1
+prefix: /Users/marvin/miniconda3/envs/z1regfus
 
