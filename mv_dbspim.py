@@ -31,8 +31,40 @@ mv_registration_bin_factors = np.array([8,8,2])
 mv_final_spacing = np.array([4.]*3)
 
 # list of pairwise view indices to perform registration on
-registration_pairs = [[0,1]]
+# registration_pairs = [[0,1]] # views 0 and 1 are registered
+# registration_pairs = None # this creates a linear chain such as [[0,1],[1,2],[2,0]]
+registration_pairs = None
 registration_pairss = [registration_pairs] *len(filepaths)
+
+# optionally, specify the meanings of indices
+# occuring in the list of pairs
+# this can be used to fuse illuminations independently
+# to do so, use view_dict, which is a dictionary containing
+# the indices as keys and dictionaries as items, such as:
+# >>> view_dict[0] = {'view': 0 # view 0 within the file
+#                     'ill' : 1 # illumination 1 within that view
+#                     }
+# another example:
+# >>> view_dict[0] = {'view': 0    # view 0 within the file
+#                     'ill' : None # like this, both ills of this view are fused
+#                     }
+
+# observation: - illumination 0 comes from left
+#              - illumination 1 comes from right
+#              - rotating in positive direction (in angles)
+#                brings left to the front
+# so it makes sense to register like this: (view, ill)
+# (0,1),(0,0)
+# (0,0),(1,1)
+# (1,1),(1,0)
+# (1,0),(2,1)
+# etc.
+
+# four view example:
+view_dict = {i:{'view':i//2,'ill':(i+1)%2} for i in range(8)}
+
+# if ills of all views should be averaged, set view_dict to None:
+# view_dict = None
 
 # options for fusion
 # fusion_method

@@ -23,9 +23,14 @@ Python libraries:
 External:
 - elastix (install binary and indicate path at the beginning of dipy_multiview.py)
 
-## installation commands
+## installation instructions
 
-### create a new conda environment and type:
+- download anaconda, then:
+
+### option 1: install an environment from the .yml file:
+conda env create --file mv_environment.yml
+
+### option 2: create a new conda environment and type:
 
 conda install ipython h5py numpy scipy scikit-learn pandas dask distributed bokeh bcolz
 pip install SimpleITK redis redis_lock dipy scikit-image transformations czifile==2019.1.26

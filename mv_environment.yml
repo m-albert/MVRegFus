@@ -12,6 +12,7 @@ dependencies:
   - distributed
   - bokeh
   - bcolz
+  - pip
   - pip:
     - simpleitk
     - redis

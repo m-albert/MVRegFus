@@ -69,23 +69,39 @@ def build_multiview_graph(
     # ref_channel_chrom = reg_channel
 
     if pairs is None:
-        info_dict = dipy_multiview.getStackInfoFromCZI(filepath)
-        n_views = len(info_dict['origins'])
-        pairs = [(i,i+1) for i in range(n_views-1)] + [(n_views-1,0)]
 
-    all_views = np.sort(np.unique(np.array(pairs).flatten()))
-    if ref_view not in all_views: raise(Exception('chosen reference view is incompatible with chose registration pairs'))
+        if view_dict is None:
+            info_dict = dipy_multiview.getStackInfoFromCZI(filepath)
+            n_views = len(info_dict['origins'])
+            pairs = [(i,i+1) for i in range(n_views-1)] + [(n_views-1,0)]
+            print('Assuming linear chain of overlap in views')
+        if view_dict is not None:
+            view_indices = [k for k in view_dict.keys()]
+            view_indices.sort()
+            pairs = [(view_indices[i],view_indices[i+1]) for i in range(len(view_indices)-1)] + [(view_indices[-1],view_indices[0])]
+            print('Assuming linear chain of overlap in views indicated in view_dict')
+
+
     # add details for views
     # in case of defining registration pairs when having illuminations:
     # consider views A and B
     # A.rotation<B.rotation
     # then register A.ill0 with B.ill1 (20190425, derived from Max file zurich z1)
+    all_views = np.sort(np.unique(np.array(pairs).flatten()))
+
     if view_dict is None:
         view_dict = dict()
         for view in all_views:
             view_dict[view] = dict()
             view_dict[view]['view'] = view
             view_dict[view]['ill'] = None
+
+    if ref_view not in all_views: raise(Exception('chosen reference view is incompatible with chose registration pairs'))
+
+    print(''.join(['#']*10))
+    print('These pairs of keys will be registered:\n%s' %pairs)
+    print('They refer to the keys in this view_dict:\n%s' %view_dict)
+    print(''.join(['#'] * 10))
 
     graph = dict()
 
