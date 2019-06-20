@@ -186,7 +186,11 @@ if __name__ == '__main__':
 
         multiview_fused_labels              = [graph_multiview.multiview_fused_label %(0,ifile,ch) for ch in channels]
         # fusion_params_label                 = 'mv_params_%03d_%03d.prealignment.h5' %(ikey,s)
-        result_keys += multiview_fused_labels
+        for label in multiview_fused_labels:
+            if not os.path.exists(os.path.join(out_dir,label)):
+                result_keys += multiview_fused_labels
+            else:
+                print('skipping %s as it already exists' %label)
             # p = threaded.get(graph,fusion_params_label)
 
     o = io_utils.get(graph,result_keys,local=True)

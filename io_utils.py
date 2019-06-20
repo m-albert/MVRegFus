@@ -56,10 +56,22 @@ def recursive_func_application_with_list_output(l,f):
     # print(result)
     return result
 
-
 def process_input_element(path):
 
     if not is_io_path(path): return path
+
+    # if '_list_of_' in path:
+    #     split = path.split('_list_of_')
+    #     import glob
+    #     files = glob.glob('*'.join(split))
+    #     files.sort()
+    #     out = []
+    #     for ii in range(len(files)):
+    #         it_path = split[0] + '%03d' %ii + split[1]
+    #         tmp = process_input_element(it_path)
+    #         out.append(tmp)
+    #     return out
+
     # if not type(path) == str or (type(path) == str and len(path.split('.'))==1) or 'elastix_' in path:
     #     return path
     # else:
@@ -182,6 +194,13 @@ def process_output_element(element,path):
     #     print('SKIPPING THE WRITING OF THE RESULT %s, SINCE IT ALREADY EXISTS. WAS IT WRITTEN BY SOME OTHER PROCESS IN THE MEANTIME?' %path)
     #     return path
     import time
+
+    # if '_list_of_' in path:
+    #     for ii in range(len(element)):
+    #         split = path.split('_list_of_')
+    #         it_path = ('%03d' %ii).join(split)
+    #         process_output_element(element[ii],it_path)
+    #     return path
 
     # l = h5pyswmr.locking.acquire_lock(h5pyswmr.locking.redis_conn,'process_input_element',lock_identifier)
     try:
@@ -451,7 +470,6 @@ def io_decorator_local(func):
         # if 'map2' in args[0]:
         # #     print(args)
         # #     print(mtimes)
-        #     pdb.set_trace()
 
         if is_io_path(args[0]):
             print('producing %s' %args[0])

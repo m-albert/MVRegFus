@@ -63,14 +63,14 @@ mv_final_spacing = np.array([5.]*3)
 # fusion_method
 # 'weighted_average': weighted average of views using the given weights
 # 'LR': Lucy-Richardson multi-view deconvolution
-# fusion_method = 'LR'
-fusion_method = 'weighted_average'
+fusion_method = 'LR'
+# fusion_method = 'weighted_average'
 
 # fusion weights
 # 'blending': uniform weights with blending at the stack borders
 # 'dct': weights derived from DCT image quality metric
-# fusion_weights = 'dct'
-fusion_weights = 'blending'
+fusion_weights = 'dct'
+# fusion_weights = 'blending'
 
 # options for DCT image quality metric for fusion
 # setting None automatically calculates good values
