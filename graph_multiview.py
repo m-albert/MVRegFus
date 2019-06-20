@@ -60,6 +60,7 @@ def build_multiview_graph(
     time_alignment_ref_sample = 0,
     time_alignment_ref_view = 0,
     raw_input_binning = None,
+    clean_pixels = False,
     elastix_dir = '/scratch/malbert/dependencies_linux/elastix_linux64_v4.8',
     ):
 
@@ -377,7 +378,7 @@ def build_multiview_graph(
                                                                 ch,
                                                                 background_level,
                                                                 multiview_metadata_label %(ds,sample),
-                                                                False, # do clean pixels
+                                                                clean_pixels, # do clean pixels
                                                                 False, # do smooth pixels
                                                                 True,#extract_rotation
                                                                 # True,#despeckle

@@ -107,6 +107,9 @@ raw_input_binning = [1,1,1]
 # background level to subtract
 background_level = 200
 
+# correct for camera artefacts (hot and cold pixels)
+clean_pixels = False
+
 # options for DCT image quality metric for fusion
 # setting None automatically calculates good values
 
@@ -143,6 +146,7 @@ if __name__ == '__main__':
             graph_multiview.build_multiview_graph(
             filepath = filepath,
             pairs = registration_pairss[ifile],
+            view_dict = view_dict,
             ref_view = ref_views[ifile],
             # mv_registration_bin_factors = np.array([8,8,2]),
             mv_registration_bin_factors = mv_registration_bin_factors, # x,y,z
@@ -158,6 +162,7 @@ if __name__ == '__main__':
             elastix_dir = elastix_dir,
             raw_input_binning = raw_input_binning, # x,y,z
             background_level = background_level,
+            clean_pixels = clean_pixels,
             dct_size = dct_size,
             dct_max_kernel = dct_max_kernel,
             dct_gaussian_kernel = dct_gaussian_kernel,
