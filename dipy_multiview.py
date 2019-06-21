@@ -1225,6 +1225,18 @@ def transform_stack_sitk(stack,p=None,out_shape=None,out_spacing=None,out_origin
     # sstack.SetSpacing(stack.spacing[::-1])
     # sstack.SetOrigin(stack.origin[::-1])
 
+    trivial = True
+    if not np.allclose(p,matrix_to_params(np.eye(4))):
+        trivial = False
+    if not np.allclose(out_shape, stack.shape):
+        trivial = False
+    if not np.allclose(out_origin, stack.origin):
+        trivial = False
+    if not np.allclose(out_spacing, stack.spacing):
+        trivial = False
+
+    if trivial: return stack
+
     sstack = image_to_sitk(stack)
     sstack = transformStack(p,sstack,
                             outShape=out_shape[::-1],
@@ -3186,13 +3198,18 @@ def get_weights_dct(
     vdils = []
     for iview,view in enumerate(views):
 
+        tmpvs = transform_stack_sitk(view,matrix_to_params(np.eye(4)),
+                               out_origin=w_stack_properties['origin'],
+                               out_shape=w_stack_properties['size'],
+                               out_spacing=w_stack_properties['spacing'])
+
         mask = get_mask_in_target_space(orig_stack_propertiess[iview],
-                                 stack_properties,
+                                 w_stack_properties,
                                  params[iview]
                                  )
 
         vdils.append(mask == 0)
-        vs.append(view*(mask>0))
+        vs.append(tmpvs*(mask>0))
 
     if size is None:
         size = np.max([4,int(50 / vs[0].spacing[0])]) # 50um
