@@ -418,7 +418,12 @@ def build_multiview_graph(
                                                                 view_dict[view]['ill'],
                                                                 )
 
-            graph[transformed_view_label %(ds,sample,view,ch)] = (
+            transf_label = transformed_view_label %(ds,sample,view,ch)
+            transf_file = os.path.join(out_dir,transf_label)
+            if os.path.exists(transf_file):
+                graph[transf_label] = transf_file
+            else:
+                graph[transf_label] = (
                                                                 dipy_multiview.transform_view_with_decorator,
                                                                 os.path.join(out_dir,transformed_view_label %(ds,sample,view,ch)),
                                                                 multiview_view_corr_label %(ds,sample,view,ch),

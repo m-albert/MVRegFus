@@ -3156,6 +3156,252 @@ def get_weights_simple(
     return ws
 
 
+# from scipy.fftpack import dctn,idctn
+# from scipy import ndimage
+# import dask.array as da
+# @io_decorator
+# def get_weights_dct(
+#                     views,
+#                     params,
+#                     orig_stack_propertiess,
+#                     stack_properties,
+#                     size=None,
+#                     max_kernel=None,
+#                     gaussian_kernel=None,
+#                     ):
+#     """
+#     DCT Shannon Entropy, as in:
+#     Adaptive light-sheet microscopy for long-term, high-resolution imaging in living organisms
+#     http://www.nature.com/articles/nbt.3708
+#
+#     Adaptations:
+#     - consider the full bandwidth, so set r0=d0 in their equation
+#     - calculate on blocks of size <size> and then interpolate to full grid
+#     - run maximum filter
+#     - run smoothing gaussian filter
+#     - final sigmoidal blending at view transitions
+#
+#     :param vrs:
+#     :return:
+#     """
+#
+#     w_stack_properties = stack_properties.copy()
+#     minspacing = 3.
+#     changed_stack_properties = False
+#     if w_stack_properties['spacing'][0] < minspacing:
+#         changed_stack_properties = True
+#         print('using downsampled images for calculating weights..')
+#         w_stack_properties['spacing'] = np.array([minspacing]*3)
+#         w_stack_properties['size'] = (stack_properties['spacing'][0]/w_stack_properties['spacing'][0])*stack_properties['size']
+#
+#     vs = []
+#     vdils = []
+#     for iview,view in enumerate(views):
+#
+#         tmpvs = transform_stack_sitk(view,matrix_to_params(np.eye(4)),
+#                                out_origin=w_stack_properties['origin'],
+#                                out_shape=w_stack_properties['size'],
+#                                out_spacing=w_stack_properties['spacing'])
+#
+#         mask = get_mask_in_target_space(orig_stack_propertiess[iview],
+#                                  w_stack_properties,
+#                                  params[iview]
+#                                  )
+#
+#         vdils.append(mask == 0)
+#         vs.append(tmpvs*(mask>0))
+#
+#     if size is None:
+#         size = np.max([4,int(50 / vs[0].spacing[0])]) # 50um
+#         print('dct: choosing size %s' %size)
+#     if max_kernel is None:
+#         max_kernel = int(size/2.)
+#         print('dct: choosing max_kernel %s' %max_kernel)
+#     if gaussian_kernel is None:
+#         gaussian_kernel = int(max_kernel)
+#         print('dct: choosing gaussian_kernel %s' %gaussian_kernel)
+#
+#     print('calculating dct weights...')
+#     def determine_quality(vrs):
+#
+#         """
+#         DCT Shannon Entropy, as in:
+#         Adaptive light-sheet microscopy for long-term, high-resolution imaging in living organisms
+#         http://www.nature.com/articles/nbt.3708
+#         Consider the full bandwidth, so set r0=d0 in their equation
+#         :param vrs:
+#         :return:
+#         """
+#         # print('dw...')
+#
+#         vrs = np.copy(vrs)
+#
+#         axes = [0,1,2]
+#         ds = []
+#         for v in vrs:
+#
+#             if np.sum(v==0) > np.product(v.shape) * (4/5.):
+#                 ds.append([0])
+#                 continue
+#             elif v.min()<0.0001:
+#                 v[v==0] = v[v>0].min() # or nearest neighbor
+#
+#             d = dctn(v,norm='ortho',axes=axes)
+#             # cut = size//2
+#             # d[:cut,:cut,:cut] = 0
+#             ds.append(d.flatten())
+#
+#         # l2 norm
+#         dsl2 = np.array([np.sum(np.abs(d)) for d in ds])
+#         # don't divide by zero below
+#         dsl2[dsl2==0] = 1
+#
+#         def abslog(x):
+#             res = np.zeros_like(x)
+#             x = np.abs(x)
+#             res[x==0] = 0
+#             res[x>0] = np.log2(x[x>0])
+#             return res
+#
+#         ws = np.array([-np.sum(np.abs(d)*abslog(d/dsl2[id])) for id,d in enumerate(ds)])
+#
+#         # simple weights in case everything is zero
+#         if not ws.max():
+#             ws = np.ones(len(ws))/float(len(ws))
+#
+#         return ws[:,None,None,None]
+#
+#
+#     x = da.from_array(np.array(vs), chunks=(len(vs),size,size,size))
+#     # ws=x.map_blocks(determine_quality,dtype=np.float)
+#     ws = x.map_blocks(determine_quality,dtype=np.float,chunks=(len(vs),1,1,1))
+#
+#     ws = ws.compute(scheduler = 'threads')
+#     ws = np.array(ws)
+#
+#     ws = ImageArray(ws,
+#                     spacing= np.array([size]*3)*np.array(w_stack_properties['spacing']),
+#                     origin = w_stack_properties['origin'] + ((size-1)*w_stack_properties['spacing'])/2.,
+#                     )
+#
+#     newws = []
+#     for iw in range(len(ws)):
+#         newws.append(transform_stack_sitk(ws[iw],
+#                             [1,0,0,0,1,0,0,0,1,0,0,0],
+#                             # out_shape=stack_properties['size'],
+#                             # out_origin=stack_properties['origin'],
+#                             # out_spacing=stack_properties['spacing'],
+#                                out_origin=w_stack_properties['origin'],
+#                                out_shape=w_stack_properties['size'],
+#                                out_spacing=w_stack_properties['spacing'],
+#                             interp='linear',
+#                              ))
+#     ws = np.array(newws)
+#
+#     for iw,w in enumerate(ws):
+#         print('filtering')
+#         ws[iw] = ndimage.maximum_filter(ws[iw],max_kernel)
+#
+#     for iw,w in enumerate(ws):
+#         ws[iw][vdils[iw]] = 0
+#
+#     wsmin = ws.min(0)
+#     wsmax = ws.max(0)
+#     ws = np.array([(w - wsmin)/(wsmax - wsmin + 0.01) for w in ws])
+#     # ws = np.array([(w - wsmin)/(wsmax - wsmin) for w in ws])
+#
+#     # for iw,w in enumerate(ws):
+#     #     ws[iw][vdils[iw]] = 0.00001
+#
+#     wsum = np.sum(ws,0)
+#     wsum[wsum==0] = 1
+#     for iw,w in enumerate(ws):
+#         ws[iw] /= wsum
+#
+#     # tifffile.imshow(np.array([np.array(ts)*10,ws]).swapaxes(-3,-2),vmax=10000)
+#     for iw,w in enumerate(ws):
+#         print('filtering')
+#         # ws[iw] = ndimage.maximum_filter(ws[iw],10)
+#         # ws[iw][vdils[iw]] = 0.00001
+#         ws[iw] = ndimage.gaussian_filter(ws[iw],gaussian_kernel)
+#         # zeros = ndimage.binary_dilation(vs[iw] == 0)
+#         # ws[iw][zeros] = 0.00001
+#         # ws[iw][vdils[iw]] = 0.00001
+#         ws[iw][vdils[iw]] = 0
+#
+#
+#     # HEURISTIC to adapt weights to number of views
+#     # idea: typically, 2-3 views carry good information at a given location
+#     # and the rest should not contribute
+#     # w**exp with exp>1 polarises the weights
+#     # we want to find exp such that 90% of the quality contribution
+#     # is given by the two best views
+#     # this is overall and the analysis is limited to regions where the best view
+#     # has at least double its baseline value 1/len(views)
+#     # alternatively: best view should have 0.5
+#
+#     if len(ws) > 2:
+#
+#         print('applying heuristic to adapt weights to N=%s views' %len(ws))
+#         print('criterion: weights**exp such that best two views > 0.9')
+#
+#         wsum = np.sum(ws,0)
+#         wsum[wsum==0] = 1
+#         for iw,w in enumerate(ws):
+#             ws[iw] /= wsum
+#
+#         wf = ws[:, np.max(ws, 0) > (2 * (1 / len(ws)))]
+#         # wf = wf[:,np.sum(wf,0)>0]
+#         wfs = np.sort(wf, axis=0)
+#
+#         def energy(exp):
+#             exp = exp[0]
+#             tmpw = wfs ** exp
+#             tmpsum = np.sum(tmpw, 0)
+#             tmpw = tmpw / tmpsum
+#             nsum = np.sum(tmpw[-2:], (-1)) / wfs.shape[-1]
+#             energy = np.abs(np.sum(nsum) - 0.9)
+#             return energy
+#
+#         from scipy import optimize
+#         res = optimize.minimize(energy, [0.5], bounds=[[0.5, 5]], method='L-BFGS-B', options={'maxiter': 10})
+#
+#         exp = res.x[0]
+#
+#         print('found exp=%s' %exp)
+#
+#         ws = [ws[i]**exp for i in range(len(ws))]
+#
+#     ws = list(ws)
+#     for iw,w in enumerate(ws):
+#         ws[iw] = ImageArray(ws[iw],
+#                             origin=w_stack_properties['origin'],
+#                             spacing=w_stack_properties['spacing'])
+#
+#
+#     if changed_stack_properties:
+#         for iview in range(len(ws)):
+#             ws[iview] = transform_stack_sitk(ws[iview],[1,0,0,0,1,0,0,0,1,0,0,0],
+#                                    out_origin=stack_properties['origin'],
+#                                    out_shape=stack_properties['size'],
+#                                    out_spacing=stack_properties['spacing'])
+#
+#     # smooth edges
+#     ws_simple = get_weights_simple(
+#                     orig_stack_propertiess,
+#                     params,
+#                     stack_properties
+#     )
+#
+#     ws = [ws[i]*ws_simple[i] for i in range(len(ws))]
+#
+#     wsum = np.sum(ws,0)
+#     wsum[wsum==0] = 1
+#     for iw,w in enumerate(ws):
+#         ws[iw] /= wsum
+#
+#     return ws
+
 from scipy.fftpack import dctn,idctn
 from scipy import ndimage
 import dask.array as da
@@ -3269,8 +3515,59 @@ def get_weights_dct(
         if not ws.max():
             ws = np.ones(len(ws))/float(len(ws))
 
-        return ws[:,None,None,None]
 
+        # HEURISTIC to adapt weights to number of views
+        # idea: typically, 2-3 views carry good information at a given location
+        # and the rest should not contribute
+        # w**exp with exp>1 polarises the weights
+        # we want to find exp such that 90% of the quality contribution
+        # is given by the two best views
+        # this is overall and the analysis is limited to regions where the best view
+        # has at least double its baseline value 1/len(views)
+        # alternatively: best view should have 0.5
+
+        if len(ws) > 2 and ws.min() < ws.max():
+
+            # print('applying heuristic to adapt weights to N=%s views' % len(ws))
+            # print('criterion: weights**exp such that best two views > 0.9')
+
+            wsum = np.sum(ws, 0)
+            # wsum[wsum == 0] = 1
+            for iw, w in enumerate(ws):
+                ws[iw] /= wsum
+
+            # wf = ws[:, np.max(ws, 0) > (2 * (1 / len(ws)))]
+            wf = ws
+            # wf = wf[:,np.sum(wf,0)>0]
+            wfs = np.sort(wf, axis=0)
+
+            def energy(exp):
+                exp = exp[0]
+                tmpw = wfs ** exp
+                tmpsum = np.sum(tmpw, 0)
+                tmpw = tmpw / tmpsum
+
+                nsum = np.sum(tmpw[-2:], (-1))# / wfs.shape[-1]
+                energy = np.abs(np.sum(nsum) - 0.9)
+
+                # nsum = np.sum(tmpw[-1:], (-1))# / wfs.shape[-1]
+                # energy = np.abs(np.sum(nsum) - 0.5)
+
+                return energy
+
+            from scipy import optimize
+            res = optimize.minimize(energy, [0.5], bounds=[[0.1, 10]], method='L-BFGS-B', options={'maxiter': 10})
+
+            exp = res.x[0]
+
+            # print('found exp=%s' % exp)
+
+            ws = [ws[i] ** exp for i in range(len(ws))]
+
+            ws = np.array(ws)
+
+
+        return ws[:,None,None,None]
 
     x = da.from_array(np.array(vs), chunks=(len(vs),size,size,size))
     # ws=x.map_blocks(determine_quality,dtype=np.float)
@@ -3329,48 +3626,6 @@ def get_weights_dct(
         # ws[iw][vdils[iw]] = 0.00001
         ws[iw][vdils[iw]] = 0
 
-
-    # HEURISTIC to adapt weights to number of views
-    # idea: typically, 2-3 views carry good information at a given location
-    # and the rest should not contribute
-    # w**exp with exp>1 polarises the weights
-    # we want to find exp such that 90% of the quality contribution
-    # is given by the two best views
-    # this is overall and the analysis is limited to regions where the best view
-    # has at least double its baseline value 1/len(views)
-    # alternatively: best view should have 0.5
-
-    if len(ws) > 2:
-
-        print('applying heuristic to adapt weights to N=%s views' %len(ws))
-        print('criterion: weights**exp such that best two views > 0.9')
-
-        wsum = np.sum(ws,0)
-        wsum[wsum==0] = 1
-        for iw,w in enumerate(ws):
-            ws[iw] /= wsum
-
-        wf = ws[:, np.max(ws, 0) > (2 * (1 / len(ws)))]
-        # wf = wf[:,np.sum(wf,0)>0]
-        wfs = np.sort(wf, axis=0)
-
-        def energy(exp):
-            exp = exp[0]
-            tmpw = wfs ** exp
-            tmpsum = np.sum(tmpw, 0)
-            tmpw = tmpw / tmpsum
-            nsum = np.sum(tmpw[-2:], (-1)) / wfs.shape[-1]
-            energy = np.abs(np.sum(nsum) - 0.9)
-            return energy
-
-        from scipy import optimize
-        res = optimize.minimize(energy, [0.5], bounds=[[0.5, 5]], method='L-BFGS-B', options={'maxiter': 10})
-
-        exp = res.x[0]
-
-        print('found exp=%s' %exp)
-
-        ws = [ws[i]**exp for i in range(len(ws))]
 
     ws = list(ws)
     for iw,w in enumerate(ws):
