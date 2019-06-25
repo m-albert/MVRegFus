@@ -1,4 +1,4 @@
-name: z1regfus
+name: z1regfus_windows
 channels:
   - defaults
   - anaconda

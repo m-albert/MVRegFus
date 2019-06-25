@@ -6,19 +6,9 @@ import czifile
 import SimpleITK as sitk
 from scipy import ndimage
 from image_array import ImageArray
+import mv_utils
 # import pyximport
 # pyximport.install(setup_args={'include_dirs':'.'})
-from dipy.align.imaffine import (AffineMap,
-                                 MutualInformationMetric,
-                                 AffineRegistration)
-from dipy.align.transforms import (TranslationTransform2D,
-                                   AffineTransform2D,TranslationTransform3D,
-                                   # ShearTransform3D,
-                                   RigidTransform3D,AffineTransform3D)
-# from dipy_transforms import ShearTransform3D
-
-from dipy.core import geometry
-from dipy.align.imwarp import mult_aff
 
 import io_utils
 io_decorator = io_utils.io_decorator_local
@@ -154,69 +144,69 @@ def asarray_random_access(self, view=None, ch=None, ill=None, resize=True, order
 # monkey patch czifile.py
 czifile.CziFile.asarray_random_access = asarray_random_access
 
-import warnings
-def asarray_view_ch(self, view, ch, resize=True, order=1):
-    """Return image data from file(s) as numpy array.
-
-    modified by malbert
-    example:
-    - to extract view 0, channel 0 from multiview, channel file
-    get axes from self.filtered_subblock_directory[-1].axes
-
-    Parameters
-    ----------
-    bgr2rgb : bool
-        If True, exchange red and blue samples if applicable.
-    resize : bool
-        If True (default), resize sub/supersampled subblock data.
-    order : int
-        The order of spline interpolation used to resize sub/supersampled
-        subblock data. Default is 1 (bilinear).
-
-    resize : bool
-        If True (default), resize sub/supersampled subblock data.
-    order : int
-        The order of spline interpolation used to resize sub/supersampled
-        subblock data. Default is 0 (nearest neighbor).
-    out : numpy.ndarray, str, or file-like object; optional
-        Buffer where image data will be saved.
-        If numpy.ndarray, a writable array of compatible dtype and shape.
-        If str or open file, the file name or file object used to
-        create a memory-map to an array stored in a binary file on disk.
-    max_workers : int
-        Maximum number of threads to read and decode subblock data.
-        By default up to half the CPU cores are used.
-
-
-    """
-
-    nonZeroDims = []
-    for idim in range(len(self.shape)):
-        if self.shape[idim]>1: nonZeroDims.append(idim)
-
-    image = []
-
-    ndims = len(self.start)
-    for directory_entry in self.filtered_subblock_directory:
-
-        index_start = [directory_entry.start[i] - self.start[i] for i in range(ndims)]
-        if index_start[0] != view or index_start[5] != ch: continue
-
-        # print(index_start[0],directory_entry.start)
-        subblock = directory_entry.data_segment()
-        tile = subblock.data(resize=resize, order=order)
-        # index = [slice(i-j, i-j+k) for i, j, k in
-        #          zip(directory_entry.start, self.start, tile.shape)]
-
-        try:
-            image.append(tile)
-        except ValueError as e:
-            warnings.warn(str(e))
-
-    return np.array(image)
-
-# monkey patch czifile.py
-czifile.CziFile.asarray_view_ch = asarray_view_ch
+# import warnings
+# def asarray_view_ch(self, view, ch, resize=True, order=1):
+#     """Return image data from file(s) as numpy array.
+#
+#     modified by malbert
+#     example:
+#     - to extract view 0, channel 0 from multiview, channel file
+#     get axes from self.filtered_subblock_directory[-1].axes
+#
+#     Parameters
+#     ----------
+#     bgr2rgb : bool
+#         If True, exchange red and blue samples if applicable.
+#     resize : bool
+#         If True (default), resize sub/supersampled subblock data.
+#     order : int
+#         The order of spline interpolation used to resize sub/supersampled
+#         subblock data. Default is 1 (bilinear).
+#
+#     resize : bool
+#         If True (default), resize sub/supersampled subblock data.
+#     order : int
+#         The order of spline interpolation used to resize sub/supersampled
+#         subblock data. Default is 0 (nearest neighbor).
+#     out : numpy.ndarray, str, or file-like object; optional
+#         Buffer where image data will be saved.
+#         If numpy.ndarray, a writable array of compatible dtype and shape.
+#         If str or open file, the file name or file object used to
+#         create a memory-map to an array stored in a binary file on disk.
+#     max_workers : int
+#         Maximum number of threads to read and decode subblock data.
+#         By default up to half the CPU cores are used.
+#
+#
+#     """
+#
+#     nonZeroDims = []
+#     for idim in range(len(self.shape)):
+#         if self.shape[idim]>1: nonZeroDims.append(idim)
+#
+#     image = []
+#
+#     ndims = len(self.start)
+#     for directory_entry in self.filtered_subblock_directory:
+#
+#         index_start = [directory_entry.start[i] - self.start[i] for i in range(ndims)]
+#         if index_start[0] != view or index_start[5] != ch: continue
+#
+#         # print(index_start[0],directory_entry.start)
+#         subblock = directory_entry.data_segment()
+#         tile = subblock.data(resize=resize, order=order)
+#         # index = [slice(i-j, i-j+k) for i, j, k in
+#         #          zip(directory_entry.start, self.start, tile.shape)]
+#
+#         try:
+#             image.append(tile)
+#         except ValueError as e:
+#             warnings.warn(str(e))
+#
+#     return np.array(image)
+#
+# # monkey patch czifile.py
+# czifile.CziFile.asarray_view_ch = asarray_view_ch
 
 @io_decorator
 def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,
@@ -336,6 +326,7 @@ def despeckle(im):
 
 # ok, working
 from scipy.fftpack import dctn,idctn
+# from scipy.fftpack import dct,idct
 def clean(im,cut=50):
 
     # axes = [im.shape[i] for i in [-2,-1]]
@@ -343,6 +334,7 @@ def clean(im,cut=50):
 
     # compute forward
     d = dctn(im,norm='ortho',axes=axes)
+    # d = dct(dct(im,axis=-1,norm='ortho'),axis=-2,norm='ortho')
 
     # cut frequencies
     # typical stripe pattern on Z1 ranges from 1-10px
@@ -362,6 +354,7 @@ def clean(im,cut=50):
 
     # compute backward
     im = idctn(d,norm='ortho',axes=axes)
+    # im = idct(idct(d,norm='ortho',axis=-2),norm='ortho',axis=-1)
     return im
 
 def clean_pixels(im):
@@ -996,7 +989,7 @@ def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None):
     static = ImageArray(c0[:,yl0:yu0,:],spacing=fixed.spacing,origin=origin_overlap0)
     mov = ImageArray(c1[:,yl1:yu1,:],spacing=moving.spacing,origin=origin_overlap1)
 
-    t00 = geometry.euler_matrix(0,+ fixed.rotation - moving.rotation,0)
+    t00 = mv_utils.euler_matrix(0,+ fixed.rotation - moving.rotation,0)
     center_static = np.array(static.shape)/2.*static.spacing + static.origin
     center_mov = np.array(mov.shape)/2.*mov.spacing + mov.origin
     t00offset = center_mov - np.dot(t00[:3,:3],center_static)
@@ -1086,7 +1079,7 @@ def translation3d(im0, im1):
 
     return [t0, t1, t2]
 
-import transformations
+# import transformations
 def get_affine_parameters_from_elastix_output(filepath_or_params,t0=None):
 
 
@@ -1097,7 +1090,8 @@ def get_affine_parameters_from_elastix_output(filepath_or_params,t0=None):
         elx_out_params = raw_out_params.split('\n')[2][:-1].split(' ')[1:]
         elx_out_params = np.array([float(i) for i in elx_out_params])
 
-        if len(elx_out_params) in [6, 7, 12]:
+        # if len(elx_out_params) in [6, 7, 12]:
+        if len(elx_out_params) in [6, 12]:
             outCenterOfRotation = raw_out_params.split('\n')[19][:-1].split(' ')[1:]
             outCenterOfRotation = np.array([float(i) for i in outCenterOfRotation])
 
@@ -1111,7 +1105,8 @@ def get_affine_parameters_from_elastix_output(filepath_or_params,t0=None):
 
 
     if len(elx_out_params)==6:
-        tmp = transformations.euler_matrix(elx_out_params[0],elx_out_params[1],elx_out_params[2])
+        # tmp = transformations.euler_matrix(elx_out_params[0],elx_out_params[1],elx_out_params[2])
+        tmp = mv_utils.euler_matrix(elx_out_params[0],elx_out_params[1],elx_out_params[2])
         elx_affine_params = np.zeros(12)
         elx_affine_params[:9] = tmp[:3,:3].flatten()
         elx_affine_params[-3:] = np.array([elx_out_params[3],elx_out_params[4],elx_out_params[5]])
@@ -1120,73 +1115,6 @@ def get_affine_parameters_from_elastix_output(filepath_or_params,t0=None):
         # elx_affine_params = np.concatenate([elx_affine_params[:9],translation],0)
 
     if len(elx_out_params)==12: # affine case
-        elx_affine_params = elx_out_params
-
-    elif len(elx_out_params)==7: # similarity transform
-        angles = transformations.euler_from_quaternion([np.sqrt(1-np.sum([np.power(elx_out_params[i],2) for i in range(3)])),
-                                                        elx_out_params[0],elx_out_params[1],elx_out_params[2]])
-        tmp = transformations.compose_matrix(angles=angles)
-        elx_affine_params = np.zeros(12)
-        elx_affine_params[:9] = tmp[:3,:3].flatten()*elx_out_params[6]
-        elx_affine_params[-3:] = np.array([elx_out_params[3],elx_out_params[4],elx_out_params[5]])
-
-        # translation = elx_affine_params[-3:] - np.dot(elx_affine_params[:9].reshape((3,3)),outCenterOfRotation) + outCenterOfRotation
-        # elx_affine_params = np.concatenate([elx_affine_params[:9],translation],0)
-
-    elif len(elx_out_params)==3: # translation transform
-
-        elx_affine_params = np.array([1.,0,0,0,1,0,0,0,1,0,0,0])
-        elx_affine_params[9:] = elx_out_params
-
-    if len(elx_out_params) in [6,7,12]:
-
-        # outCenterOfRotation = np.dot(params_to_matrix(params_invert_coordinates(t0)),np.array(list(outCenterOfRotation)+[1]))[:3]
-
-        translation = elx_affine_params[-3:] - np.dot(elx_affine_params[:9].reshape((3,3)),outCenterOfRotation) + outCenterOfRotation
-        elx_affine_params = np.concatenate([elx_affine_params[:9],translation],0)
-
-
-    # elx_affine_params = np.concatenate([elx_affine_params[:9],translation],0)
-    # elx_affine_params_numpy = np.concatenate([elx_affine_params[:9][::-1,::-1],translation[::-1]],0)
-
-    # dipy_parameters = np.diag((1,1,1,1)).astype(np.float64)
-    # dipy_parameters[:3,:3] = elx_affine_params[:9].reshape((3,3))[::-1,::-1]
-    # dipy_parameters[:3,3] = elx_affine_params[-3:][::-1]
-
-    inv_elx_affine_params = params_invert_coordinates(elx_affine_params)
-    final_params = params_to_matrix(inv_elx_affine_params)
-
-    if t0 is not None:
-        final_params = mult_aff(final_params,params_to_matrix(t0))
-
-    return final_params
-
-def get_affine_parameters_from_elastix_output_2d(filepath,t0=None):
-
-    import transformations
-    raw_out_params = open(filepath).read()
-
-    elx_out_params = raw_out_params.split('\n')[2][:-1].split(' ')[1:]
-    elx_out_params = np.array([float(i) for i in elx_out_params])
-
-    if len(elx_out_params)==3:
-
-        a = elx_out_params[0]
-        elx_affine_params = np.eye(3)
-        matrix2d = np.array([[np.cos(a),-np.sin(a)],[np.sin(a),np.cos(a)]])
-        elx_affine_params[:2,:2] = matrix2d
-        elx_affine_params[:2,2] = elx_out_params[1:]
-        elx_affine_params = matrix_to_params(elx_affine_params)
-
-        # tmp = transformations.euler_matrix(elx_out_params[0],elx_out_params[1],0)
-        # elx_affine_params = np.zeros(12)
-        # elx_affine_params[:9] = tmp[:3,:3].flatten()
-        # elx_affine_params[-3:] = np.array([elx_out_params[2],elx_out_params[3],0])
-
-        # translation = elx_affine_params[-3:] - np.dot(elx_affine_params[:9].reshape((3,3)),outCenterOfRotation) + outCenterOfRotation
-        # elx_affine_params = np.concatenate([elx_affine_params[:9],translation],0)
-
-    elif len(elx_out_params)==6: # affine case
         elx_affine_params = elx_out_params
 
     # elif len(elx_out_params)==7: # similarity transform
@@ -1200,33 +1128,28 @@ def get_affine_parameters_from_elastix_output_2d(filepath,t0=None):
         # translation = elx_affine_params[-3:] - np.dot(elx_affine_params[:9].reshape((3,3)),outCenterOfRotation) + outCenterOfRotation
         # elx_affine_params = np.concatenate([elx_affine_params[:9],translation],0)
 
-    elif len(elx_out_params)==2: # translation transform
+    elif len(elx_out_params)==3: # translation transform
 
-        elx_affine_params = np.array([1.,0,0,1,0,0])
-        elx_affine_params[4:] = elx_out_params
+        elx_affine_params = np.array([1.,0,0,0,1,0,0,0,1,0,0,0])
+        elx_affine_params[9:] = elx_out_params
 
-
-    if len(elx_out_params) in [3,6,7,12]:
-        outCenterOfRotation = raw_out_params.split('\n')[19][:-1].split(' ')[1:]
-        outCenterOfRotation = np.array([float(i) for i in outCenterOfRotation])
+    if len(elx_out_params) in [6,12]:
+    # if len(elx_out_params) in [6,7,12]:
 
         # outCenterOfRotation = np.dot(params_to_matrix(params_invert_coordinates(t0)),np.array(list(outCenterOfRotation)+[1]))[:3]
 
-        translation = elx_affine_params[-2:] - np.dot(elx_affine_params[:4].reshape((2,2)),outCenterOfRotation) + outCenterOfRotation
-        elx_affine_params = np.concatenate([elx_affine_params[:4],translation],0)
+        translation = elx_affine_params[-3:] - np.dot(elx_affine_params[:9].reshape((3,3)),outCenterOfRotation) + outCenterOfRotation
+        elx_affine_params = np.concatenate([elx_affine_params[:9],translation],0)
 
 
     # elx_affine_params = np.concatenate([elx_affine_params[:9],translation],0)
     # elx_affine_params_numpy = np.concatenate([elx_affine_params[:9][::-1,::-1],translation[::-1]],0)
-    # dipy_parameters = np.diag((1,1,1)).astype(np.float64)
-    # dipy_parameters[:2,:2] = elx_affine_params[:4].reshape((2,2))[::-1,::-1]
-    # dipy_parameters[:2,2] = elx_affine_params[-2:][::-1]
 
     inv_elx_affine_params = params_invert_coordinates(elx_affine_params)
-    dipy_parameters = params_to_matrix(inv_elx_affine_params)
+    final_params = params_to_matrix(inv_elx_affine_params)
 
     if t0 is not None:
-        final_params = mult_aff(dipy_parameters,params_to_matrix(t0))
+        final_params = np.dot(final_params,params_to_matrix(t0))
 
     return final_params
 
@@ -1509,8 +1432,8 @@ def calc_initial_parameters(pairs,infoDict,view_stacks):
             parameters.append([1., 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0])
             continue
 
-        matrix = geometry.euler_matrix(0,+ positions[iview0][3] - positions[iview1][3],0)
-        # matrix = geometry.euler_matrix(0,- positions[iview0][3] + positions[iview1][3],0)
+        matrix = mv_utils.euler_matrix(0,+ positions[iview0][3] - positions[iview1][3],0)
+        # matrix = mv_utils.euler_matrix(0,- positions[iview0][3] + positions[iview1][3],0)
         tmpParams = np.append(matrix[:3, :3].flatten(), matrix[:3, 3])
 
 
@@ -1587,8 +1510,8 @@ def calc_t0(fixed,moving):
                 if not np.any(fixed.spacing-moving.spacing):
                     return np.array([1,0,0,0,1,0,0,0,1,0,0,0])
 
-    matrix = geometry.euler_matrix(0,+ fixed.rotation - moving.rotation,0)
-    # matrix = geometry.euler_matrix(0,- positions[iview0][3] + positions[iview1][3],0)
+    matrix = mv_utils.euler_matrix(0,+ fixed.rotation - moving.rotation,0)
+    # matrix = mv_utils.euler_matrix(0,- positions[iview0][3] + positions[iview1][3],0)
     tmpParams = np.append(matrix[:3, :3].flatten(), matrix[:3, 3])
 
 
@@ -1727,7 +1650,7 @@ def get_params_from_pairs(ref_view,pairs,params,time_alignment_params=None):
                 path_params = np.eye(4)
                 for edge in path_pairs:
                     tmp_params = params_to_matrix(g.get_edge_data(edge[0],edge[1])['p'])
-                    path_params = mult_aff(tmp_params,path_params)
+                    path_params = np.dot(tmp_params,path_params)
                     print(path_params)
                 paths_params.append(matrix_to_params(path_params))
 
@@ -2066,7 +1989,7 @@ WriteResultImage ('true',)
 #         affine_params = apply_center_of_rotation(affine_params,cr)
 #         t1 = params_to_matrix(affine_params)
 #
-#         t10 = matrix_to_params(mult_aff(t1,t0))
+#         t10 = matrix_to_params(np.dot(t1,t0))
 #         t10 = params_invert_coordinates(t10)
 #         final_params.append(t10)
 #
@@ -2075,7 +1998,7 @@ WriteResultImage ('true',)
 #     for iim in range(len(ims)):
 #         t0 = invert_params(final_params[ref_view_index])
 #         t1 = final_params[iim]
-#         tmp = mult_aff(params_to_matrix(t1),params_to_matrix(t0))
+#         tmp = np.dot(params_to_matrix(t1),params_to_matrix(t0))
 #         tmp = matrix_to_params(tmp)
 #         final_ref_params.append(tmp)
 #
@@ -2084,7 +2007,7 @@ WriteResultImage ('true',)
 #     for iim in range(len(ims)):
 #         t0 = final_ref_params[iim]
 #         t1 = params0[iim]
-#         tmp = mult_aff(params_to_matrix(t1),params_to_matrix(t0))
+#         tmp = np.dot(params_to_matrix(t1),params_to_matrix(t0))
 #         tmp = matrix_to_params(tmp)
 #         final_ref_params_concat.append(tmp)
 #
@@ -2470,7 +2393,7 @@ def params_to_pmap(params):
 #
 
 from scipy.linalg import expm, logm
-import transformations
+# import transformations
 @io_decorator
 def register_groupwise(orig_ims, params0, ref_view_index=0, iso_reg_spacing_relative_to_input_z=1,
                            volume_mode='sample'):
@@ -2559,7 +2482,7 @@ def register_groupwise(orig_ims, params0, ref_view_index=0, iso_reg_spacing_rela
     for iim in range(len(ims)):
         # process euler transform
         raw_p = raw_params[0][iim]
-        tmp = transformations.euler_matrix(raw_p[0], raw_p[1], raw_p[2])
+        tmp = mv_utils.euler_matrix(raw_p[0], raw_p[1], raw_p[2])
         affine_params = np.zeros(12)
         affine_params[:9] = tmp[:3, :3].flatten()
         affine_params[-3:] = np.array([raw_p[3], raw_p[4], raw_p[5]])
@@ -2577,7 +2500,7 @@ def register_groupwise(orig_ims, params0, ref_view_index=0, iso_reg_spacing_rela
         # affine_params = apply_center_of_rotation(affine_params, cr)
         # t1 = params_to_matrix(affine_params)
         #
-        # t10 = matrix_to_params(mult_aff(t1, t0))
+        # t10 = matrix_to_params(np.dot(t1, t0))
         # t10 = params_invert_coordinates(t10)
         t0 = matrix_to_params(t0)
         t0 = params_invert_coordinates(t0)
@@ -2588,7 +2511,7 @@ def register_groupwise(orig_ims, params0, ref_view_index=0, iso_reg_spacing_rela
     for iim in range(len(ims)):
         t0 = invert_params(final_params[ref_view_index])
         t1 = final_params[iim]
-        tmp = mult_aff(params_to_matrix(t1), params_to_matrix(t0))
+        tmp = np.dot(params_to_matrix(t1), params_to_matrix(t0))
         tmp = matrix_to_params(tmp)
         final_ref_params.append(tmp)
 
@@ -2597,14 +2520,14 @@ def register_groupwise(orig_ims, params0, ref_view_index=0, iso_reg_spacing_rela
     for iim in range(len(ims)):
         t0 = final_ref_params[iim]
         t1 = params0[iim]
-        tmp = mult_aff(params_to_matrix(t1), params_to_matrix(t0))
+        tmp = np.dot(params_to_matrix(t1), params_to_matrix(t0))
         tmp = matrix_to_params(tmp)
         final_ref_params_concat.append(tmp)
 
     return np.array(final_ref_params_concat)
 
 from scipy.linalg import expm, logm
-import transformations
+# import transformations
 @io_decorator
 def register_groupwise_euler_and_affine(orig_ims, params0, ref_view_index=0, iso_reg_spacing_relative_to_input_z=1,
                            volume_mode='sample'):
@@ -2693,7 +2616,7 @@ def register_groupwise_euler_and_affine(orig_ims, params0, ref_view_index=0, iso
     for iim in range(len(ims)):
         # process euler transform
         raw_p = raw_params[0][iim]
-        tmp = transformations.euler_matrix(raw_p[0], raw_p[1], raw_p[2])
+        tmp = mv_utils.euler_matrix(raw_p[0], raw_p[1], raw_p[2])
         affine_params = np.zeros(12)
         affine_params[:9] = tmp[:3, :3].flatten()
         affine_params[-3:] = np.array([raw_p[3], raw_p[4], raw_p[5]])
@@ -2711,7 +2634,7 @@ def register_groupwise_euler_and_affine(orig_ims, params0, ref_view_index=0, iso
         affine_params = apply_center_of_rotation(affine_params, cr)
         t1 = params_to_matrix(affine_params)
 
-        t10 = matrix_to_params(mult_aff(t1, t0))
+        t10 = matrix_to_params(np.dot(t1, t0))
         t10 = params_invert_coordinates(t10)
         final_params.append(t10)
 
@@ -2720,7 +2643,7 @@ def register_groupwise_euler_and_affine(orig_ims, params0, ref_view_index=0, iso
     for iim in range(len(ims)):
         t0 = invert_params(final_params[ref_view_index])
         t1 = final_params[iim]
-        tmp = mult_aff(params_to_matrix(t1), params_to_matrix(t0))
+        tmp = np.dot(params_to_matrix(t1), params_to_matrix(t0))
         tmp = matrix_to_params(tmp)
         final_ref_params.append(tmp)
 
@@ -2729,7 +2652,7 @@ def register_groupwise_euler_and_affine(orig_ims, params0, ref_view_index=0, iso
     for iim in range(len(ims)):
         t0 = final_ref_params[iim]
         t1 = params0[iim]
-        tmp = mult_aff(params_to_matrix(t1), params_to_matrix(t0))
+        tmp = np.dot(params_to_matrix(t1), params_to_matrix(t0))
         tmp = matrix_to_params(tmp)
         final_ref_params_concat.append(tmp)
 
@@ -2790,7 +2713,7 @@ def register_groupwise_euler_and_affine(orig_ims, params0, ref_view_index=0, iso
 #                     path_params = np.eye(4)
 #                     for edge in path_pairs:
 #                         tmp_params = params_to_matrix(g.get_edge_data(edge[0],edge[1])['p'])
-#                         path_params = mult_aff(tmp_params,path_params)
+#                         path_params = np.dot(tmp_params,path_params)
 #                         print(path_params)
 #                     paths_params.append(matrix_to_params(path_params))
 #
@@ -2812,7 +2735,7 @@ def register_groupwise_euler_and_affine(orig_ims, params0, ref_view_index=0, iso
 #     for iview, view in enumerate(all_views):
 #         if view == ref_view: final_view_params = matrix_to_params(np.eye(4))
 #         else:
-#             final_view_params = mult_aff(params_to_matrix(params_ref_to_common), params_to_matrix(params_common_space_to_view[view]))
+#             final_view_params = np.dot(params_to_matrix(params_ref_to_common), params_to_matrix(params_common_space_to_view[view]))
 #             final_view_params = matrix_to_params(final_view_params)
 #
 #         # concatenate with time alignment if given
@@ -2854,7 +2777,7 @@ def register_groupwise_euler_and_affine(orig_ims, params0, ref_view_index=0, iso
 #                     path_params = np.eye(4)
 #                     for edge in path_pairs:
 #                         tmp_params = params_to_matrix(g.get_edge_data(edge[0],edge[1])['p'])
-#                         path_params = mult_aff(tmp_params,path_params)
+#                         path_params = np.dot(tmp_params,path_params)
 #                         print(path_params)
 #                     paths_params.append(matrix_to_params(path_params))
 #
@@ -2870,7 +2793,7 @@ def register_groupwise_euler_and_affine(orig_ims, params0, ref_view_index=0, iso
 #         for iview_interm, view_interm in enumerate(all_views):
 #             ref_to_intermediate  = params_to_matrix(params_pairwise[(ref_view   ,view_interm)])
 #             intermediate_to_view = params_to_matrix(params_pairwise[(view_interm,view       )])
-#             ref_to_view = matrix_to_params(mult_aff(intermediate_to_view, ref_to_intermediate))
+#             ref_to_view = matrix_to_params(np.dot(intermediate_to_view, ref_to_intermediate))
 #             intermediates.append(ref_to_view)
 #         final_view_params = np.mean(intermediates,0)
 #
@@ -2913,7 +2836,7 @@ def register_groupwise_euler_and_affine(orig_ims, params0, ref_view_index=0, iso
 #                     path_params = np.eye(4)
 #                     for edge in path_pairs:
 #                         tmp_params = params_to_matrix(g.get_edge_data(edge[0],edge[1])['p'])
-#                         path_params = mult_aff(tmp_params,path_params)
+#                         path_params = np.dot(tmp_params,path_params)
 #                         print(path_params)
 #                     paths_params.append(matrix_to_params(path_params))
 #
@@ -3585,6 +3508,7 @@ def get_weights_simple(
 #     return ws
 
 from scipy.fftpack import dctn,idctn
+# from scipy.fftpack import dct,idct
 from scipy import ndimage
 import dask.array as da
 @io_decorator
@@ -3677,6 +3601,7 @@ def get_weights_dct(
                 v[v==0] = v[v>0].min() # or nearest neighbor
 
             d = dctn(v,norm='ortho',axes=axes)
+            # d = dct(dct(dct(v,axis=-1,norm='ortho'),axis=-2,norm='ortho'),axis=-3,norm='ortho')
             # cut = size//2
             # d[:cut,:cut,:cut] = 0
             ds.append(d.flatten())
@@ -4140,48 +4065,6 @@ def fuse_views_weights(views,
 
     return f
 
-def fuse_views_simple(views,params,stack_properties):
-
-    # if spacing is None:
-    #     spacing = np.max([view.spacing for view in views],0)
-
-    # volume = get_union_volume(views,params)
-    # stack_properties = calc_stack_properties_from_volume(volume,spacing)
-
-    transformed = []
-    for iview,view in enumerate(views):
-        tmp = transform_stack_dipy(view,params[iview],
-                               out_origin=stack_properties['origin'],
-                               out_shape=stack_properties['size'],
-                               out_spacing=stack_properties['spacing'])
-        transformed.append(np.array(tmp))
-
-    fused = np.max(transformed,0)
-    fused = ImageArray(fused,spacing=stack_properties['spacing'],origin=stack_properties['origin'])
-
-    return fused
-
-def fuse_views(views,params,spacing=None):
-
-    if spacing is None:
-        spacing = np.max([view.spacing for view in views],0)
-
-    volume = get_union_volume(views,params)
-    stack_properties = calc_stack_properties_from_volume(volume,spacing)
-
-    transformed = []
-    for iview,view in enumerate(views):
-        tmp = transform_stack_dipy(view,params[iview],
-                               out_origin=stack_properties['origin'],
-                               out_shape=stack_properties['size'],
-                               out_spacing=stack_properties['spacing'])
-        transformed.append(np.array(tmp))
-
-    fused = np.max(transformed,0).astype(np.uint16)
-    fused = ImageArray(fused,spacing=stack_properties['spacing'],origin=stack_properties['origin'])
-
-    return fused
-
 @io_decorator
 def calc_stack_properties_from_views_and_params(views,params,spacing=None,mode='sample'):
 
@@ -4333,7 +4216,6 @@ def calc_lambda_fusion_seg(
     for i in range(len(views)):
         print('transforming view %s' %i)
         t = transform_stack_sitk(
-        # t = mv_utils.transform_stack_dipy(
                                                 # vsr[i],final_params[i],
                                                 views[i]+1,params[i], # adding one because of weights (taken away again further down)
                                                 out_shape=stack_properties['size'],
@@ -4345,7 +4227,6 @@ def calc_lambda_fusion_seg(
         tmp_view = ImageArray(views[i][:-1,:-1,:-1]+1,spacing=views[i].spacing,origin=views[i].origin+views[i].spacing/2.,rotation=views[i].rotation)
 
         mask = transform_stack_sitk(
-        # t = mv_utils.transform_stack_dipy(
                                                 # vsr[i],final_params[i],
                                                 tmp_view, params[i],
                                                 out_shape=stack_properties['size'],
@@ -4395,7 +4276,6 @@ def get_lambda_weights(
     for i in range(len(views)):
         print('transforming view %s' %i)
         t = transform_stack_sitk(
-        # t = mv_utils.transform_stack_dipy(
                                                 # vsr[i],final_params[i],
                                                 views[i]+1,params[i], # adding one because of weights (taken away again further down)
                                                 out_shape=stack_properties['size'],
@@ -4407,7 +4287,6 @@ def get_lambda_weights(
         tmp_view = ImageArray(views[i][:-1,:-1,:-1]+1,spacing=views[i].spacing,origin=views[i].origin+views[i].spacing/2.,rotation=views[i].rotation)
 
         mask = transform_stack_sitk(
-        # t = mv_utils.transform_stack_dipy(
                                                 # vsr[i],final_params[i],
                                                 tmp_view, params[i],
                                                 out_shape=stack_properties['size'],
@@ -5259,7 +5138,6 @@ def fuse_views_lambda(
     for i in range(len(views)):
         print('transforming view %s' %i)
         t = transform_stack_sitk(
-        # t = mv_utils.transform_stack_dipy(
                                                 # vsr[i],final_params[i],
                                                 views[i]+1,params[i], # adding one because of weights (taken away again further down)
                                                 out_shape=stack_properties['size'],
@@ -5279,7 +5157,6 @@ def fuse_views_lambda(
         tmp_view = ImageArray(views[i][:-1,:-1,:-1]+1,spacing=views[i].spacing,origin=views[i].origin+views[i].spacing/2.,rotation=views[i].rotation)
 
         mask = transform_stack_sitk(
-        # t = mv_utils.transform_stack_dipy(
                                                 # vsr[i],final_params[i],
                                                 tmp_view, params[i],
                                                 out_shape=stack_properties['size'],
@@ -5544,8 +5421,8 @@ def get_t0(fixed,moving):
 
     print(mean0,mean1)
 
-    matrix = geometry.euler_matrix(0,+ fixed.rotation - moving.rotation,0)
-    # matrix = geometry.euler_matrix(0,- positions[iview0][3] + positions[iview1][3],0)
+    matrix = mv_utils.euler_matrix(0,+ fixed.rotation - moving.rotation,0)
+    # matrix = mv_utils.euler_matrix(0,- positions[iview0][3] + positions[iview1][3],0)
     t0 = np.append(matrix[:3, :3].flatten(), matrix[:3, 3])
 
     offset = mean1 - np.dot(matrix[:3,:3],mean0)
@@ -5743,50 +5620,3 @@ params_bspline = """
 //(NumberOfResolutions %(number_of_resolutions))
 (FinalGridSpacingInPhysicalUnits 100 100 100)
 """
-
-
-
-if __name__ == '__main__':
-
-    filepath = '/data/malbert/data/dbspim/chemokine/20170718_44star_mutmut7/wt_01.czi'
-    # filepath = '/data/malbert/data/dbspim/Erika/20140911_cxcr7_wt/wt_01.czi'
-
-    infoDict = getStackInfoFromCZI(filepath)
-    res = readMultiviewCzi(filepath,ds=16,infoDict=infoDict)
-
-    pairs = [[4,4],[4,5]]
-    # pairs = [[0,0],[0,1],[0,2],[0,3]]
-    # pairs = [[1,0],[1,1],[1,2],[1,3],[1,4],[1,5]]
-    ip = calc_initial_parameters(pairs,infoDict,res[0])
-    # regs = [register_warp(res[0][iview0],res[0][iview1],ip[ipair]) for ipair,[iview0,iview1] in enumerate(pairs)]
-    regs_el = [register_linear_elastix_seq(res[0][iview0],res[0][iview1],ip[ipair]) for ipair,[iview0,iview1] in enumerate(pairs)]
-    # ps = [regs[ipair][0] for ipair,[iview0,iview1] in enumerate(pairs)]
-    # es = [regs[ipair][1] for ipair,[iview0,iview1] in enumerate(pairs)]
-    # t = np.array([transform_stack_dipy(res[0][iview1],ps[ipair],out_origin=res[0][iview0].origin,out_shape=res[0][iview0].shape,out_spacing=res[0][iview0].spacing) for ipair,[iview0,iview1] in enumerate(pairs)])
-    t_init = np.array([res[0][0]]+[transform_stack_dipy(res[0][iview1],ip[ipair],out_origin=res[0][iview0].origin,out_shape=res[0][iview0].shape,out_spacing=res[0][iview0].spacing) for ipair,[iview0,iview1] in enumerate(pairs) if ipair])
-    # t_affine = np.array([res[0][0]]+[transform_stack_dipy(res[0][iview1],regs[ipair][1][1],out_origin=res[0][iview0].origin,out_shape=res[0][iview0].shape,out_spacing=res[0][iview0].spacing) for ipair,[iview0,iview1] in enumerate(pairs) if ipair])
-    t_elx = np.array([res[0][0]]+[transform_stack_dipy(res[0][iview1],regs_el[ipair],out_origin=res[0][iview0].origin,out_shape=res[0][iview0].shape,out_spacing=res[0][iview0].spacing) for ipair,[iview0,iview1] in enumerate(pairs) if ipair])
-    # t_waffine = np.array([res[0][0]]+[transform_stack_dipy(res[0][iview1],regs[ipair][1][2],out_origin=res[0][iview0].origin,out_shape=res[0][iview0].shape,out_spacing=res[0][iview0].spacing) for ipair,[iview0,iview1] in enumerate(pairs) if ipair])
-    # t_warp = np.array([res[0][0]]+[regs[ipair][1][0].transform(res[0][iview1]) for ipair,[iview0,iview1] in enumerate(pairs) if ipair])
-
-    # import dipy_helpers
-    # from dipy.align.metrics import CCMetric as CCMetric
-    # s =
-    # dipy_helpers.register_dipy(
-    #     res[0][0],
-    #     res[0][1],
-    #     np.eye(4),
-    #               scaling_factors = [2,1],
-    #               sigmas_image = [1,0],
-    #               sigmas_defo = [1,1],
-    #               clahe_kernel_sizes=None,
-    #               level_iters = [100,100],
-    #               ccmetric_radius=4,
-    #               precomputed_clahe_fixed=None,
-    #               precomputed_clahe_moving=None,
-    #               pad=0,
-    #               CCMetric=CCMetric
-    #               )
-
-    # tifffile.imshow(np.max(np.array([res[0][0]]*2+[regs[i][1][0].transform(res[0][i]) for i in range(1,4)]),-2),vmax=300)
-    # tifffile.imshow(np.max(np.array(np.linalg.norm((regs[2][1][0].backward-linearise_displacement_field(regs[2][1][0].backward)[0]),axis=-1)*(res[0][0]>10)),-1))

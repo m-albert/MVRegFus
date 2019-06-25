@@ -17,11 +17,12 @@ Python libraries:
 - SimpleITK
 - scikit-image
 - bcolz
-- tifffile
-- czifileczifile==2019.1.26
+- tifffile (included)
+- czifileczifile==2019.1.26 (included)
 
 External:
 - elastix (install binary and indicate path at the beginning of dipy_multiview.py)
+- SimpleElastix (optional)
 
 ## installation instructions
 
@@ -30,14 +31,11 @@ External:
 ### option 1: install an environment from the .yml file:
 conda env create --file mv_environment.yml
 
-### option 2: create a new conda environment and type:
+### option 2 (deprecated): create a new conda environment and type:
 
-conda install ipython h5py numpy scipy scikit-learn pandas dask distributed bokeh bcolz
-pip install SimpleITK redis redis_lock dipy scikit-image transformations czifile==2019.1.26
- tifffile
-
-an addition might be needed:
-pip install --upgrade scikit-image
+# conda install ipython h5py numpy scipy scikit-learn pandas dask distributed bokeh bcolz
+# pip install SimpleITK
+# pip install SimpleITK redis redis_lock dipy scikit-image transformations czifile==2019.1.26 tifffile
 
 download elastix (binary version) and place files in a folder 'elastix' in the same folder as z1regfus (this one)
 

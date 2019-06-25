@@ -6,11 +6,11 @@ import numpy as np
 import h5py
 # import h5pyswmr # for locking
 # for locking:
-import redis_lock
-from redis import StrictRedis
-conn = StrictRedis()
+# import redis_lock
+# from redis import StrictRedis
+# conn = StrictRedis()
 
-from dipy.align.imwarp import DiffeomorphicMap
+# from dipy.align.imwarp import DiffeomorphicMap
 from image_array import ImageArray
 
 import pdb
@@ -203,13 +203,13 @@ def process_output_element(element,path):
     #     return path
 
     # l = h5pyswmr.locking.acquire_lock(h5pyswmr.locking.redis_conn,'process_input_element',lock_identifier)
-    try:
-        lock_identifier = 'malbert_lock_'+path
-        lock = redis_lock.Lock(conn, lock_identifier)
-        lock.acquire()
-        # print('acquired lock %s' %lock_identifier)
-    except:
-        print('locking not working (maybe try io_utils.redis_lock.reset_all(io_utils.conn)')
+    # try:
+    #     lock_identifier = 'malbert_lock_'+path
+    #     lock = redis_lock.Lock(conn, lock_identifier)
+    #     lock.acquire()
+    #     # print('acquired lock %s' %lock_identifier)
+    # except:
+    #     print('locking not working (maybe try io_utils.redis_lock.reset_all(io_utils.conn)')
 
     if path.endswith('.mhd'):
         s = sitk.GetImageFromArray(element)
@@ -217,9 +217,9 @@ def process_output_element(element,path):
             s.SetSpacing(element.spacing[::-1])
             s.SetOrigin(element.origin[::-1])
         sitk.WriteImage(s,path)
-    elif type(element) == DiffeomorphicMap:
-        diffmap = diffmap_on_disk(path)
-        diffmap.save(element)
+    # elif type(element) == DiffeomorphicMap:
+    #     diffmap = diffmap_on_disk(path)
+    #     diffmap.save(element)
     elif path.endswith('.image.h5') and type(element) == np.ndarray:
         tmpFile = h5py.File(path)
         tmpFile.clear()
@@ -488,87 +488,87 @@ def io_decorator_local(func):
 io_decorator = io_decorator_local
 
 
-class diffmap_on_disk(object):
-    """
-                     dim,
-                 disp_shape,
-                 disp_grid2world=None,
-                 domain_shape=None,
-                 domain_grid2world=None,
-                 codomain_shape=None,
-                 codomain_grid2world=None,
-                 prealign=None):
-    """
-    def __init__(self,filepath=None):
-        self.filepath       = filepath
-        self.init_keys = ['dim',
-                     'disp_shape',
-                     'disp_grid2world',
-                     'domain_shape',
-                     'domain_grid2world',
-                     'codomain_shape',
-                     'codomain_grid2world',
-                     'prealign',
-                     ]
-        self.more_keys = [
-                     'forward',
-                     'backward',
-                     'is_inverse',
-                     'evolution',
-                     'warped'
-                     ]
-        self.keys = self.init_keys + self.more_keys
-
-    def exists(self):
-        if os.path.exists(self.filepath):
-            return True
-        else:
-            return False
-
-    def get(self):
-
-        diffmap_file = h5py.File(self.filepath,'r')
-        init_dict = {}
-        for key in self.init_keys:
-            value = diffmap_file[key].value
-            # if value == 'None':
-            if (type(value) == str and value == 'None') or (type(value) == bytes and value == b'None'): # python 3 saves 'None' into h5 as b'None', python 2 as 'None'
-                init_dict[key] = None
-            else:
-                if 'world' in key: # because of dtype problems when arrays came from dask (returns >f8...?)
-                    value = value.astype(np.float64)
-                init_dict[key] = value
-
-        diffmap = DiffeomorphicMap(**init_dict)
-
-        for key in self.more_keys:
-            value = diffmap_file[key].value
-            if (type(value) == str and value == 'None') or (type(value) == bytes and value == b'None'): # python 3 saves 'None' into h5 as b'None', python 2 as 'None'
-                diffmap.__setattr__(key, None)
-            else:
-                if key in ['forward','backward']:
-                    value = value.astype(np.float32)
-                diffmap.__setattr__(key, value)
-
-        diffmap_file.close()
-
-        return diffmap
-
-    def save(self,diffmap):
-
-        diffmap_file = h5py.File(self.filepath)
-        diffmap_file.clear()
-        for key in self.keys:
-            value = diffmap.__getattribute__(key)
-            if value is None:
-                diffmap_file[key] = 'None'
-            else:
-                # because of dtype problems when arrays came from dask (returns >f8...?)
-                if 'world' in key:
-                    value = value.astype(np.float64)
-                elif key in ['forward','backward']:
-                    value = value.astype(np.float32)
-                diffmap_file[key] = value
-
-        diffmap_file.close()
-        return
+# class diffmap_on_disk(object):
+#     """
+#                      dim,
+#                  disp_shape,
+#                  disp_grid2world=None,
+#                  domain_shape=None,
+#                  domain_grid2world=None,
+#                  codomain_shape=None,
+#                  codomain_grid2world=None,
+#                  prealign=None):
+#     """
+#     def __init__(self,filepath=None):
+#         self.filepath       = filepath
+#         self.init_keys = ['dim',
+#                      'disp_shape',
+#                      'disp_grid2world',
+#                      'domain_shape',
+#                      'domain_grid2world',
+#                      'codomain_shape',
+#                      'codomain_grid2world',
+#                      'prealign',
+#                      ]
+#         self.more_keys = [
+#                      'forward',
+#                      'backward',
+#                      'is_inverse',
+#                      'evolution',
+#                      'warped'
+#                      ]
+#         self.keys = self.init_keys + self.more_keys
+#
+#     def exists(self):
+#         if os.path.exists(self.filepath):
+#             return True
+#         else:
+#             return False
+#
+#     def get(self):
+#
+#         diffmap_file = h5py.File(self.filepath,'r')
+#         init_dict = {}
+#         for key in self.init_keys:
+#             value = diffmap_file[key].value
+#             # if value == 'None':
+#             if (type(value) == str and value == 'None') or (type(value) == bytes and value == b'None'): # python 3 saves 'None' into h5 as b'None', python 2 as 'None'
+#                 init_dict[key] = None
+#             else:
+#                 if 'world' in key: # because of dtype problems when arrays came from dask (returns >f8...?)
+#                     value = value.astype(np.float64)
+#                 init_dict[key] = value
+#
+#         diffmap = DiffeomorphicMap(**init_dict)
+#
+#         for key in self.more_keys:
+#             value = diffmap_file[key].value
+#             if (type(value) == str and value == 'None') or (type(value) == bytes and value == b'None'): # python 3 saves 'None' into h5 as b'None', python 2 as 'None'
+#                 diffmap.__setattr__(key, None)
+#             else:
+#                 if key in ['forward','backward']:
+#                     value = value.astype(np.float32)
+#                 diffmap.__setattr__(key, value)
+#
+#         diffmap_file.close()
+#
+#         return diffmap
+#
+#     def save(self,diffmap):
+#
+#         diffmap_file = h5py.File(self.filepath)
+#         diffmap_file.clear()
+#         for key in self.keys:
+#             value = diffmap.__getattribute__(key)
+#             if value is None:
+#                 diffmap_file[key] = 'None'
+#             else:
+#                 # because of dtype problems when arrays came from dask (returns >f8...?)
+#                 if 'world' in key:
+#                     value = value.astype(np.float64)
+#                 elif key in ['forward','backward']:
+#                     value = value.astype(np.float32)
+#                 diffmap_file[key] = value
+#
+#         diffmap_file.close()
+#         return
