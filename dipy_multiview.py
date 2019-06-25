@@ -24,6 +24,137 @@ import io_utils
 io_decorator = io_utils.io_decorator_local
 
 import warnings
+def get_number_of_zplanes(self, view=None, ch=None, ill=None, resize=True, order=1):
+    """Return image data from file(s) as numpy array.
+
+    modified by malbert
+    example:
+    - to extract view 0, channel 0 from multiview, channel file
+    get axes from self.filtered_subblock_directory[-1].axes
+
+    Parameters
+    ----------
+    bgr2rgb : bool
+        If True, exchange red and blue samples if applicable.
+    resize : bool
+        If True (default), resize sub/supersampled subblock data.
+    order : int
+        The order of spline interpolation used to resize sub/supersampled
+        subblock data. Default is 1 (bilinear).
+
+    resize : bool
+        If True (default), resize sub/supersampled subblock data.
+    order : int
+        The order of spline interpolation used to resize sub/supersampled
+        subblock data. Default is 0 (nearest neighbor).
+    out : numpy.ndarray, str, or file-like object; optional
+        Buffer where image data will be saved.
+        If numpy.ndarray, a writable array of compatible dtype and shape.
+        If str or open file, the file name or file object used to
+        create a memory-map to an array stored in a binary file on disk.
+    max_workers : int
+        Maximum number of threads to read and decode subblock data.
+        By default up to half the CPU cores are used.
+
+
+    """
+
+
+    image = []
+    for directory_entry in self.filtered_subblock_directory:
+        plane_is_wanted = True
+        for dim in directory_entry.dimension_entries:
+
+            if dim.dimension == 'V':
+                if view is not None and not dim.start == view:
+                    plane_is_wanted = False
+                    break
+
+            if dim.dimension == 'C':
+                if ch is not None and not dim.start == ch:
+                    plane_is_wanted = False
+                    break
+
+            if dim.dimension == 'I':
+                if ill is not None and not dim.start == ill:
+                    plane_is_wanted = False
+                    break
+
+        if not plane_is_wanted: continue
+
+import warnings
+def asarray_random_access(self, view=None, ch=None, ill=None, resize=True, order=1):
+    """Return image data from file(s) as numpy array.
+
+    modified by malbert
+    example:
+    - to extract view 0, channel 0 from multiview, channel file
+    get axes from self.filtered_subblock_directory[-1].axes
+
+    Parameters
+    ----------
+    bgr2rgb : bool
+        If True, exchange red and blue samples if applicable.
+    resize : bool
+        If True (default), resize sub/supersampled subblock data.
+    order : int
+        The order of spline interpolation used to resize sub/supersampled
+        subblock data. Default is 1 (bilinear).
+
+    resize : bool
+        If True (default), resize sub/supersampled subblock data.
+    order : int
+        The order of spline interpolation used to resize sub/supersampled
+        subblock data. Default is 0 (nearest neighbor).
+    out : numpy.ndarray, str, or file-like object; optional
+        Buffer where image data will be saved.
+        If numpy.ndarray, a writable array of compatible dtype and shape.
+        If str or open file, the file name or file object used to
+        create a memory-map to an array stored in a binary file on disk.
+    max_workers : int
+        Maximum number of threads to read and decode subblock data.
+        By default up to half the CPU cores are used.
+
+
+    """
+
+
+    image = []
+    for directory_entry in self.filtered_subblock_directory:
+        plane_is_wanted = True
+        for dim in directory_entry.dimension_entries:
+
+            if dim.dimension == 'V':
+                if view is not None and not dim.start == view:
+                    plane_is_wanted = False
+                    break
+
+            if dim.dimension == 'C':
+                if ch is not None and not dim.start == ch:
+                    plane_is_wanted = False
+                    break
+
+            if dim.dimension == 'I':
+                if ill is not None and not dim.start == ill:
+                    plane_is_wanted = False
+                    break
+
+        if not plane_is_wanted: continue
+
+        subblock = directory_entry.data_segment()
+        tile = subblock.data(resize=resize, order=order)
+
+        try:
+            image.append(tile)
+        except ValueError as e:
+            warnings.warn(str(e))
+
+    return np.array(image).squeeze()
+
+# monkey patch czifile.py
+czifile.CziFile.asarray_random_access = asarray_random_access
+
+import warnings
 def asarray_view_ch(self, view, ch, resize=True, order=1):
     """Return image data from file(s) as numpy array.
 
@@ -102,26 +233,41 @@ def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,
     # return ImageArray(np.ones((10,10,10)))
     if infoDict is None:
         infoDict = getStackInfoFromCZI(filepath)
-    stack = czifile.CziFile(filepath).asarray_view_ch(view,ch).squeeze()
+
+    # stack = czifile.CziFile(filepath).asarray_view_ch(view,ch).squeeze()
+    stack = czifile.CziFile(filepath).asarray_random_access(view,ch).squeeze()
 
     stack = stack.astype(np.uint16) # czifile can also load in other dtypes
 
+    # # fuse illuminations
+    # illuminations = infoDict['originalShape'][1]
+    # if illuminations > 1:
+    #     if ill is None:
+    #         print('fusing %s illuminations using simple mean' %illuminations)
+    #         # stack = np.mean([stack[i:stack.shape[0]:illuminations] for i in range(illuminations)],0).astype(np.uint16)
+    #         zshape = int(stack.shape[0]/illuminations)
+    #         for z in range(zshape):
+    #             if not z%50: print('fusing z plane: %s' %z)
+    #             stack[z] = np.mean(stack[z*illuminations:z*illuminations+illuminations],0).astype(np.uint16)
+    #         stack = stack[:zshape]
+    #         # print('choosing only illumination 1')
+    #         # stack = np.array(stack[1:stack.shape[0]:illuminations]).astype(np.uint16)
+    #     else:
+    #         print('picking illumination %s' %ill)
+    #         stack = np.array(stack[ill:stack.shape[0]:illuminations]).astype(np.uint16)
+
     # fuse illuminations
     illuminations = infoDict['originalShape'][1]
-    if illuminations > 1:
-        if ill is None:
-            print('fusing %s illuminations using simple mean' %illuminations)
-            # stack = np.mean([stack[i:stack.shape[0]:illuminations] for i in range(illuminations)],0).astype(np.uint16)
-            zshape = int(stack.shape[0]/illuminations)
-            for z in range(zshape):
-                if not z%50: print('fusing z plane: %s' %z)
-                stack[z] = np.mean(stack[z*illuminations:z*illuminations+illuminations],0).astype(np.uint16)
-            stack = stack[:zshape]
-            # print('choosing only illumination 1')
-            # stack = np.array(stack[1:stack.shape[0]:illuminations]).astype(np.uint16)
-        else:
-            print('picking illumination %s' %ill)
-            stack = np.array(stack[ill:stack.shape[0]:illuminations]).astype(np.uint16)
+    if illuminations > 1 and ill is None:
+        print('fusing %s illuminations using simple mean' %illuminations)
+        # stack = np.mean([stack[i:stack.shape[0]:illuminations] for i in range(illuminations)],0).astype(np.uint16)
+        zshape = int(stack.shape[0]/illuminations)
+        for z in range(zshape):
+            if not z%50: print('fusing z plane: %s' %z)
+            stack[z] = np.mean(stack[z*illuminations:z*illuminations+illuminations],0).astype(np.uint16)
+        stack = stack[:zshape]
+        # print('choosing only illumination 1')
+        # stack = np.array(stack[1:stack.shape[0]:illuminations]).astype(np.uint16)
 
     if raw_input_binning is not None:
         print('WARNING: binning down raw input by xyz factors %s' %raw_input_binning)
@@ -323,6 +469,40 @@ def getStackInfoFromCZI(pathToImage, xy_spacing=None):
         spacing[:2] = xy_spacing
 
     if multiView:
+
+        def count_planes_of_view_in_czifile(self, view):
+
+            """
+            get number of zplanes of a given view independently of number of channels and illuminations
+            """
+
+            curr_ch = 0
+            curr_ill = 0
+            i = 0
+            for directory_entry in self.filtered_subblock_directory:
+                plane_is_wanted = True
+                ch_or_ill_changed = False
+                for dim in directory_entry.dimension_entries:
+
+                    if dim.dimension == 'V':
+                        if view is not None and not dim.start == view:
+                            plane_is_wanted = False
+                            break
+
+                    if dim.dimension == 'C':
+                        if curr_ch != dim.start:
+                            ch_or_ill_changed = True
+                            break
+
+                    if dim.dimension == 'I':
+                        if curr_ill != dim.start:
+                            ch_or_ill_changed = True
+                            break
+
+                if plane_is_wanted and not ch_or_ill_changed: i += 1
+
+            return i
+
         axisOfRotation = np.array([float(i) for i in metadata.findall(".//AxisOfRotation")[0].text.split(' ')])
         axisOfRotation = np.where(axisOfRotation)[0][0]
         centerOfRotation = np.array([-float(i) for i in metadata.findall(".//CenterPosition")[0].text.split(' ')])
@@ -339,7 +519,7 @@ def getStackInfoFromCZI(pathToImage, xy_spacing=None):
             yPositions.append(float(baseNode.findall(".//PositionY")[0].text))
             zPositions.append(float(baseNode.findall(".//PositionZ")[0].text))
             rPositions.append(float(baseNode.findall(".//Offset")[0].text) / 180. * np.pi)
-            nZs.append(float(baseNode.findall(".//SizeZ")[0].text))
+            nZs.append(count_planes_of_view_in_czifile(imageFile,i))
 
         sizes = np.array([[nX, nY, nZs[i]] for i in range(nViews)])
         positions = np.array([xPositions, yPositions, zPositions, rPositions]).swapaxes(0, 1)
@@ -3028,6 +3208,7 @@ def get_mask_in_target_space(orig_stack_props,
     # print('WATCH OUT! simple_weights: disregarding %s bad planes at the end of the stack' % badplanes)
 
     # reducedview = view[badplanes:-1, :-1, :-1]
+    # reducedview_shape = np.array(orig_stack_props['size'])-1
     reducedview_shape = np.array(orig_stack_props['size'])-1
     reducedview_shape[0] -= badplanes
     reducedview = np.ones(reducedview_shape,dtype=np.uint16)
@@ -3106,7 +3287,7 @@ def get_weights_simple(
             a = 12./borderwidth
             return 1/(1+np.exp(-a*(x-x0)))
 
-        r = 0.1 # relative border width
+        r = 0.05 # relative border width
         # sig = np.ones(reducedview.shape,dtype=np.float32)
         sigN = 200
         sig = np.ones([sigN]*3,dtype=np.float32)
@@ -3120,7 +3301,8 @@ def get_weights_simple(
                 sig[tuple(slices)] = np.min([sig[tuple(slices)] * 0 + sigmoid(bx, borderwidth), sig[tuple(slices)]], 0)
 
             # don't blend best part of the image (assuming that is true for high zs)
-            if d > 0: borderwidth = int(0.01 * sig.shape[d])
+            # if d > 0: borderwidth = int(0.01 * sig.shape[d])
+            if d == 0: borderwidth = int(0.01 * sig.shape[d])
             for bx in range(borderwidth):
                 slices[d] = slice(sig.shape[d] - bx - 1, sig.shape[d] - bx)
                 sig[tuple(slices)] = np.min([sig[tuple(slices)] * 0 + sigmoid(bx, borderwidth), sig[tuple(slices)]], 0)
@@ -3136,7 +3318,6 @@ def get_weights_simple(
                                out_shape=stack_properties['size'],
                                out_spacing=stack_properties['spacing'])
 
-
         mask = get_mask_in_target_space(orig_stack_propertiess[iview],
                                  stack_properties,
                                  params[iview]
@@ -3146,6 +3327,7 @@ def get_weights_simple(
         # print('WARNING; 1 ITERATIONS FOR MASK DILATION (DCT WEIGHTS')
         # mask = ndimage.binary_dilation(mask == 0,iterations=1)
         ws.append(tmpvs*(mask))
+        # ws.append(tmpvs)
 
     wsum = np.sum(ws,0)
     wsum[wsum==0] = 1
@@ -3414,6 +3596,8 @@ def get_weights_dct(
                     size=None,
                     max_kernel=None,
                     gaussian_kernel=None,
+                    how_many_best_views = 1,
+                    cumulative_weight_best_views = 0.9,
                     ):
     """
     DCT Shannon Entropy, as in:
@@ -3536,6 +3720,8 @@ def get_weights_dct(
             for iw, w in enumerate(ws):
                 ws[iw] /= wsum
 
+
+
             # wf = ws[:, np.max(ws, 0) > (2 * (1 / len(ws)))]
             wf = ws
             # wf = wf[:,np.sum(wf,0)>0]
@@ -3547,8 +3733,8 @@ def get_weights_dct(
                 tmpsum = np.sum(tmpw, 0)
                 tmpw = tmpw / tmpsum
 
-                nsum = np.sum(tmpw[-2:], (-1))# / wfs.shape[-1]
-                energy = np.abs(np.sum(nsum) - 0.9)
+                nsum = np.sum(tmpw[-int(how_many_best_views):], (-1))# / wfs.shape[-1]
+                energy = np.abs(np.sum(nsum) - cumulative_weight_best_views)
 
                 # nsum = np.sum(tmpw[-1:], (-1))# / wfs.shape[-1]
                 # energy = np.abs(np.sum(nsum) - 0.5)
@@ -3564,8 +3750,9 @@ def get_weights_dct(
 
             ws = [ws[i] ** exp for i in range(len(ws))]
 
-            ws = np.array(ws)
 
+
+            ws = np.array(ws)
 
         return ws[:,None,None,None]
 
@@ -3595,6 +3782,7 @@ def get_weights_dct(
                              ))
     ws = np.array(newws)
 
+
     for iw,w in enumerate(ws):
         print('filtering')
         ws[iw] = ndimage.maximum_filter(ws[iw],max_kernel)
@@ -3602,13 +3790,9 @@ def get_weights_dct(
     for iw,w in enumerate(ws):
         ws[iw][vdils[iw]] = 0
 
-    wsmin = ws.min(0)
-    wsmax = ws.max(0)
-    ws = np.array([(w - wsmin)/(wsmax - wsmin + 0.01) for w in ws])
-    # ws = np.array([(w - wsmin)/(wsmax - wsmin) for w in ws])
-
-    # for iw,w in enumerate(ws):
-    #     ws[iw][vdils[iw]] = 0.00001
+    # wsmin = ws.min(0)
+    # wsmax = ws.max(0)
+    # ws = np.array([(w - wsmin)/(wsmax - wsmin + 0.01) for w in ws])
 
     wsum = np.sum(ws,0)
     wsum[wsum==0] = 1
@@ -3634,6 +3818,8 @@ def get_weights_dct(
                             spacing=w_stack_properties['spacing'])
 
 
+
+
     if changed_stack_properties:
         for iview in range(len(ws)):
             ws[iview] = transform_stack_sitk(ws[iview],[1,0,0,0,1,0,0,0,1,0,0,0],
@@ -3656,6 +3842,266 @@ def get_weights_dct(
         ws[iw] /= wsum
 
     return ws
+
+# from scipy.fftpack import dctn,idctn
+# from scipy import ndimage
+# import dask.array as da
+# @io_decorator
+# def get_weights_dct(
+#                     views,
+#                     params,
+#                     orig_stack_propertiess,
+#                     stack_properties,
+#                     size=None,
+#                     max_kernel=None,
+#                     gaussian_kernel=None,
+#                     how_many_best_views = 2,
+#                     cumulative_weight_best_views = 0.9,
+#                     ):
+#     """
+#     DCT Shannon Entropy, as in:
+#     Adaptive light-sheet microscopy for long-term, high-resolution imaging in living organisms
+#     http://www.nature.com/articles/nbt.3708
+#
+#     Adaptations:
+#     - consider the full bandwidth, so set r0=d0 in their equation
+#     - calculate on blocks of size <size> and then interpolate to full grid
+#     - run maximum filter
+#     - run smoothing gaussian filter
+#     - final sigmoidal blending at view transitions
+#
+#     :param vrs:
+#     :return:
+#     """
+#
+#     w_stack_properties = stack_properties.copy()
+#     minspacing = 3.
+#     changed_stack_properties = False
+#     if w_stack_properties['spacing'][0] < minspacing:
+#         changed_stack_properties = True
+#         print('using downsampled images for calculating weights..')
+#         w_stack_properties['spacing'] = np.array([minspacing]*3)
+#         w_stack_properties['size'] = (stack_properties['spacing'][0]/w_stack_properties['spacing'][0])*stack_properties['size']
+#
+#     vs = []
+#     vdils = []
+#     for iview,view in enumerate(views):
+#
+#         tmpvs = transform_stack_sitk(view,matrix_to_params(np.eye(4)),
+#                                out_origin=w_stack_properties['origin'],
+#                                out_shape=w_stack_properties['size'],
+#                                out_spacing=w_stack_properties['spacing'])
+#
+#         mask = get_mask_in_target_space(orig_stack_propertiess[iview],
+#                                  w_stack_properties,
+#                                  params[iview]
+#                                  )
+#
+#         vdils.append(mask == 0)
+#         vs.append(tmpvs*(mask>0))
+#
+#     if size is None:
+#         size = np.max([4,int(50 / vs[0].spacing[0])]) # 50um
+#         print('dct: choosing size %s' %size)
+#     if max_kernel is None:
+#         max_kernel = int(size/2.)
+#         print('dct: choosing max_kernel %s' %max_kernel)
+#     if gaussian_kernel is None:
+#         gaussian_kernel = int(max_kernel)
+#         print('dct: choosing gaussian_kernel %s' %gaussian_kernel)
+#
+#     print('calculating dct weights...')
+#     def determine_quality(vrs):
+#
+#         """
+#         DCT Shannon Entropy, as in:
+#         Adaptive light-sheet microscopy for long-term, high-resolution imaging in living organisms
+#         http://www.nature.com/articles/nbt.3708
+#         Consider the full bandwidth, so set r0=d0 in their equation
+#         :param vrs:
+#         :return:
+#         """
+#         # print('dw...')
+#
+#         vrs = np.copy(vrs)
+#
+#         axes = [0,1,2]
+#         ds = []
+#         for v in vrs:
+#
+#             if np.sum(v==0) > np.product(v.shape) * (4/5.):
+#                 ds.append([0])
+#                 continue
+#             elif v.min()<0.0001:
+#                 v[v==0] = v[v>0].min() # or nearest neighbor
+#
+#             d = dctn(v,norm='ortho',axes=axes)
+#             # cut = size//2
+#             # d[:cut,:cut,:cut] = 0
+#             ds.append(d.flatten())
+#
+#         # l2 norm
+#         dsl2 = np.array([np.sum(np.abs(d)) for d in ds])
+#         # don't divide by zero below
+#         dsl2[dsl2==0] = 1
+#
+#         def abslog(x):
+#             res = np.zeros_like(x)
+#             x = np.abs(x)
+#             res[x==0] = 0
+#             res[x>0] = np.log2(x[x>0])
+#             return res
+#
+#         ws = np.array([-np.sum(np.abs(d)*abslog(d/dsl2[id])) for id,d in enumerate(ds)])
+#
+#         # simple weights in case everything is zero
+#         if not ws.max():
+#             ws = np.ones(len(ws))/float(len(ws))
+#
+#
+#         # HEURISTIC to adapt weights to number of views
+#         # idea: typically, 2-3 views carry good information at a given location
+#         # and the rest should not contribute
+#         # w**exp with exp>1 polarises the weights
+#         # we want to find exp such that 90% of the quality contribution
+#         # is given by the two best views
+#         # this is overall and the analysis is limited to regions where the best view
+#         # has at least double its baseline value 1/len(views)
+#         # alternatively: best view should have 0.5
+#
+#         if len(ws) > 2 and ws.min() < ws.max():
+#
+#             # print('applying heuristic to adapt weights to N=%s views' % len(ws))
+#             # print('criterion: weights**exp such that best two views > 0.9')
+#
+#             wsum = np.sum(ws, 0)
+#             # wsum[wsum == 0] = 1
+#             for iw, w in enumerate(ws):
+#                 ws[iw] /= wsum
+#
+#
+#
+#             # # wf = ws[:, np.max(ws, 0) > (2 * (1 / len(ws)))]
+#             # wf = ws
+#             # # wf = wf[:,np.sum(wf,0)>0]
+#             # wfs = np.sort(wf, axis=0)
+#             #
+#             # def energy(exp):
+#             #     exp = exp[0]
+#             #     tmpw = wfs ** exp
+#             #     tmpsum = np.sum(tmpw, 0)
+#             #     tmpw = tmpw / tmpsum
+#             #
+#             #     nsum = np.sum(tmpw[-int(how_many_best_views):], (-1))# / wfs.shape[-1]
+#             #     energy = np.abs(np.sum(nsum) - cumulative_weight_best_views)
+#             #
+#             #     # nsum = np.sum(tmpw[-1:], (-1))# / wfs.shape[-1]
+#             #     # energy = np.abs(np.sum(nsum) - 0.5)
+#             #
+#             #     return energy
+#             #
+#             # from scipy import optimize
+#             # res = optimize.minimize(energy, [0.5], bounds=[[0.1, 10]], method='L-BFGS-B', options={'maxiter': 10})
+#             #
+#             # exp = res.x[0]
+#             #
+#             # # print('found exp=%s' % exp)
+#             #
+#             # ws = [ws[i] ** exp for i in range(len(ws))]
+#
+#
+#
+#             ws = np.array(ws)
+#
+#         return ws[:,None,None,None]
+#
+#     x = da.from_array(np.array(vs), chunks=(len(vs),size,size,size))
+#     # ws=x.map_blocks(determine_quality,dtype=np.float)
+#     ws = x.map_blocks(determine_quality,dtype=np.float,chunks=(len(vs),1,1,1))
+#
+#     ws = ws.compute(scheduler = 'threads')
+#     ws = np.array(ws)
+#
+#     ws = ImageArray(ws,
+#                     spacing= np.array([size]*3)*np.array(w_stack_properties['spacing']),
+#                     origin = w_stack_properties['origin'] + ((size-1)*w_stack_properties['spacing'])/2.,
+#                     )
+#
+#     newws = []
+#     for iw in range(len(ws)):
+#         newws.append(transform_stack_sitk(ws[iw],
+#                             [1,0,0,0,1,0,0,0,1,0,0,0],
+#                             # out_shape=stack_properties['size'],
+#                             # out_origin=stack_properties['origin'],
+#                             # out_spacing=stack_properties['spacing'],
+#                                out_origin=w_stack_properties['origin'],
+#                                out_shape=w_stack_properties['size'],
+#                                out_spacing=w_stack_properties['spacing'],
+#                             interp='linear',
+#                              ))
+#     ws = np.array(newws)
+#
+#
+#     for iw,w in enumerate(ws):
+#         print('filtering')
+#         ws[iw] = ndimage.maximum_filter(ws[iw],max_kernel)
+#
+#     for iw,w in enumerate(ws):
+#         ws[iw][vdils[iw]] = 0
+#
+#     wsmin = ws.min(0)
+#     wsmax = ws.max(0)
+#     ws = np.array([(w - wsmin)/(wsmax - wsmin + 0.01) for w in ws])
+#
+#     wsum = np.sum(ws,0)
+#     wsum[wsum==0] = 1
+#     for iw,w in enumerate(ws):
+#         ws[iw] /= wsum
+#
+#     # tifffile.imshow(np.array([np.array(ts)*10,ws]).swapaxes(-3,-2),vmax=10000)
+#     for iw,w in enumerate(ws):
+#         print('filtering')
+#         # ws[iw] = ndimage.maximum_filter(ws[iw],10)
+#         # ws[iw][vdils[iw]] = 0.00001
+#         ws[iw] = ndimage.gaussian_filter(ws[iw],gaussian_kernel)
+#         # zeros = ndimage.binary_dilation(vs[iw] == 0)
+#         # ws[iw][zeros] = 0.00001
+#         # ws[iw][vdils[iw]] = 0.00001
+#         ws[iw][vdils[iw]] = 0
+#
+#
+#     ws = list(ws)
+#     for iw,w in enumerate(ws):
+#         ws[iw] = ImageArray(ws[iw],
+#                             origin=w_stack_properties['origin'],
+#                             spacing=w_stack_properties['spacing'])
+#
+#
+#
+#
+#     if changed_stack_properties:
+#         for iview in range(len(ws)):
+#             ws[iview] = transform_stack_sitk(ws[iview],[1,0,0,0,1,0,0,0,1,0,0,0],
+#                                    out_origin=stack_properties['origin'],
+#                                    out_shape=stack_properties['size'],
+#                                    out_spacing=stack_properties['spacing'])
+#
+#     # smooth edges
+#     ws_simple = get_weights_simple(
+#                     orig_stack_propertiess,
+#                     params,
+#                     stack_properties
+#     )
+#
+#     ws = [ws[i]*ws_simple[i] for i in range(len(ws))]
+#
+#     wsum = np.sum(ws,0)
+#     wsum[wsum==0] = 1
+#     for iw,w in enumerate(ws):
+#         ws[iw] /= wsum
+#
+#     return ws
+
 
 @io_decorator
 def fuse_views_weights(views,
@@ -4231,7 +4677,8 @@ def multiview_data_to_density(
 
         o = sitk.Cast(o,sitk.sitkFloat32)
 
-        o = o*weights[ip]
+        if weights is not None:
+            o = o*weights[ip]
 
         density += o
 
@@ -5019,13 +5466,17 @@ def transformStack(p,stack,outShape=None,outSpacing=None,outOrigin=None,interp='
         interpolator = sitk.sitkLinear
     else:
         interpolator = interp
-    newim = sitk.Resample(stack,shape,transf,interpolator,outOrigin,outSpacing)
+
+    orig_sitk_dtype = stack.GetPixelID()
+    stack = sitk.Cast(stack,sitk.sitkFloat32) # avoid overflow
+    stack = sitk.Resample(stack,shape,transf,interpolator,outOrigin,outSpacing)
+    stack = sitk.Clamp(stack,orig_sitk_dtype) # avoid overflow
     if numpyarray:
-        newim = sitk.GetArrayFromImage(newim)
+        stack = sitk.GetArrayFromImage(stack)
 
     #
 
-    return newim
+    return stack
 
 
 """(Transform "AffineTransform")

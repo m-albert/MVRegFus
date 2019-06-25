@@ -49,6 +49,8 @@ def build_multiview_graph(
     dct_size = None,
     dct_max_kernel = None,
     dct_gaussian_kernel = None,
+    dct_how_many_best_views=1,
+    dct_cumulative_weight_best_views=0.9,
     LR_niter = 25,  # iters
     LR_sigma_z = 4,  # sigma z
     LR_sigma_xy = 0.5,  # sigma xy
@@ -263,7 +265,9 @@ def build_multiview_graph(
                 stack_properties_label % (ds, sample),
                 dct_size,
                 dct_max_kernel,
-                dct_gaussian_kernel
+                dct_gaussian_kernel,
+                dct_how_many_best_views,
+                dct_cumulative_weight_best_views,
             )
 
         elif fusion_weights == 'blending':

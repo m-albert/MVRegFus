@@ -120,6 +120,12 @@ dct_max_kernel = None,
 # size of gaussian kernel
 dct_gaussian_kernel = None,
 
+# weight normalisation parameters
+# normalise such that approx. <dct_cumulative_weight_best_views> weight is
+# contained in the <dct_how_many_best_views> best views
+dct_how_many_best_views = 1
+dct_cumulative_weight_best_views = 0.9
+
 # where elastix can be found (top folder)
 elastix_dir = '../elastix'
 
@@ -172,6 +178,8 @@ if __name__ == '__main__':
             LR_tol = LR_tol,  # tol
             fusion_method = fusion_method,
             fusion_weights = fusion_weights,
+            dct_how_many_best_views=dct_how_many_best_views,
+            dct_cumulative_weight_best_views=dct_cumulative_weight_best_views,
             )
         )
 
