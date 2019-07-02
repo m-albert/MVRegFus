@@ -1625,6 +1625,7 @@ def invert_params(params):
 def get_mask_using_otsu(im):
     from skimage import filters
     thresh = filters.threshold_otsu(im)
+    thresh = filters.threshold_otsu(im[im<thresh]) # line added 20190702
     seg = im > thresh
     seg = ndimage.binary_erosion(seg,iterations=1)
     seg = ndimage.binary_dilation(seg,iterations=5)

@@ -188,6 +188,7 @@ def build_multiview_graph(
     if simple_elastix_available and len(all_views) >= 4:  # restiction given by current elastix groupwise registration implementatin
         graph[fusion_params_label % (ds, sample)] = (
             dipy_multiview.register_groupwise,
+            # dipy_multiview.register_groupwise_euler_and_affine,
             os.path.join(out_dir, fusion_params_label % (ds, sample)),
             [multiview_view_corr_label % (ds, sample, view, reg_channel) for view in all_views],
             fusion_params0_label % (ds, sample),
