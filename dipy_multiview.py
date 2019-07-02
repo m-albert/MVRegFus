@@ -9,6 +9,13 @@ from image_array import ImageArray
 import mv_utils
 # import pyximport
 # pyximport.install(setup_args={'include_dirs':'.'})
+from dipy.align.imaffine import (AffineMap,
+                                 MutualInformationMetric,
+                                 AffineRegistration)
+from dipy.align.transforms import (TranslationTransform2D,
+                                   AffineTransform2D,TranslationTransform3D,
+                                   # ShearTransform3D,
+                                   RigidTransform3D,AffineTransform3D)
 
 import io_utils
 io_decorator = io_utils.io_decorator_local
@@ -225,9 +232,6 @@ def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,
         infoDict = getStackInfoFromCZI(filepath)
 
     # stack = czifile.CziFile(filepath).asarray_view_ch(view,ch).squeeze()
-    stack = czifile.CziFile(filepath).asarray_random_access(view,ch).squeeze()
-
-    stack = stack.astype(np.uint16) # czifile can also load in other dtypes
 
     # # fuse illuminations
     # illuminations = infoDict['originalShape'][1]
@@ -249,6 +253,10 @@ def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,
     # fuse illuminations
     illuminations = infoDict['originalShape'][1]
     if illuminations > 1 and ill is None:
+
+        stack = czifile.CziFile(filepath).asarray_random_access(view, ch).squeeze()
+        stack = stack.astype(np.uint16)  # czifile can also load in other dtypes
+
         print('fusing %s illuminations using simple mean' %illuminations)
         # stack = np.mean([stack[i:stack.shape[0]:illuminations] for i in range(illuminations)],0).astype(np.uint16)
         zshape = int(stack.shape[0]/illuminations)
@@ -258,6 +266,9 @@ def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,
         stack = stack[:zshape]
         # print('choosing only illumination 1')
         # stack = np.array(stack[1:stack.shape[0]:illuminations]).astype(np.uint16)
+    else:
+        stack = czifile.CziFile(filepath).asarray_random_access(view=view, ch=ch, ill=ill).squeeze()
+        stack = stack.astype(np.uint16)  # czifile can also load in other dtypes
 
     if raw_input_binning is not None:
         print('WARNING: binning down raw input by xyz factors %s' %raw_input_binning)

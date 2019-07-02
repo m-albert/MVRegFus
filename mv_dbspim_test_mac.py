@@ -17,7 +17,7 @@ elastix_dir = '../elastix'
 filepaths = ['/Users/marvin/data/dbspim/20140911_cxcr7_wt/wt_01.czi']
 
 # channels to fuse
-channels = [0]#*len(filepaths)
+channels = [0,1]#*len(filepaths)
 channelss = [channels]*len(filepaths)
 
 # channel to use for registration
@@ -29,8 +29,8 @@ ref_view = 0
 ref_views = [ref_view] *len(filepaths)
 
 # list of pairwise view indices to perform registration on
-# registration_pairs = [[0,1]]
-registration_pairs = None
+registration_pairs = [[0,1]]
+# registration_pairs = None
 registration_pairss = [registration_pairs] *len(filepaths)
 
 # how to calculate final fusion volume

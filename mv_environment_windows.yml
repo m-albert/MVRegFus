@@ -17,6 +17,6 @@ dependencies:
   - scikit-image
   - tifffile
   - pip
-  - pip:
-    - simpleitk # replace by simpleelastix
+#  - pip:
+#    - simpleitk # replace by simpleelastix
 #    - czifile==2019.1.26
