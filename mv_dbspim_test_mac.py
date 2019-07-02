@@ -29,8 +29,8 @@ ref_view = 0
 ref_views = [ref_view] *len(filepaths)
 
 # list of pairwise view indices to perform registration on
-registration_pairs = [[0,1]]
-# registration_pairs = None
+# registration_pairs = [[0,1]]
+registration_pairs = None
 registration_pairss = [registration_pairs] *len(filepaths)
 
 # how to calculate final fusion volume
@@ -54,7 +54,7 @@ raw_input_binning = [8,8,2]
 background_level = 200
 
 # which binning to use for registration
-mv_registration_bin_factors = np.array([8,8,2])
+mv_registration_bin_factors = np.array([1,1,1])
 
 # final output spacing in um
 mv_final_spacing = np.array([5.]*3)

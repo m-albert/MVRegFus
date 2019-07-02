@@ -23,6 +23,7 @@ fusion_params_label                 = 'mv_params_gw_%03d_%03d.prealignment.h5' #
 # chromatic_correction_params_label   = 'mv_params_%03d_%03d_c%02d.prealignment.h5'
 chromatic_correction_params_label   = 'chromcorr_params_%03d_%03d_refch%02d_ch%02d.prealignment.h5'
 stack_properties_label              = 'mv_stack_props_%03d_%03d.dict.h5'
+orig_stack_properties_label         = 'mv_orig_stack_props_%03d_%03d_v%03d.dict.h5'
 transformed_view_label              = 'mv_transf_view_%03d_%03d_v%03d_c%02d.imagear.h5'
 multiview_chrom_correction_channel_label = 'mv_chrom_corr_%03d_%03d_c%02d.imagear.h5'
 
@@ -110,14 +111,22 @@ def build_multiview_graph(
     print('They refer to the keys in this view_dict:\n%s' %view_dict)
     print(''.join(['#'] * 10))
 
-    print('collecting stack properties')
-    orig_stack_propss = []
-    for view in all_views:
-        orig_stack_props = dipy_multiview.get_stack_properties_from_view_dict(view_dict[view],raw_input_binning)
-        orig_stack_propss.append(orig_stack_props)
-        print(orig_stack_props)
+    # print('collecting stack properties')
+    # orig_stack_propss = []
+    # for view in all_views:
+    #     orig_stack_props = dipy_multiview.get_stack_properties_from_view_dict(view_dict[view],raw_input_binning)
+    #     orig_stack_propss.append(orig_stack_props)
+    #     print(orig_stack_props)
 
     graph = dict()
+
+    orig_stack_propss = []
+    for view in all_views:
+        graph[orig_stack_properties_label %(ds,sample,view)] = (dipy_multiview.get_stack_properties_from_view_dict,
+                                                                view_dict[view],
+                                                                raw_input_binning
+                                                                )
+        orig_stack_propss.append(orig_stack_properties_label %(ds,sample,view))
 
     if time_alignment:
         graph[time_alignment_pair_params_label %(ds,sample)] = (
@@ -171,6 +180,7 @@ def build_multiview_graph(
         import SimpleITK as sitk
         sitk.ElastixImageFilter()
         simple_elastix_available = True
+        print('Using groupwise registration')
     except:
         print("No groupwise registration because SimpleElastix is not available")
         simple_elastix_available = False
