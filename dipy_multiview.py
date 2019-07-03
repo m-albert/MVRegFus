@@ -3715,6 +3715,11 @@ def fuse_blockwise(fn,
         result = da.overlap.trim_internal(result_overlap, trim_dict)
         # pdb.set_trace()
 
+        if os.path.exists(fn):
+            print('WARNING: OVERWRITING %s' %fn)
+            os.remove(fn)
+
+
         result.to_hdf5(fn,'array',compression='gzip')#,scheduler = "single-threaded")
         # maybe add imagearray metadata here
 
@@ -4384,6 +4389,10 @@ def calc_stack_properties_from_views_and_params(views,params,spacing=None,mode='
     return stack_properties
 
 def transform_view_and_save_chunked(fn,view,params,iview,stack_properties,chunksize=None):
+
+    params = io_utils.process_input_element(params)
+    stack_properties = io_utils.process_input_element(stack_properties)
+
     res = transform_stack_sitk(view, params[iview], stack_properties=stack_properties)
 
     # if chunksize_phys is not None:
