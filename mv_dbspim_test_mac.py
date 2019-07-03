@@ -29,8 +29,8 @@ ref_view = 0
 ref_views = [ref_view] *len(filepaths)
 
 # list of pairwise view indices to perform registration on
-registration_pairs = [[0,1]]
-# registration_pairs = None
+# registration_pairs = [[0,1]]
+registration_pairs = None
 registration_pairss = [registration_pairs] *len(filepaths)
 
 # how to calculate final fusion volume

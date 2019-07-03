@@ -3599,13 +3599,14 @@ def fuse_blockwise(fn,
                                # boundary = {0: 'periodic', 1: 'periodic', 2: 'periodic', 3: 'periodic'})
                                boundary = {1: 'periodic', 2: 'periodic', 3: 'periodic'})
 
-        weights_kwargs['params'] = params
-        fusion_kwargs['params'] = params
+        # weights_kwargs['params'] = params
+        # fusion_kwargs['params'] = params
         # weights_kwargs['stack_properties'] = stack_properties
         # fusion_kwargs['stack_properties'] = stack_properties
 
         result_overlap = tviews_overlap.map_blocks(fuse_block, drop_axis = [0], dtype=tviews[0].dtype,
                                                    **{
+                                                       'params': params,
                                                        'stack_properties': stack_properties,
                                                        'weights_func': weights_func,
                                                        'fusion_func': fusion_func,
@@ -3631,9 +3632,27 @@ def fuse_blockwise(fn,
 
     return fn
 
-def fuse_block(tviews_block,stack_properties,weights_func,fusion_func,weights_kwargs,fusion_kwargs):
+def fuse_block(tviews_block,params,stack_properties,weights_func,fusion_func,weights_kwargs,fusion_kwargs):
 
     # return np.random.randint(0,100,tviews_block.shape[1:]).astype(tviews_block.dtype)
+
+    max_vals = np.array([tview_block.max() for tview_block in tviews_block])
+
+    inds = np.where(max_vals>0)[0]
+
+    # abort in trivial case
+    if len(inds) == 0:
+        return tviews_block[0]
+    elif len(inds) == 1:
+        return tviews_block[inds[0]]
+
+    tviews_block = tviews_block[inds]
+    params = params[inds]
+
+    print('performing fusion on %s blocks' %len(params))
+
+    weights_kwargs['params'] = params
+    fusion_kwargs['params'] = params
 
     tviews = [ImageArray(tview_block,spacing=stack_properties['spacing'],origin=stack_properties['origin']) for tview_block in tviews_block]
 
