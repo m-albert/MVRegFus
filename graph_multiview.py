@@ -155,16 +155,22 @@ def build_multiview_graph(
 
         print('WARNING: set registration degree to 2 (trans+rot+aff) (standard for chemoatlas!)')
         # graph[fusion_params_pair_label %(ds,sample,ipair)] = (
-        graph[fusion_params_pair_label %(ds,sample,pair[0],pair[1])] = (
-                                                                   dipy_multiview.register_linear_elastix,
-                                                                   os.path.join(out_dir,fusion_params_pair_label % (ds, sample, pair[0], pair[1])),
-                                                                   # dipy_multiview.register_linear_projections,
-                                                                   # os.path.join('/tmp/', fusion_params_pair_label %(ds,sample,ipair)),
-                                                                   multiview_view_reg_label %(ds,sample,pair[0],reg_channel),
-                                                                   multiview_view_reg_label %(ds,sample,pair[1],reg_channel),
-                                                                   2, # degree = 1 (trans + rotation)
-                                                                   elastix_dir,
-                                                                   )
+
+        fusion_params_pair_file = os.path.join(out_dir,fusion_params_pair_label % (ds, sample, pair[0], pair[1]))
+        if os.path.exists(fusion_params_pair_file):
+            graph[fusion_params_pair_label %(ds,sample,pair[0],pair[1])] = fusion_params_pair_file
+        else:
+
+            graph[fusion_params_pair_label %(ds,sample,pair[0],pair[1])] = (
+                                                                       dipy_multiview.register_linear_elastix,
+                                                                       os.path.join(out_dir,fusion_params_pair_label % (ds, sample, pair[0], pair[1])),
+                                                                       # dipy_multiview.register_linear_projections,
+                                                                       # os.path.join('/tmp/', fusion_params_pair_label %(ds,sample,ipair)),
+                                                                       multiview_view_reg_label %(ds,sample,pair[0],reg_channel),
+                                                                       multiview_view_reg_label %(ds,sample,pair[1],reg_channel),
+                                                                       2, # degree = 1 (trans + rotation)
+                                                                       elastix_dir,
+                                                                       )
 
     graph[fusion_params0_label %(ds,sample)] = (
                                                dipy_multiview.get_params_from_pairs,
@@ -209,7 +215,12 @@ def build_multiview_graph(
     # if os.path.exists(os.path.join(out_dir,stack_properties_label %(ds,sample))):
     #     graph[stack_properties_label %(ds,sample)] = os.path.join(out_dir,stack_properties_label %(ds,sample))
     # else:
-    graph[stack_properties_label %(ds,sample)] = (
+
+    stack_properties_label_file = os.path.join(out_dir,stack_properties_label %(ds,sample))
+    if os.path.exists(stack_properties_label_file):
+        graph[stack_properties_label %(ds,sample)] = stack_properties_label_file
+    else:
+        graph[stack_properties_label %(ds,sample)] = (
                                                 dipy_multiview.calc_stack_properties_from_views_and_params,
                                                 os.path.join(out_dir,stack_properties_label %(ds,sample)),
                                                 [multiview_view_corr_label %(ds,sample,view,reg_channel) for view in all_views],
