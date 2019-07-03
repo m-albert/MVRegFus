@@ -185,6 +185,9 @@ def build_multiview_graph(
         print("No groupwise registration because SimpleElastix is not available")
         simple_elastix_available = False
 
+    print('Not using groupwise registration for the moment')
+    simple_elastix_available = False
+
     if simple_elastix_available and len(all_views) >= 4:  # restiction given by current elastix groupwise registration implementatin
         graph[fusion_params_label % (ds, sample)] = (
             # dipy_multiview.register_groupwise,
@@ -380,7 +383,7 @@ def build_multiview_graph(
                                            multiview_chrom_correction_channel_label %(ds,sample,ch),
                                            )
             # select view from big image container
-        for view in all_views:
+        for iview,view in enumerate(all_views):
 
             weights_label = multiview_weights_label %(ds,sample,view,ch)
             weights_file = os.path.join(out_dir,weights_label)
@@ -390,7 +393,7 @@ def build_multiview_graph(
                 graph[weights_label] = (dipy_multiview.get_image_from_list_of_images,
                                         os.path.join(out_dir,weights_label),
                                         weights_label_all_views,
-                                        view,
+                                        iview,
                                         )
 
             # graph[multiview_view_reg_label %(ds,sample,view,ch)] = (
@@ -443,7 +446,7 @@ def build_multiview_graph(
                                                                 os.path.join(out_dir,transformed_view_label %(ds,sample,view,ch)),
                                                                 multiview_view_corr_label %(ds,sample,view,ch),
                                                                 fusion_params_label %(ds,sample),
-                                                                view,
+                                                                iview,
                                                                 stack_properties_label %(ds,sample)
                                                                 )
 
