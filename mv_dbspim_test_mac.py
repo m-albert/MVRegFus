@@ -29,8 +29,8 @@ ref_view = 0
 ref_views = [ref_view] *len(filepaths)
 
 # list of pairwise view indices to perform registration on
-# registration_pairs = [[0,1]]
-registration_pairs = None
+registration_pairs = [[0,1]]
+# registration_pairs = None
 registration_pairss = [registration_pairs] *len(filepaths)
 
 # how to calculate final fusion volume
@@ -64,7 +64,7 @@ mv_final_spacing = np.array([5.]*3)
 # 'weighted_average': weighted average of views using the given weights
 # 'LR': Lucy-Richardson multi-view deconvolution
 fusion_method = 'LR'
-# fusion_method = 'weighted_average'
+#fusion_method = 'weighted_average'
 
 # fusion weights
 # 'blending': uniform weights with blending at the stack borders
@@ -107,8 +107,8 @@ if __name__ == '__main__':
 
     from dask import multiprocessing,threaded
 
-    graph_multiview.multiview_fused_label = graph_multiview.multiview_fused_label[:-2] + 'mhd'
-    graph_multiview.transformed_view_label = graph_multiview.transformed_view_label[:-2] + 'mhd'
+    # graph_multiview.multiview_fused_label = graph_multiview.multiview_fused_label[:-2] + 'mhd'
+    # graph_multiview.transformed_view_label = graph_multiview.transformed_view_label[:-2] + 'mhd'
 
     graph = dict()
     result_keys = []

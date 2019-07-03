@@ -3552,6 +3552,255 @@ def get_weights_simple(
 #
 #     return ws
 
+# import dask.array as da
+# import h5py
+# def fuse_blockwise_LR_dct(fn,fns_tview,params):
+#
+#     nviews = len(fns_tview)
+#
+#     tviews = []
+#     for fn_tview in fns_tview:
+#         tmpdset = h5py.File(fn_tview)['array']
+#         tmpda = da.from_array(tmpdset,chunks = tmpdset.chunks)
+#         tviews.append(tmpda)
+#
+#     # tviews_stack = da.stack(tviews,axis=0)
+#
+#     import dask
+#     with dask.config.set(scheduler='single-threaded'):
+#     # with dask.config.set(scheduler='threads'):
+#
+#         # tviews_stack = da.from_array(tviews, chunks = ((nviews,),)+tviews[0].chunks)
+#         # tviews_stack = da.from_array(tviews, chunks = (nviews,50,50,50))
+#         # tviews_stack = da.concatenate(tviews,axis=0)
+#         # tviews_stack = da.vstack(tviews)
+#         tviews_stack = da.stack(tviews)
+#
+#         depth = 2
+#         depth_dict = {0: 0, 1: depth, 2: depth, 3: depth}
+#         tviews_overlap = da.overlap.overlap(tviews_stack,
+#                                depth=depth_dict,
+#                                # boundary = {0: 'periodic', 1: 'periodic', 2: 'periodic', 3: 'periodic'})
+#                                boundary = {1: 'periodic', 2: 'periodic', 3: 'periodic'})
+#
+#
+#         result_overlap = tviews_overlap.map_blocks(fuse_block_LR_dct, drop_axis = [0], dtype=tviews[0].dtype, **{'params': params})
+#         trim_dict = {i:depth for i in range(3)}
+#         result = da.overlap.trim_internal(result_overlap, trim_dict)
+#         pdb.set_trace()
+#
+#         result.to_hdf5(fn,'array',compression='gzip')#,scheduler = "single-threaded")
+#         # maybe add imagearray metadata here
+#
+#     return fn
+#
+# def fuse_block_LR_dct(tviews_block,params):
+#
+#     tviews = [ImageArray(tview_block) for tview_block in tviews_block]
+#
+#     stack_properties = tviews[0].get_info()
+#
+#     orig_stack_propertiess = [0 for i in range(len(params))]
+#     # orig_stack_propertiess = []
+#
+#     weights = get_weights_dct(tviews,
+#                               params,
+#                               orig_stack_propertiess,
+#                               stack_properties,
+#                               )
+#
+#                               # views,
+#                               # params,
+#                               # orig_stack_propertiess,
+#                               # stack_properties,
+#                               # size=None,
+#                               # max_kernel=None,
+#                               # gaussian_kernel=None,
+#                               # how_many_best_views=1,
+#                               # cumulative_weight_best_views=0.9,
+#
+#     fused = fuse_LR_with_weights(
+#         tviews,
+#         params,
+#         stack_properties,
+#         weights = weights,
+#         blur_func = blur_view_in_target_space,
+#         orig_prop_list=orig_stack_propertiess,
+#     )
+#
+#     # views,
+#     # params,
+#     # stack_properties,
+#     # num_iterations = 25,
+#     # sz = 4,
+#     # sxy = 0.5,
+#     # tol = 5e-5,
+#     # weights = None,
+#     # regularisation = False,
+#     # blur_func = blur_view_in_view_space,
+#     # orig_prop_list = None,
+#     # views_in_target_space = True,
+#
+#     return fused
+#
+#     # fused_block = np.random.randint(0,100,block.shape[1:]).astype(block.dtype)
+#     # return fused_block
+
+import dask.array as da
+import h5py
+def fuse_blockwise(fn,
+                   fns_tview,
+                   params,
+                   stack_properties,
+                   fusion_block_overlap=None,
+                   weights_func=None,
+                   fusion_func=None,
+                   weights_kwargs=None,
+                   fusion_kwargs=None,
+                   ):
+
+    stack_properties = io_utils.process_input_element(stack_properties)
+    params = io_utils.process_input_element(params)
+
+    # in pixels
+    if fusion_block_overlap is None:
+        fusion_block_overlap = 0
+
+    nviews = len(fns_tview)
+
+    tviews = []
+    for fn_tview in fns_tview:
+        tmpdset = h5py.File(fn_tview)['array']
+        tmpda = da.from_array(tmpdset,chunks = tmpdset.chunks)
+        tviews.append(tmpda)
+
+    # tviews_stack = da.stack(tviews,axis=0)
+
+    import dask
+    with dask.config.set(scheduler='single-threaded'):
+    # with dask.config.set(scheduler='threads'):
+
+        # tviews_stack = da.from_array(tviews, chunks = ((nviews,),)+tviews[0].chunks)
+        # tviews_stack = da.from_array(tviews, chunks = (nviews,50,50,50))
+        # tviews_stack = da.concatenate(tviews,axis=0)
+        # tviews_stack = da.vstack(tviews)
+        tviews_stack = da.stack(tviews)
+
+        depth = int(fusion_block_overlap)
+        depth_dict = {0: 0, 1: depth, 2: depth, 3: depth}
+        tviews_overlap = da.overlap.overlap(tviews_stack,
+                               depth=depth_dict,
+                               # boundary = {0: 'periodic', 1: 'periodic', 2: 'periodic', 3: 'periodic'})
+                               boundary = {1: 'periodic', 2: 'periodic', 3: 'periodic'})
+
+        weights_kwargs['params'] = params
+        fusion_kwargs['params'] = params
+        # weights_kwargs['stack_properties'] = stack_properties
+        # fusion_kwargs['stack_properties'] = stack_properties
+
+        result_overlap = tviews_overlap.map_blocks(fuse_block, drop_axis = [0], dtype=tviews[0].dtype,
+                                                   **{
+                                                       'stack_properties': stack_properties,
+                                                       'weights_func': weights_func,
+                                                       'fusion_func': fusion_func,
+                                                       'weights_kwargs': weights_kwargs,
+                                                       'fusion_kwargs': fusion_kwargs,
+
+                                                      })
+
+        # dummy
+        # result_overlap = tviews_overlap.map_blocks(lambda x: x[0], drop_axis=[0], dtype=tviews[0].dtype)
+
+        trim_dict = {i:depth for i in range(3)}
+        result = da.overlap.trim_internal(result_overlap, trim_dict)
+        # pdb.set_trace()
+
+        result.to_hdf5(fn,'array',compression='gzip')#,scheduler = "single-threaded")
+        # maybe add imagearray metadata here
+
+    return fn
+
+def fuse_block(tviews_block,stack_properties,weights_func,fusion_func,weights_kwargs,fusion_kwargs):
+
+    # return np.random.randint(0,100,tviews_block.shape[1:]).astype(tviews_block.dtype)
+
+    tviews = [ImageArray(tview_block,spacing=stack_properties['spacing'],origin=stack_properties['origin']) for tview_block in tviews_block]
+
+    # stack_properties = tviews[0].get_info()
+
+    # orig_stack_propertiess = [0 for i in range(len(params))]
+    # orig_stack_propertiess = []
+
+    block_stack_properties = stack_properties.copy()
+    block_stack_properties['size'] = np.array(tviews_block[0].shape)
+
+    weights_kwargs['stack_properties'] = block_stack_properties
+    fusion_kwargs['stack_properties'] = block_stack_properties
+
+    weights = weights_func(tviews,
+                              **weights_kwargs)
+                              # params,
+                              # orig_stack_propertiess,
+                              # stack_properties,
+                              # )
+
+                              # views,
+                              # params,
+                              # orig_stack_propertiess,
+                              # stack_properties,
+                              # size=None,
+                              # max_kernel=None,
+                              # gaussian_kernel=None,
+                              # how_many_best_views=1,
+                              # cumulative_weight_best_views=0.9,
+
+    fused = fusion_func(tviews,weights=weights,
+            **fusion_kwargs)
+
+    return fused
+
+        # tviews,
+        # params,
+        # stack_properties,
+        # weights = weights,
+        # blur_func = blur_view_in_target_space,
+        # orig_prop_list=orig_stack_propertiess,
+    # )
+
+    # views,
+    # params,
+    # stack_properties,
+    # num_iterations = 25,
+    # sz = 4,
+    # sxy = 0.5,
+    # tol = 5e-5,
+    # weights = None,
+    # regularisation = False,
+    # blur_func = blur_view_in_view_space,
+    # orig_prop_list = None,
+    # views_in_target_space = True,
+
+    # return fused
+
+    # fused_block = np.random.randint(0,100,block.shape[1:]).astype(block.dtype)
+    # return fused_block
+
+def get_dct_options(spacing,size=None,max_kernel=None,gaussian_kernel=None):
+
+    spacing = np.max([3,spacing])
+
+    if size is None:
+        size = np.max([4,int(50 / spacing)]) # 50um
+        print('dct: choosing size %s' %size)
+    if max_kernel is None:
+        max_kernel = int(size/2.)
+        print('dct: choosing max_kernel %s' %max_kernel)
+    if gaussian_kernel is None:
+        gaussian_kernel = int(max_kernel)
+        print('dct: choosing gaussian_kernel %s' %gaussian_kernel)
+
+    return size,max_kernel,gaussian_kernel
+
 from scipy.fftpack import dctn,idctn
 # from scipy.fftpack import dct,idct
 from scipy import ndimage
@@ -3602,23 +3851,30 @@ def get_weights_dct(
                                out_shape=w_stack_properties['size'],
                                out_spacing=w_stack_properties['spacing'])
 
-        mask = get_mask_in_target_space(orig_stack_propertiess[iview],
-                                 w_stack_properties,
-                                 params[iview]
-                                 )
+        # mask = get_mask_in_target_space(orig_stack_propertiess[iview],
+        #                          w_stack_properties,
+        #                          params[iview]
+        #                          )
+
+        mask = tmpvs > 0
 
         vdils.append(mask == 0)
         vs.append(tmpvs*(mask>0))
 
-    if size is None:
-        size = np.max([4,int(50 / vs[0].spacing[0])]) # 50um
-        print('dct: choosing size %s' %size)
-    if max_kernel is None:
-        max_kernel = int(size/2.)
-        print('dct: choosing max_kernel %s' %max_kernel)
-    if gaussian_kernel is None:
-        gaussian_kernel = int(max_kernel)
-        print('dct: choosing gaussian_kernel %s' %gaussian_kernel)
+    size,max_kernel,gaussian_kernel = get_dct_options(w_stack_properties['spacing'][0],
+                                                      size,
+                                                      max_kernel,
+                                                      gaussian_kernel,
+                                                      )
+    # if size is None:
+    #     size = np.max([4,int(50 / vs[0].spacing[0])]) # 50um
+    #     print('dct: choosing size %s' %size)
+    # if max_kernel is None:
+    #     max_kernel = int(size/2.)
+    #     print('dct: choosing max_kernel %s' %max_kernel)
+    # if gaussian_kernel is None:
+    #     gaussian_kernel = int(max_kernel)
+    #     print('dct: choosing gaussian_kernel %s' %gaussian_kernel)
 
     print('calculating dct weights...')
     def determine_quality(vrs):
@@ -3797,14 +4053,14 @@ def get_weights_dct(
                                    out_shape=stack_properties['size'],
                                    out_spacing=stack_properties['spacing'])
 
-    # smooth edges
-    ws_simple = get_weights_simple(
-                    orig_stack_propertiess,
-                    params,
-                    stack_properties
-    )
-
-    ws = [ws[i]*ws_simple[i] for i in range(len(ws))]
+    # # smooth edges
+    # ws_simple = get_weights_simple(
+    #                 orig_stack_propertiess,
+    #                 params,
+    #                 stack_properties
+    # )
+    #
+    # ws = [ws[i]*ws_simple[i] for i in range(len(ws))]
 
     wsum = np.sum(ws,0)
     wsum[wsum==0] = 1
@@ -4127,13 +4383,43 @@ def calc_stack_properties_from_views_and_params(views,params,spacing=None,mode='
     stack_properties = calc_stack_properties_from_volume(volume,spacing)
     return stack_properties
 
-# transform_view_with_decorator = io_decorator(transform_stack_sitk)
-@io_decorator
-def transform_view_with_decorator(view,params,iview,stack_properties):
+def transform_view_and_save_chunked(fn,view,params,iview,stack_properties,chunksize=None):
+    res = transform_stack_sitk(view, params[iview], stack_properties=stack_properties)
 
-    res = transform_stack_sitk(view,params[iview],stack_properties=stack_properties)
+    # if chunksize_phys is not None:
+    #
+    #     chunksize = int(chunksize_phys/stack_properties['spacing'][0])
+    #     chunksize = np.max([50,chunksize])
+    #     chunksize = np.min([500,chunksize])
+    #
+    # else:
+    #     chunksize = 100
 
-    return res
+    if chunksize is None:
+        chunks = np.min([[100]*3,stack_properties['size']],0)
+        chunks = tuple([int(i) for i in chunks])
+    else:
+        chunks = tuple([int(chunksize)]*3)
+
+
+    f = h5py.File(fn,'w')
+    # chunks = np.min([[chunksize]*3, res.shape], 0)
+    # chunks = tuple(chunks)
+    f.create_dataset("array", data=np.array(res), chunks=chunks, compression="gzip")
+    f['spacing'] = np.array(stack_properties['spacing'])
+    f['origin'] = np.array(stack_properties['origin'])
+    f['rotation'] = 0
+    f.close()
+
+    return fn
+
+# # transform_view_with_decorator = io_decorator(transform_stack_sitk)
+# @io_decorator
+# def transform_view_with_decorator(view,params,iview,stack_properties):
+#
+#     res = transform_stack_sitk(view,params[iview],stack_properties=stack_properties)
+#
+#     return res
     #
     # sview = sitk.GetImageFromArray(view)
     # sview.SetSpacing(view.spacing[::-1])

@@ -10,7 +10,7 @@ multiview_fused_label               = 'mv_%03d_%03d_c%02d.imagear.h5'
 multiview_fusion_seg_label          = 'mv_fusion_seg_%03d_%03d_c%02d.imagear.h5'
 multiview_view_reg_label            = 'view_reg_%03d_%03d_v%03d_c%02d'
 multiview_view_fullres_label        = 'view_fullres_%03d_%03d_v%03d_c%02d'
-multiview_weights_label             = 'mv_weights_%03d_%03d_v%03d_c%02d.mhd'
+multiview_weights_label             = 'mv_weights_%03d_%03d_v%03d_c%02d.imagear.h5'
 multiview_view_corr_label           = 'view_corr_%03d_%03d_v%03d_c%02d'
 multiview_metadata_label            = 'mv_metadata_%03d_%03d.dict.h5'
 multiview_data_label                = 'mv_data_%03d_%03d.image.h5'
@@ -47,6 +47,7 @@ def build_multiview_graph(
     ref_channel_chrom = 0,
     fusion_method = 'mv_deconvolution',
     fusion_weights = 'dct',
+    fusion_chunk_size = None,
     dct_size = None,
     dct_max_kernel = None,
     dct_gaussian_kernel = None,
@@ -268,70 +269,121 @@ def build_multiview_graph(
 
         weights_label_all_views = multiview_weights_label %(ds,sample,-1,ch)
 
+        fusion_block_overlap = 0
         if fusion_weights == 'dct':
 
-            graph[weights_label_all_views] = (
-                dipy_multiview.get_weights_dct,
-                # [multiview_view_corr_label % (ds, sample, view, ch) for view in all_views],
-                [transformed_view_label %(ds,sample,view,ch) for view in all_views],
-                fusion_params_label % (ds, sample),
-                orig_stack_propss,
-                stack_properties_label % (ds, sample),
-                dct_size,
-                dct_max_kernel,
-                dct_gaussian_kernel,
-                dct_how_many_best_views,
-                dct_cumulative_weight_best_views,
-            )
+            weights_func = dipy_multiview.get_weights_dct
+            weights_kwargs = {
+                'orig_stack_propertiess': [0 for i in all_views],
+                'size': dct_size,
+                'max_kernel': dct_max_kernel,
+                'gaussian_kernel': dct_gaussian_kernel,
+                'how_many_best_views': dct_how_many_best_views,
+                'cumulative_weight_best_views': dct_cumulative_weight_best_views,
+            }
+
+            tmp_options = dipy_multiview.get_dct_options(mv_final_spacing[0],dct_size,dct_max_kernel,dct_gaussian_kernel)
+
+            fusion_block_overlap = np.max([fusion_block_overlap, tmp_options[1]])
+
+            # graph[weights_label_all_views] = (
+            #     dipy_multiview.get_weights_dct,
+            #     # [multiview_view_corr_label % (ds, sample, view, ch) for view in all_views],
+            #     [transformed_view_label %(ds,sample,view,ch) for view in all_views],
+            #     fusion_params_label % (ds, sample),
+            #     orig_stack_propss,
+            #     stack_properties_label % (ds, sample),
+            #     dct_size,
+            #     dct_max_kernel,
+            #     dct_gaussian_kernel,
+            #     dct_how_many_best_views,
+            #     dct_cumulative_weight_best_views,
+            # )
 
         elif fusion_weights == 'blending':
 
-            graph[weights_label_all_views] = (
-                dipy_multiview.get_weights_simple,
-                # [multiview_view_corr_label % (ds, sample, view, ch) for view in all_views],
-                orig_stack_propss,
-                fusion_params_label % (ds, sample),
-                stack_properties_label % (ds, sample),
-            )
+            raise(Exception('blending currently not supported in combination with blockwise fusion'))
+
+            # graph[weights_label_all_views] = (
+            #     dipy_multiview.get_weights_simple,
+            #     # [multiview_view_corr_label % (ds, sample, view, ch) for view in all_views],
+            #     orig_stack_propss,
+            #     fusion_params_label % (ds, sample),
+            #     stack_properties_label % (ds, sample),
+            # )
 
         else:
             raise(Exception("can't understand fusion weights mode"))
 
         if fusion_method == 'LR':
-            graph[multiview_fused_label %(ds,sample,ch)] = (
-                                                dipy_multiview.fuse_LR_with_weights,
-                                                os.path.join(out_dir,multiview_fused_label %(ds,sample,ch)),
-                                               # [multiview_view_corr_label %(ds,sample,view,ch) for view in all_views],
-                                               [transformed_view_label %(ds,sample,view,ch) for view in all_views],
-                                                fusion_params_label %(ds,sample),
-                                                # mv_final_spacing,
-                                                stack_properties_label %(ds,sample),
-                                                LR_niter,  # iters
-                                                LR_sigma_z,  # sigma z
-                                                LR_sigma_xy,  # sigma xy
-                                                LR_tol,  # tol
-                                                [multiview_weights_label %(ds,sample,view,ch) for view in all_views], # weight_func
-                                                False, # regularisation
-                                                dipy_multiview.blur_view_in_view_space, # blur_func
-                                                orig_stack_propss, #orig_prop_list
-                                                True, # views in target space
-                                                )
+
+            fusion_func = dipy_multiview.fuse_LR_with_weights
+
+            fusion_kwargs = {
+                'num_iterations': LR_niter,
+                'sz': LR_sigma_z,
+                'sxy': LR_sigma_xy,
+                'tol': LR_tol,
+                'blur_func': dipy_multiview.blur_view_in_target_space,
+                'orig_prop_list': [0 for i in all_views],
+            }
+
+            fusion_block_overlap = np.max([fusion_block_overlap,np.max([LR_sigma_z*2,LR_sigma_xy*2])])
+
+            # graph[multiview_fused_label %(ds,sample,ch)] = (
+            #                                     dipy_multiview.fuse_LR_with_weights,
+            #                                     os.path.join(out_dir,multiview_fused_label %(ds,sample,ch)),
+            #                                    # [multiview_view_corr_label %(ds,sample,view,ch) for view in all_views],
+            #                                    [transformed_view_label %(ds,sample,view,ch) for view in all_views],
+            #                                     fusion_params_label %(ds,sample),
+            #                                     # mv_final_spacing,
+            #                                     stack_properties_label %(ds,sample),
+            #                                     LR_niter,  # iters
+            #                                     LR_sigma_z,  # sigma z
+            #                                     LR_sigma_xy,  # sigma xy
+            #                                     LR_tol,  # tol
+            #                                     [multiview_weights_label %(ds,sample,view,ch) for view in all_views], # weight_func
+            #                                     False, # regularisation
+            #                                     dipy_multiview.blur_view_in_view_space, # blur_func
+            #                                     orig_stack_propss, #orig_prop_list
+            #                                     True, # views in target space
+            #                                     )
         elif fusion_method == 'weighted_average':
-            graph[multiview_fused_label %(ds,sample,ch)] = (
-                                                # dipy_multiview_test.fuse_views,
-                                                # dipy_multiview.fuse_views_lambda,
-                                                dipy_multiview.fuse_views_weights,
-                                                os.path.join(out_dir,multiview_fused_label %(ds,sample,ch)),
-                                               # [multiview_view_corr_label %(ds,sample,view,ch) for view in all_views],
-                                               [transformed_view_label %(ds,sample,view,ch) for view in all_views],
-                                                fusion_params_label %(ds,sample),
-                                                # mv_final_spacing,
-                                                stack_properties_label %(ds,sample),
-                                                [multiview_weights_label %(ds,sample,view,ch) for view in all_views],  # weight_func
-            )
+
+            fusion_func = dipy_multiview.fuse_views_weights
+
+            fusion_kwargs = {}
+
+            # graph[multiview_fused_label %(ds,sample,ch)] = (
+            #                                     # dipy_multiview_test.fuse_views,
+            #                                     # dipy_multiview.fuse_views_lambda,
+            #                                     dipy_multiview.fuse_views_weights,
+            #                                     os.path.join(out_dir,multiview_fused_label %(ds,sample,ch)),
+            #                                    # [multiview_view_corr_label %(ds,sample,view,ch) for view in all_views],
+            #                                    [transformed_view_label %(ds,sample,view,ch) for view in all_views],
+            #                                     fusion_params_label %(ds,sample),
+            #                                     # mv_final_spacing,
+            #                                     stack_properties_label %(ds,sample),
+            #                                     [multiview_weights_label %(ds,sample,view,ch) for view in all_views],  # weight_func
+            # )
 
         else:
             raise(Exception("can't understand fusion mode"))
+
+        graph[multiview_fused_label %(ds,sample,ch)] = (
+                                            # dipy_multiview_test.fuse_views,
+                                            # dipy_multiview.fuse_views_lambda,
+                                            dipy_multiview.fuse_blockwise,
+                                            os.path.join(out_dir,multiview_fused_label %(ds,sample,ch)),
+                                           [transformed_view_label %(ds,sample,view,ch) for view in all_views],
+                                            fusion_params_label % (ds, sample),
+                                            stack_properties_label % (ds, sample),
+                                            fusion_block_overlap,
+                                            weights_func,
+                                            fusion_func,
+                                            weights_kwargs,
+                                            fusion_kwargs,
+        )
 
         # print('WARNING: FUSING ADDITIVE WITH DCT WEIGHTS')
         # graph[multiview_fused_label %(ds,sample,ch)] = (
@@ -442,12 +494,13 @@ def build_multiview_graph(
                 graph[transf_label] = transf_file
             else:
                 graph[transf_label] = (
-                                                                dipy_multiview.transform_view_with_decorator,
+                                                                dipy_multiview.transform_view_and_save_chunked,
                                                                 os.path.join(out_dir,transformed_view_label %(ds,sample,view,ch)),
                                                                 multiview_view_corr_label %(ds,sample,view,ch),
                                                                 fusion_params_label %(ds,sample),
                                                                 iview,
-                                                                stack_properties_label %(ds,sample)
+                                                                stack_properties_label %(ds,sample),
+                                                                fusion_chunk_size,
                                                                 )
 
             if ch == ref_channel_chrom or not perform_chromatic_correction:
