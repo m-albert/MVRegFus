@@ -301,8 +301,6 @@ def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,
         spacing = (infoDict['spacing'] * np.array(raw_input_binning))[::-1]
     stack = ImageArray(stack,spacing=spacing,origin=infoDict['origins'][view][::-1],rotation=rotation)
 
-    stack[stack==0] = 1
-
     return stack
 
 
@@ -3769,7 +3767,8 @@ def get_weights_dct(
         #                          params[iview]
         #                          )
 
-        mask = tmpvs > 0
+        # mask = tmpvs > 0
+        mask = np.ones(tmpvs.shape,dtype=np.bool)
 
         vdils.append(mask == 0)
         vs.append(tmpvs*(mask>0))
