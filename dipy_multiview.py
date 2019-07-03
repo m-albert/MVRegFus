@@ -1010,6 +1010,7 @@ def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None):
     # reg_spacing = np.array([fixed.spacing[0]*4]*3)
     print('WARNING: 20180614: changed fft registration spacing')
     reg_iso_spacing = np.min([np.array(im.spacing)*np.array(im.shape)/160. for im in [static,mov]])
+    reg_iso_spacing = np.max([[reg_iso_spacing]+list(static.spacing)+list(mov.spacing)])
     reg_spacing = np.array([reg_iso_spacing]*3)
 
     stack_properties = calc_stack_properties_from_views_and_params([static,mov],[matrix_to_params(np.eye(4)),t00],
@@ -2431,7 +2432,12 @@ def register_groupwise(orig_ims, params0, ref_view_index=0, iso_reg_spacing_rela
                                   out_origin=stack_properties['origin'],
                                   out_shape=stack_properties['size'],
                                   out_spacing=stack_properties['spacing'])
-        ims.append(im)
+
+        imc = clahe(im, 10, clip_limit=0.02).astype(np.float32)
+        imc = ImageArray(imc,origin=im.origin,spacing=im.spacing)
+        ims.append(imc)
+
+        # ims.append(im)
 
     vectorOfImages = sitk.VectorOfImage()
     for iim, im in enumerate(ims):
@@ -2452,6 +2458,14 @@ def register_groupwise(orig_ims, params0, ref_view_index=0, iso_reg_spacing_rela
     # groupwiseParameterMap1['NumberOfSpatialSamples'] = ['2048']  # default is 2048
 
     groupwiseParameterMap1['Transform'] = ['EulerStackTransform']  # default is 2048
+
+    groupwiseParameterMap1['Optimizer'] = ['QuasiNewtonLBFGS']  # default is 2048
+    groupwiseParameterMap1['NumberOfSpatialSamples'] = ['%s' % 100 ** 3]  # default is 2048
+    groupwiseParameterMap1['GradientMagnitudeTolerance'] = ['1e-8']  # default is 2048
+    # groupwiseParameterMap1['ImageSampler'] = ['Full']  # default is 2048
+    groupwiseParameterMap1['Interpolator'] = ['BSplineInterpolatorFloat']
+
+    # (Interpolator "BSplineInterpolatorFloat")
     # groupwiseParameterMap1['Scales'] = [' '.join(['10000 10000 10000 1 1 1']*len(ims))]  # default is 2048
 
     # groupwiseParameterMap2 = sitk.GetDefaultParameterMap('groupwise')
@@ -2561,11 +2575,17 @@ def register_groupwise_euler_and_affine(orig_ims, params0, ref_view_index=0, iso
 
     ims = []
     for iview in range(len(orig_ims)):
+
         im = transform_stack_sitk(orig_ims[iview], params0[iview],
                                   out_origin=stack_properties['origin'],
                                   out_shape=stack_properties['size'],
                                   out_spacing=stack_properties['spacing'])
-        ims.append(im)
+
+        imc = clahe(im, 10, clip_limit=0.02).astype(np.float32)
+        imc = ImageArray(imc,origin=im.origin,spacing=im.spacing)
+        ims.append(imc)
+
+        # ims.append(im)
 
     vectorOfImages = sitk.VectorOfImage()
     for iim, im in enumerate(ims):
@@ -2586,6 +2606,13 @@ def register_groupwise_euler_and_affine(orig_ims, params0, ref_view_index=0, iso
     # groupwiseParameterMap1['NumberOfSpatialSamples'] = ['2048']  # default is 2048
 
     groupwiseParameterMap1['Transform'] = ['EulerStackTransform']  # default is 2048
+
+
+    # groupwiseParameterMap1['Optimizer'] = ['QuasiNewtonLBFGS']  # default is 2048
+    # groupwiseParameterMap1['NumberOfSpatialSamples'] = ['%s' %100**3]  # default is 2048
+    # groupwiseParameterMap1['GradientMagnitudeTolerance'] = ['1e-8']  # default is 2048
+    # # groupwiseParameterMap1['ImageSampler'] = ['Full']  # default is 2048
+    # groupwiseParameterMap1['Interpolator'] = ['BSplineInterpolatorFloat']
     # groupwiseParameterMap1['Scales'] = [' '.join(['10000 10000 10000 1 1 1']*len(ims))]  # default is 2048
 
     groupwiseParameterMap2 = sitk.GetDefaultParameterMap('groupwise')
@@ -2596,6 +2623,12 @@ def register_groupwise_euler_and_affine(orig_ims, params0, ref_view_index=0, iso
     groupwiseParameterMap2['NumberOfSpatialSamples'] = ['16384']  # default is 2048
     # groupwiseParameterMap2['NumberOfSpatialSamples'] = ['32768']  # default is 2048
     groupwiseParameterMap2['Transform'] = ['AffineLogStackTransform']  # default is 2048
+
+    # groupwiseParameterMap2['Optimizer'] = ['QuasiNewtonLBFGS']  # default is 2048
+    # groupwiseParameterMap2['NumberOfSpatialSamples'] = ['%s' %100**3]  # default is 2048
+    # groupwiseParameterMap2['GradientMagnitudeTolerance'] = ['1e-8']  # default is 2048
+    # # groupwiseParameterMap2['ImageSampler'] = ['Full']  # default is 2048
+    # groupwiseParameterMap2['Interpolator'] = ['BSplineInterpolatorFloat']
     # groupwiseParameterMap2['Scales'] = [' '.join(['10000 10000 10000 10000 10000 10000 10000 10000 10000 1 1 1']*len(ims))]  # default is 2048
 
     elastixImageFilter = sitk.ElastixImageFilter()

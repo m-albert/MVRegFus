@@ -43,9 +43,17 @@ class ImageArray(np.ndarray):
 
     def get_meta_dict(self):
         meta = dict()
-        meta['spacing'] = self.spacing
-        meta['origin'] = self.origin
-        meta['rotation'] = self.rotation
+        meta['spacing'] = self.spacing[:]
+        meta['origin'] = self.origin[:]
+        meta['rotation'] = float(self.rotation)
+        return meta
+
+    def get_info(self):
+        meta = dict()
+        meta['spacing'] = np.array(self.spacing[:])
+        meta['origin'] = np.array(self.origin)
+        meta['rotation'] = float(self.rotation)
+        meta['size'] = np.array(self.shape)
         return meta
 
 # http://distributed.dask.org/en/latest/serialization.html
