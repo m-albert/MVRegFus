@@ -3677,8 +3677,8 @@ def fuse_blockwise(fn,
     # tviews_stack = da.stack(tviews,axis=0)
 
     import dask
-    with dask.config.set(scheduler='single-threaded'):
-    # with dask.config.set(scheduler='threads'):
+    # with dask.config.set(scheduler='single-threaded'):
+    with dask.config.set(scheduler='threads'):
 
         # tviews_stack = da.from_array(tviews, chunks = ((nviews,),)+tviews[0].chunks)
         # tviews_stack = da.from_array(tviews, chunks = (nviews,50,50,50))
