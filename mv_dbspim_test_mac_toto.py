@@ -69,7 +69,8 @@ view_dict = None
 final_volume_mode = 'sample'
 
 # where to save the output
-out_dir = os.path.dirname(filepaths[0])
+out_dir = os.path.dirname(filepaths[0])+'/old'
+# out_dir = os.path.dirname(filepaths[0])
 
 # whether to perform an affine chromatic correction
 # and which channel to use as reference
@@ -87,7 +88,7 @@ background_level = 200
 mv_registration_bin_factors = np.array([1,1,1])
 
 # final output spacing in um
-mv_final_spacing = np.array([5.]*3)
+mv_final_spacing = np.array([1.]*3)
 
 # options for fusion
 # fusion_method
@@ -100,7 +101,7 @@ fusion_method = 'LR'
 # 'blending': uniform weights with blending at the stack borders
 # 'dct': weights derived from DCT image quality metric
 fusion_weights = 'dct'
-# fusion_weights = 'blending'
+#fusion_weights = 'blending'
 
 # options for DCT image quality metric for fusion
 # setting None automatically calculates good values
@@ -138,7 +139,7 @@ if __name__ == '__main__':
     from dask import multiprocessing,threaded
 
     # graph_multiview.multiview_fused_label = graph_multiview.multiview_fused_label[:-2] + 'mhd'
-    # graph_multiview.transformed_view_label = graph_multiview.transformed_view_label[:-2] + 'mhd'
+    # graph_multiview.transformed_view_label = graph_multiview.transformed_view_label[:-2] + 'n5'
 
     graph = dict()
     result_keys = []

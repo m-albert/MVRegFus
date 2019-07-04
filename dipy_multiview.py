@@ -3207,7 +3207,7 @@ def get_stack_properties_from_view_dict(view_dict,raw_input_binning=[1,1,1]):
     return stack_props
 
 
-@io_decorator
+# @io_decorator
 def get_weights_simple(
                     orig_stack_propertiess,
                     params,
@@ -3262,7 +3262,7 @@ def get_weights_simple(
 
         for d in range(3):
             borderwidth = int(r * sig.shape[d])
-            print(borderwidth)
+            # print(borderwidth)
             slices = [slice(0, sig.shape[i]) for i in range(3)]
             for bx in range(borderwidth):
                 slices[d] = slice(bx, bx + 1)
@@ -3558,6 +3558,7 @@ def fuse_blockwise(fn,
                    fns_tview,
                    params,
                    stack_properties,
+                   orig_stack_propertiess,
                    fusion_block_overlap=None,
                    weights_func=None,
                    fusion_func=None,
@@ -3583,92 +3584,135 @@ def fuse_blockwise(fn,
     # tviews_stack = da.stack(tviews,axis=0)
 
     import dask
+
+
+    # tviews_stack = da.from_array(tviews, chunks = ((nviews,),)+tviews[0].chunks)
+    # tviews_stack = da.from_array(tviews, chunks = (nviews,50,50,50))
+    # tviews_stack = da.concatenate(tviews,axis=0)
+    # tviews_stack = da.vstack(tviews)
+    tviews_stack = da.stack(tviews)
+
+    depth = int(fusion_block_overlap)
+    # depth = 0
+    depth_dict = {0: 0, 1: depth, 2: depth, 3: depth}
+
+    # rechunk here to adapt to parameters
+
+    # cross platform way of getting available memory
+    # from psutil import virtual_memory
+    # mem = virtual_memory()
+    chunksize = 100
+    proc_chunk_size = (nviews,chunksize,chunksize,chunksize)
+
+    # resize (pad) array because small chunk sizes on the borders
+    # are incompatible with overlaps larger than this chunk size
+    orig_shape = tviews_stack.shape
+    proc_shape = [orig_shape[0]]
+    for i in range(1,4):
+        modulus = orig_shape[i] % proc_chunk_size[i]
+        if modulus == 0 or modulus > depth:
+            new_size = orig_shape[i]
+
+        else:
+            new_size = orig_shape[i] + depth - modulus
+        proc_shape.append(new_size)
+
+    # print('hello',proc_shape,orig_shape,fusion_block_overlap)
+    if not np.all(np.array(proc_shape)==np.array(orig_shape)):
+        pad_widths = [[0,0]]+[[0,proc_shape[i]-orig_shape[i]] for i in range(1,4)]
+        print('padding',pad_widths)
+        tviews_stack = da.pad(tviews_stack,pad_widths,mode='constant')
+
+    tviews_stack_rechunked = tviews_stack.rechunk(proc_chunk_size)
+
+    tviews_overlap = da.overlap.overlap(tviews_stack_rechunked,
+                           depth=depth_dict,
+                           # boundary = {0: 'periodic', 1: 'periodic', 2: 'periodic', 3: 'periodic'})
+                           boundary = {1: 'periodic', 2: 'periodic', 3: 'periodic'})
+
+    # weights_kwargs['params'] = params
+    # fusion_kwargs['params'] = params
+    # weights_kwargs['stack_properties'] = stack_properties
+    # fusion_kwargs['stack_properties'] = stack_properties
+
+    # weights_kwargs['orig_stack_propertiess'] = orig_stack_propertiess
+    #
+    # import inspect
+    # members = dict(inspect.getmembers(fusion_func.__code__))
+    # var_names = members['co_varnames']
+    #
+    # if 'orig_stack_propertiess' in var_names:
+    #     fusion_kwargs['orig_stack_propertiess'] = orig_stack_propertiess
+
+    if weights_func == get_weights_dct:
+        weights_kwargs['size'],weights_kwargs['max_kernel'],weights_kwargs['gaussian_kernel'] = get_dct_options(stack_properties['spacing'][0],
+                                                            weights_kwargs['size'],
+                                                            weights_kwargs['max_kernel'],
+                                                            weights_kwargs['gaussian_kernel'],
+                                                            )
+
+    result_overlap = tviews_overlap.map_blocks(fuse_block, drop_axis = [0], dtype=tviews[0].dtype,
+                                               **{
+                                                   'params': params,
+                                                   'orig_stack_propertiess': orig_stack_propertiess,
+                                                   'stack_properties': stack_properties,
+                                                   'array_info': {'depth': depth, 'chunksize': chunksize},
+                                                   'weights_func': weights_func,
+                                                   'fusion_func': fusion_func,
+                                                   'weights_kwargs': weights_kwargs,
+                                                   'fusion_kwargs': fusion_kwargs,
+
+                                                  })
+
+    # dummy
+    # result_overlap = tviews_overlap.map_blocks(lambda x: x[0], drop_axis=[0], dtype=tviews[0].dtype)
+    print('result overlap shape', result_overlap.shape)
+
+    trim_dict = {i:depth for i in range(3)}
+    result = da.overlap.trim_internal(result_overlap, trim_dict)
+
+    result = result[:orig_shape[1],:orig_shape[2],:orig_shape[3]]
+
+    if os.path.exists(fn):
+        print('WARNING: OVERWRITING %s' %fn)
+        os.remove(fn)
+
+    from dask.diagnostics import ProgressBar
+    # from distributed import LocalCluster, Client
+    # lc = LocalCluster(n_workers=1,processes=False)
+    # client = Client(lc)
+    # print(lc.dashboard_link)
+    # with dask.config.set(get=client):
     # with dask.config.set(scheduler='single-threaded'):
-    with dask.config.set(scheduler='threads'):
 
-        # tviews_stack = da.from_array(tviews, chunks = ((nviews,),)+tviews[0].chunks)
-        # tviews_stack = da.from_array(tviews, chunks = (nviews,50,50,50))
-        # tviews_stack = da.concatenate(tviews,axis=0)
-        # tviews_stack = da.vstack(tviews)
-        tviews_stack = da.stack(tviews)
+    # with dask.config.set(scheduler='threads'), ProgressBar():
+    with dask.config.set(scheduler='single-threaded'), ProgressBar():
+        result = result.compute()
 
-        depth = int(fusion_block_overlap)
-        depth_dict = {0: 0, 1: depth, 2: depth, 3: depth}
+    result = ImageArray(result,
+                        spacing=stack_properties['spacing'],
+                        origin=stack_properties['origin'],
+                        )
 
-        # rechunk here to adapt to parameters
+    io_utils.process_output_element(result,fn)
+    # result.to_hdf5(fn,'array',compression='gzip')#,scheduler = "single-threaded")
 
-        # cross platform way of getting available memory
-        # from psutil import virtual_memory
-        # mem = virtual_memory()
+    # fn_zarr = fn[:-3]+'.zarr'
+    # result.to_zarr(fn_zarr)
 
-        proc_chunk_size = (nviews,200,200,200)
-
-        # resize (pad) array because small chunk sizes on the borders
-        # are incompatible with overlaps larger than this chunk size
-        orig_shape = tviews_stack.shape
-        proc_shape = [orig_shape[0]]
-        for i in range(1,4):
-            modulus = orig_shape[i] % proc_chunk_size[i]
-            if modulus == 0 or modulus > depth:
-                new_size = orig_shape[i]
-
-            else:
-                new_size = orig_shape[i] + depth - modulus
-            proc_shape.append(new_size)
-
-        print('hello',proc_shape,orig_shape,fusion_block_overlap)
-        if not np.all(np.array(proc_shape)==np.array(orig_shape)):
-            pad_widths = [[0,0]]+[[0,proc_shape[i]-orig_shape[i]] for i in range(1,4)]
-            print('padding',pad_widths)
-            tviews_stack = da.pad(tviews_stack,pad_widths,mode='constant')
-
-        tviews_stack_rechunked = tviews_stack.rechunk(proc_chunk_size)
-
-        tviews_overlap = da.overlap.overlap(tviews_stack_rechunked,
-                               depth=depth_dict,
-                               # boundary = {0: 'periodic', 1: 'periodic', 2: 'periodic', 3: 'periodic'})
-                               boundary = {1: 'periodic', 2: 'periodic', 3: 'periodic'})
-
-        # weights_kwargs['params'] = params
-        # fusion_kwargs['params'] = params
-        # weights_kwargs['stack_properties'] = stack_properties
-        # fusion_kwargs['stack_properties'] = stack_properties
-
-        result_overlap = tviews_overlap.map_blocks(fuse_block, drop_axis = [0], dtype=tviews[0].dtype,
-                                                   **{
-                                                       'params': params,
-                                                       'stack_properties': stack_properties,
-                                                       'weights_func': weights_func,
-                                                       'fusion_func': fusion_func,
-                                                       'weights_kwargs': weights_kwargs,
-                                                       'fusion_kwargs': fusion_kwargs,
-
-                                                      })
-
-        # dummy
-        # result_overlap = tviews_overlap.map_blocks(lambda x: x[0], drop_axis=[0], dtype=tviews[0].dtype)
-
-        trim_dict = {i:depth for i in range(3)}
-        result = da.overlap.trim_internal(result_overlap, trim_dict)
-        # pdb.set_trace()
-
-        result = result[:orig_shape[1],:orig_shape[2],:orig_shape[3]]
-
-        if os.path.exists(fn):
-            print('WARNING: OVERWRITING %s' %fn)
-            os.remove(fn)
-
-
-        result.to_hdf5(fn,'array',compression='gzip')#,scheduler = "single-threaded")
-        # maybe add imagearray metadata here
+    # maybe add imagearray metadata here
 
     return fn
 
-def fuse_block(tviews_block,params,stack_properties,weights_func,fusion_func,weights_kwargs,fusion_kwargs,block_info=None):
+def fuse_block(tviews_block,params,stack_properties,orig_stack_propertiess,array_info,weights_func,fusion_func,weights_kwargs,fusion_kwargs,block_info=None):
 
     # return np.random.randint(0,100,tviews_block.shape[1:]).astype(tviews_block.dtype)
 
     # contains information about the current block
+    # print(block_info[0]['array-location'])
+    # print(block_info[0]['chunk-location'])
+    # print(block_info[0]['num-chunks'])
+    # print(block_info[0]['shape'])
     # print(block_info)
 
     max_vals = np.array([tview_block.max() for tview_block in tviews_block])
@@ -3683,27 +3727,53 @@ def fuse_block(tviews_block,params,stack_properties,weights_func,fusion_func,wei
 
     tviews_block = tviews_block[inds]
     params = np.array(params)[inds]
+    orig_stack_propertiess = [orig_stack_propertiess[i] for i in inds]
 
     print('performing fusion on %s blocks' %len(params))
 
     weights_kwargs['params'] = params
     fusion_kwargs['params'] = params
 
-    tviews = [ImageArray(tview_block,spacing=stack_properties['spacing'],origin=stack_properties['origin']) for tview_block in tviews_block]
-
     # stack_properties = tviews[0].get_info()
 
     # orig_stack_propertiess = [0 for i in range(len(params))]
     # orig_stack_propertiess = []
 
+    curr_origin = []
+    for i in range(3):
+        pixel_offset = block_info[0]['chunk-location'][i+1]*array_info['chunksize'] - array_info['depth']
+        curr_origin.append(stack_properties['origin'][i]+pixel_offset*stack_properties['spacing'][i])
+
+    print('curr_origin',curr_origin)
+
     block_stack_properties = stack_properties.copy()
     block_stack_properties['size'] = np.array(tviews_block[0].shape)
+    block_stack_properties['origin'] = np.array(curr_origin)
+
+    tviews = [ImageArray(tview_block,spacing=block_stack_properties['spacing'],origin=block_stack_properties['origin']) for tview_block in tviews_block]
 
     weights_kwargs['stack_properties'] = block_stack_properties
     fusion_kwargs['stack_properties'] = block_stack_properties
 
-    weights = weights_func(tviews,
-                              **weights_kwargs)
+    import inspect
+
+    members = dict(inspect.getmembers(weights_func.__code__))
+    var_names = members['co_varnames']
+    #
+    if 'orig_stack_propertiess' in var_names:
+        weights_kwargs['orig_stack_propertiess'] = orig_stack_propertiess
+
+    members = dict(inspect.getmembers(fusion_func.__code__))
+    var_names = members['co_varnames']
+    #
+    if 'orig_stack_propertiess' in var_names:
+        fusion_kwargs['orig_stack_propertiess'] = orig_stack_propertiess
+
+    if weights_func == get_weights_simple:
+        weights = weights_func(**weights_kwargs)
+    else:
+        weights = weights_func(tviews,
+                                  **weights_kwargs)
                               # params,
                               # orig_stack_propertiess,
                               # stack_properties,
@@ -3718,6 +3788,17 @@ def fuse_block(tviews_block,params,stack_properties,weights_func,fusion_func,wei
                               # gaussian_kernel=None,
                               # how_many_best_views=1,
                               # cumulative_weight_best_views=0.9,
+
+    # weights could be all zero despite tviews nonzero (border effects?)
+    max_vals = np.array([w.max() for w in weights])
+
+    inds = np.where(max_vals>0)[0]
+
+    # abort in trivial case
+    if len(inds) == 0:
+        return tviews_block[0]
+    elif len(inds) == 1:
+        return tviews_block[inds[0]]
 
     fused = fusion_func(tviews,weights=weights,
             **fusion_kwargs)
@@ -3770,7 +3851,7 @@ from scipy.fftpack import dctn,idctn
 # from scipy.fftpack import dct,idct
 from scipy import ndimage
 import dask.array as da
-@io_decorator
+# @io_decorator
 def get_weights_dct(
                     views,
                     params,
@@ -3827,7 +3908,7 @@ def get_weights_dct(
         vdils.append(mask == 0)
         vs.append(tmpvs*(mask>0))
 
-    size,max_kernel,gaussian_kernel = get_dct_options(w_stack_properties['spacing'][0],
+    size,max_kernel,gaussian_kernel = get_dct_options(stack_properties['spacing'][0],
                                                       size,
                                                       max_kernel,
                                                       gaussian_kernel,
@@ -3976,7 +4057,7 @@ def get_weights_dct(
 
 
     for iw,w in enumerate(ws):
-        print('filtering')
+        # print('filtering')
         ws[iw] = ndimage.maximum_filter(ws[iw],max_kernel)
 
     for iw,w in enumerate(ws):
@@ -3993,7 +4074,7 @@ def get_weights_dct(
 
     # tifffile.imshow(np.array([np.array(ts)*10,ws]).swapaxes(-3,-2),vmax=10000)
     for iw,w in enumerate(ws):
-        print('filtering')
+        # print('filtering')
         # ws[iw] = ndimage.maximum_filter(ws[iw],10)
         # ws[iw][vdils[iw]] = 0.00001
         ws[iw] = ndimage.gaussian_filter(ws[iw],gaussian_kernel)
@@ -4001,7 +4082,6 @@ def get_weights_dct(
         # ws[iw][zeros] = 0.00001
         # ws[iw][vdils[iw]] = 0.00001
         ws[iw][vdils[iw]] = 0
-
 
     ws = list(ws)
     for iw,w in enumerate(ws):
@@ -4020,13 +4100,13 @@ def get_weights_dct(
                                    out_spacing=stack_properties['spacing'])
 
     # # smooth edges
-    # ws_simple = get_weights_simple(
-    #                 orig_stack_propertiess,
-    #                 params,
-    #                 stack_properties
-    # )
-    #
-    # ws = [ws[i]*ws_simple[i] for i in range(len(ws))]
+    ws_simple = get_weights_simple(
+                    orig_stack_propertiess,
+                    params,
+                    stack_properties
+    )
+
+    ws = [ws[i]*ws_simple[i] for i in range(len(ws))]
 
     wsum = np.sum(ws,0)
     wsum[wsum==0] = 1
@@ -4295,7 +4375,7 @@ def get_weights_dct(
 #     return ws
 
 
-@io_decorator
+# @io_decorator
 def fuse_views_weights(views,
                        params,
                        stack_properties,
@@ -4368,21 +4448,23 @@ def transform_view_and_save_chunked(fn,view,params,iview,stack_properties,chunks
     # else:
     #     chunksize = 100
 
-    if chunksize is None:
-        chunks = np.min([[100]*3,stack_properties['size']],0)
-        chunks = tuple([int(i) for i in chunks])
-    else:
-        chunks = tuple([int(chunksize)]*3)
+    io_utils.process_output_element(res,fn)
 
-
-    f = h5py.File(fn,'w')
-    # chunks = np.min([[chunksize]*3, res.shape], 0)
-    # chunks = tuple(chunks)
-    f.create_dataset("array", data=np.array(res), chunks=chunks, compression="gzip")
-    f['spacing'] = np.array(stack_properties['spacing'])
-    f['origin'] = np.array(stack_properties['origin'])
-    f['rotation'] = 0
-    f.close()
+    # if chunksize is None:
+    #     chunks = np.min([[100]*3,stack_properties['size']],0)
+    #     chunks = tuple([int(i) for i in chunks])
+    # else:
+    #     chunks = tuple([int(chunksize)]*3)
+    #
+    #
+    # f = h5py.File(fn,'w')
+    # # chunks = np.min([[chunksize]*3, res.shape], 0)
+    # # chunks = tuple(chunks)
+    # f.create_dataset("array", data=np.array(res), chunks=chunks, compression="gzip")
+    # f['spacing'] = np.array(stack_properties['spacing'])
+    # f['origin'] = np.array(stack_properties['origin'])
+    # f['rotation'] = 0
+    # f.close()
 
     return fn
 
@@ -4872,7 +4954,7 @@ def multiview_data_to_density(
 def get_image_from_list_of_images(ims,ind):
     return ims[ind]
 
-@io_decorator
+# @io_decorator
 def fuse_LR_with_weights(
         views,
         params,
@@ -4884,7 +4966,8 @@ def fuse_LR_with_weights(
         weights = None,
         regularisation = False,
         blur_func = blur_view_in_view_space,
-        orig_prop_list = None,
+        # orig_prop_list = None,
+        orig_stack_propertiess = None,
         views_in_target_space = True,
 ):
     """
@@ -4938,14 +5021,14 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
     # get orig properties
     # zfactor = float(1)
 
-    if orig_prop_list is None and not views_in_target_space:
-        orig_prop_list = []
+    if orig_stack_propertiess is None and not views_in_target_space:
+        orig_stack_propertiess = []
         for ip in range(len(params)):
             prop_dict = dict()
             prop_dict['size'] = views[ip].shape
             prop_dict['origin'] = views[ip].origin
             prop_dict['spacing'] = views[ip].spacing
-            orig_prop_list.append(prop_dict)
+            orig_stack_propertiess.append(prop_dict)
 
     # weights = weight_func(
     #                    views,
@@ -5008,6 +5091,7 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
         views = nviews
 
     # convert to sitk images
+    # views_sitk = []
     for ip,p in enumerate(params):
         tmp = sitk.GetImageFromArray(views[ip])
         tmp = sitk.Cast(tmp,sitk.sitkFloat32)
@@ -5016,6 +5100,9 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
         # debug crop
         # tmp = tmp[:,500:550,:]
         views[ip] = tmp
+        # views_sitk.append(tmp)
+
+    # views = views_sitk
 
     noisy_multiview_data = views
 
@@ -5070,7 +5157,7 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
         expected_data = density_to_multiview_data(
               estimate,
               params,
-              orig_prop_list,
+              orig_stack_propertiess,
               stack_properties,
               sz,
               sxy,
@@ -5095,7 +5182,7 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
         correction_factor = multiview_data_to_density(
             expected_data,
             params,
-            orig_prop_list,
+            orig_stack_propertiess,
             stack_properties,
             sz,
             sxy,

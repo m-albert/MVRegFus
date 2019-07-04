@@ -229,7 +229,7 @@ def process_output_element(element,path):
     elif path.endswith('.imagear.h5') and type(element) == ImageArray:
         tmpFile = h5py.File(path)
         tmpFile.clear()
-        chunks = np.min([[50,50,50],element.shape],0)
+        chunks = np.min([[100]*3,element.shape],0)
         chunks = tuple(chunks)
         tmpFile.create_dataset("array", data=np.array(element), chunks=chunks, compression="gzip")
         # tmpFile['array'] = np.array(element)
@@ -237,6 +237,15 @@ def process_output_element(element,path):
         tmpFile['origin'] = element.origin
         tmpFile['rotation'] = element.rotation
         tmpFile.close()
+
+    # elif path.endswith('.imagear.n5') and type(element) == ImageArray:
+    #     chunks = np.min([[50,50,50],element.shape],0)
+    #     chunks = tuple(chunks)
+    #     import zarr
+    #     store = zarr.N5Store(path)
+    #     z = zarr.zeros(element.shape, chunks=chunks, store=store, overwrite=True)
+    #     z[...] = element
+
     # elif path.startswith('prealignment') and path.endswith('.h5') and type(element) == np.ndarray:
     elif 'prealignment' in path and path.endswith('.h5') and type(element) == np.ndarray:
         tmpFile = h5py.File(path)

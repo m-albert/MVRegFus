@@ -287,7 +287,6 @@ def build_multiview_graph(
 
             weights_func = dipy_multiview.get_weights_dct
             weights_kwargs = {
-                'orig_stack_propertiess': [0 for i in all_views],
                 'size': dct_size,
                 'max_kernel': dct_max_kernel,
                 'gaussian_kernel': dct_gaussian_kernel,
@@ -297,7 +296,7 @@ def build_multiview_graph(
 
             tmp_options = dipy_multiview.get_dct_options(mv_final_spacing[0],dct_size,dct_max_kernel,dct_gaussian_kernel)
 
-            fusion_block_overlap = np.max([fusion_block_overlap, tmp_options[1]*3])
+            fusion_block_overlap = np.max([fusion_block_overlap, tmp_options[0]*1])
             print('fusion_block_overlap:', fusion_block_overlap)
             # graph[weights_label_all_views] = (
             #     dipy_multiview.get_weights_dct,
@@ -315,7 +314,12 @@ def build_multiview_graph(
 
         elif fusion_weights == 'blending':
 
-            raise(Exception('blending currently not supported in combination with blockwise fusion'))
+            weights_func = dipy_multiview.get_weights_simple
+
+            weights_kwargs = {
+                }
+
+            # raise(Exception('blending currently not supported in combination with blockwise fusion'))
 
             # graph[weights_label_all_views] = (
             #     dipy_multiview.get_weights_simple,
@@ -338,7 +342,6 @@ def build_multiview_graph(
                 'sxy': LR_sigma_xy,
                 'tol': LR_tol,
                 'blur_func': dipy_multiview.blur_view_in_target_space,
-                'orig_prop_list': [0 for i in all_views],
             }
 
             fusion_block_overlap = np.max([fusion_block_overlap,
@@ -393,6 +396,7 @@ def build_multiview_graph(
                                            [transformed_view_label %(ds,sample,view,ch) for view in all_views],
                                             fusion_params_label % (ds, sample),
                                             stack_properties_label % (ds, sample),
+                                            orig_stack_propss,
                                             fusion_block_overlap,
                                             weights_func,
                                             fusion_func,
