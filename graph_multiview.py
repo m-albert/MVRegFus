@@ -78,12 +78,14 @@ def build_multiview_graph(
         if view_dict is None:
             info_dict = dipy_multiview.getStackInfoFromCZI(filepath)
             n_views = len(info_dict['origins'])
-            pairs = [(i,i+1) for i in range(n_views-1)] + [(n_views-1,0)]
+            # pairs = [(i,i+1) for i in range(n_views-1)] + [(n_views-1,0)]
+            pairs = [(i,i+1) for i in range(n_views-1)]# + [(n_views-1,0)]
             print('Assuming linear chain of overlap in views')
         if view_dict is not None:
             view_indices = [k for k in view_dict.keys()]
             view_indices.sort()
-            pairs = [(view_indices[i],view_indices[i+1]) for i in range(len(view_indices)-1)] + [(view_indices[-1],view_indices[0])]
+            # pairs = [(view_indices[i],view_indices[i+1]) for i in range(len(view_indices)-1)] + [(view_indices[-1],view_indices[0])]
+            pairs = [(view_indices[i],view_indices[i+1]) for i in range(len(view_indices)-1)]# + [(view_indices[-1],view_indices[0])]
             print('Assuming linear chain of overlap in views indicated in view_dict')
 
 
@@ -295,8 +297,8 @@ def build_multiview_graph(
 
             tmp_options = dipy_multiview.get_dct_options(mv_final_spacing[0],dct_size,dct_max_kernel,dct_gaussian_kernel)
 
-            fusion_block_overlap = np.max([fusion_block_overlap, tmp_options[1]])
-
+            fusion_block_overlap = np.max([fusion_block_overlap, tmp_options[1]*3])
+            print('fusion_block_overlap': fusion_block_overlap)
             # graph[weights_label_all_views] = (
             #     dipy_multiview.get_weights_dct,
             #     # [multiview_view_corr_label % (ds, sample, view, ch) for view in all_views],
@@ -339,7 +341,9 @@ def build_multiview_graph(
                 'orig_prop_list': [0 for i in all_views],
             }
 
-            fusion_block_overlap = np.max([fusion_block_overlap,np.max([LR_sigma_z*2,LR_sigma_xy*2])])
+            fusion_block_overlap = np.max([fusion_block_overlap,
+                                           np.max([LR_sigma_z*2/mv_final_spacing[0],
+                                                   LR_sigma_xy*2/mv_final_spacing[0]])])
 
             # graph[multiview_fused_label %(ds,sample,ch)] = (
             #                                     dipy_multiview.fuse_LR_with_weights,

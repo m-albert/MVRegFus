@@ -3594,7 +3594,37 @@ def fuse_blockwise(fn,
 
         depth = int(fusion_block_overlap)
         depth_dict = {0: 0, 1: depth, 2: depth, 3: depth}
-        tviews_overlap = da.overlap.overlap(tviews_stack,
+
+        # rechunk here to adapt to parameters
+
+        # cross platform way of getting available memory
+        # from psutil import virtual_memory
+        # mem = virtual_memory()
+
+        proc_chunk_size = (nviews,200,200,200)
+
+        # resize (pad) array because small chunk sizes on the borders
+        # are incompatible with overlaps larger than this chunk size
+        orig_shape = tviews_stack.shape
+        proc_shape = [orig_shape[0]]
+        for i in range(1,4):
+            modulus = orig_shape[i] % proc_chunk_size[i]
+            if modulus == 0 or modulus > depth:
+                new_size = orig_shape[i]
+
+            else:
+                new_size = orig_shape[i] + depth - modulus
+            proc_shape.append(new_size)
+
+        print('hello',proc_shape,orig_shape,fusion_block_overlap)
+        if not np.all(np.array(proc_shape)==np.array(orig_shape)):
+            pad_widths = [[0,0]]+[[0,proc_shape[i]-orig_shape[i]] for i in range(1,4)]
+            print('padding',pad_widths)
+            tviews_stack = da.pad(tviews_stack,pad_widths,mode='constant')
+
+        tviews_stack_rechunked = tviews_stack.rechunk(proc_chunk_size)
+
+        tviews_overlap = da.overlap.overlap(tviews_stack_rechunked,
                                depth=depth_dict,
                                # boundary = {0: 'periodic', 1: 'periodic', 2: 'periodic', 3: 'periodic'})
                                boundary = {1: 'periodic', 2: 'periodic', 3: 'periodic'})
@@ -3622,6 +3652,8 @@ def fuse_blockwise(fn,
         result = da.overlap.trim_internal(result_overlap, trim_dict)
         # pdb.set_trace()
 
+        result = result[:orig_shape[1],:orig_shape[2],:orig_shape[3]]
+
         if os.path.exists(fn):
             print('WARNING: OVERWRITING %s' %fn)
             os.remove(fn)
@@ -3632,9 +3664,12 @@ def fuse_blockwise(fn,
 
     return fn
 
-def fuse_block(tviews_block,params,stack_properties,weights_func,fusion_func,weights_kwargs,fusion_kwargs):
+def fuse_block(tviews_block,params,stack_properties,weights_func,fusion_func,weights_kwargs,fusion_kwargs,block_info=None):
 
     # return np.random.randint(0,100,tviews_block.shape[1:]).astype(tviews_block.dtype)
+
+    # contains information about the current block
+    # print(block_info)
 
     max_vals = np.array([tview_block.max() for tview_block in tviews_block])
 
@@ -3647,7 +3682,7 @@ def fuse_block(tviews_block,params,stack_properties,weights_func,fusion_func,wei
         return tviews_block[inds[0]]
 
     tviews_block = tviews_block[inds]
-    params = params[inds]
+    params = np.array(params)[inds]
 
     print('performing fusion on %s blocks' %len(params))
 
@@ -4721,13 +4756,13 @@ def blur_view_in_target_space(view,
         print('not blurring because of zero sigmas')
         return view
 
-    print('blur view..')
+    # print('blur view..')
 
     # construct psf with shape containing kernel radius three times
     psf_shape = (np.array([np.max([1,np.max([sz,sxy,sxy])*3])]) / stack_properties['spacing']).astype(np.int64)
     ## make shape odd
     psf_shape = np.array([ps+[1,0][int(ps%2)] for ps in psf_shape]).astype(np.int64)
-    print('psf with sigma %s has shape %s' %([sxy,sxy,sz],list(psf_shape)))
+    # print('psf with sigma %s has shape %s' %([sxy,sxy,sz],list(psf_shape)))
     psf_orig = np.zeros(psf_shape,dtype=np.float32)
     psf_orig[psf_shape[0]//2,psf_shape[1]//2,psf_shape[2]//2]     = 1
 
