@@ -229,7 +229,7 @@ def process_output_element(element,path):
     elif path.endswith('.imagear.h5') and type(element) == ImageArray:
         tmpFile = h5py.File(path)
         tmpFile.clear()
-        chunks = np.min([[100]*3,element.shape],0)
+        chunks = np.min([[64]*3,element.shape],0)
         chunks = tuple(chunks)
         tmpFile.create_dataset("array", data=np.array(element), chunks=chunks, compression="gzip")
         # tmpFile['array'] = np.array(element)

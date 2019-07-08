@@ -294,10 +294,9 @@ def build_multiview_graph(
                 'cumulative_weight_best_views': dct_cumulative_weight_best_views,
             }
 
-            tmp_options = dipy_multiview.get_dct_options(mv_final_spacing[0],dct_size,dct_max_kernel,dct_gaussian_kernel)
-
-            fusion_block_overlap = np.max([fusion_block_overlap, tmp_options[0]*1])
-            print('fusion_block_overlap:', fusion_block_overlap)
+            # tmp_options = dipy_multiview.get_dct_options(mv_final_spacing[0],dct_size,dct_max_kernel,dct_gaussian_kernel)
+            # fusion_block_overlap = np.max([fusion_block_overlap, tmp_options[0]*1])
+            # print('fusion_block_overlap:', fusion_block_overlap)
             # graph[weights_label_all_views] = (
             #     dipy_multiview.get_weights_dct,
             #     # [multiview_view_corr_label % (ds, sample, view, ch) for view in all_views],
