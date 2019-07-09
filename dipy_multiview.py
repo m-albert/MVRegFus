@@ -1,6 +1,6 @@
 __author__ = 'malbert'
 
-import os,tempfile,pdb,sys
+import os,tempfile,pdb,sys,copy
 import numpy as np
 import czifile
 import SimpleITK as sitk
@@ -3566,6 +3566,8 @@ def fuse_blockwise(fn,
                    fusion_kwargs=None,
                    ):
 
+    print('fusion block overlap: ', fusion_block_overlap)
+
     stack_properties = io_utils.process_input_element(stack_properties)
     params = io_utils.process_input_element(params)
 
@@ -3718,16 +3720,27 @@ def fuse_blockwise(fn,
     result = result[:orig_shape[1],:orig_shape[2],:orig_shape[3]]
 
     from dask.diagnostics import ProgressBar
-    # from distributed import LocalCluster, Client
-    # lc = LocalCluster(n_workers=2,processes=False)
+
+
+
+    # lc = LocalCluster(n_workers=1,processes=False)
+    # lc = LocalCluster(processes=False)
     # client = Client(lc)
     # print(lc.dashboard_link)
     # with dask.config.set(get=client):
     # with dask.config.set(scheduler='single-threaded'):
 
-    with dask.config.set(scheduler='threads'), ProgressBar():
-    # with dask.config.set(scheduler='single-threaded'), ProgressBar():
-        result = result.compute()
+    # with dask.config.set(scheduler='threads'), ProgressBar():
+    # with dask.config.set(scheduler='single-threaded'):#, ProgressBar():
+
+
+        # t = result[50:51,50:51,50:51]
+        # import dask
+        # dask.visualize(dask.optimize(t), '/Users/marvin/la2.svg')
+        # pdb.set_trace()
+    # result = result[:,-300:-250,:]
+    # result = result[50:51,50:51,50:51]
+    result = result.compute()
 
     result = ImageArray(result,
                         spacing=stack_properties['spacing'],
@@ -3908,7 +3921,7 @@ def scale_down_dask_array(a, b=3):
         for i in range(len(x)):
             out_shape = (np.array(x.shape[1:]) / b).astype(np.int64)
             tmp = transform_stack_sitk(ImageArray(x[i]), None, out_spacing=[b, b, b], out_shape=out_shape,
-                                       out_origin=[0., 0, 0])
+                                       out_origin=[0., 0, 0],interp='linear')
             res.append(tmp)
         return np.array(res)
 
@@ -3928,8 +3941,9 @@ def scale_up_dask_array(a, b=3):
         res = []
         for i in range(len(x)):
             out_shape = (np.array(x.shape[1:]) * b).astype(np.int64)
-            tmp = transform_stack_sitk(ImageArray(x[i]), None, out_spacing=[1. / b] * 3, out_shape=out_shape,
-                                       out_origin=[0., 0, 0])
+            binned_origin = [(1. - 1./b) / 2.]*3
+            tmp = transform_stack_sitk(ImageArray(x[i],origin=binned_origin), None, out_spacing=[1. / b] * 3, out_shape=out_shape,
+                                       out_origin=[0., 0, 0],interp='linear')
             res.append(tmp)
         return np.array(res)
 
@@ -3965,9 +3979,8 @@ def get_weights_dct_dask(tviews,
         # bin_factor = np.min([bin_factor,np.min(np.array(stack_properties['size'])/15,0)],0)
 
     print('using bin_factor %s for calculating dct weights' %bin_factor)
-
-    binned_stack_properties = stack_properties.copy()
-    binned_stack_properties['spacing'] *= bin_factor
+    binned_stack_properties = copy.deepcopy(stack_properties)
+    binned_stack_properties['spacing'] = np.array(stack_properties['spacing'])*bin_factor
     # binned_stack_properties['size'] = np.array(tviews[0].shape)
 
     size,max_kernel,gaussian_kernel = get_dct_options(binned_stack_properties['spacing'][0],
@@ -3980,7 +3993,8 @@ def get_weights_dct_dask(tviews,
 
     size = tviews_binned.chunksize[1]
     # calculate dct on blocks smaller than 50 um but with no less than 4 pixels diameter
-    while size * binned_stack_properties['spacing'][0] > 50 and size >= 4: #um
+
+    while size * binned_stack_properties['spacing'][0] > 100 and size >= 4: #um
         size  = size / 2
 
     print('DCT: choosing pixel size %s (in um: %s)' %(size,size * binned_stack_properties['spacing'][0]) )
@@ -4001,6 +4015,7 @@ def get_weights_dct_dask(tviews,
 
     ws = da.map_blocks(normalise,ws)
 
+
     depth = int(max_kernel)//2
     # depth = 0
     depth_dict = {0: 0, 1: depth, 2: depth, 3: depth}
@@ -4020,7 +4035,7 @@ def get_weights_dct_dask(tviews,
         for i in range(len(ws)):
             ws[i] = ndimage.maximum_filter(ws[i],max_kernel)
         return ws
-
+    #
     ws = da.map_blocks(max_filter,ws,**{'max_kernel': max_kernel})
 
     def calc_zero_mask(views):
@@ -4045,6 +4060,19 @@ def get_weights_dct_dask(tviews,
     ws = da.map_blocks(gauss_filter,ws,**{'gaussian_kernel': gaussian_kernel})
 
     ws = da.overlap.trim_internal(ws, depth_dict)
+
+
+    """
+    - max
+    - 0
+    - norm
+    - gauss
+    - scale
+    - simple
+    - normalise
+    """
+
+    ws = scale_up_dask_array(ws,b=bin_factor)
 
     def mult_simple_weights_chunk(ws,stack_properties,params,orig_stack_propertiess,block_info=None):
 
@@ -4071,18 +4099,6 @@ def get_weights_dct_dask(tviews,
     ws = da.map_blocks(mult_simple_weights_chunk, ws, **simple_weight_kwargs, dtype=np.float32)
 
     ws = da.map_blocks(normalise, ws)
-
-    """
-    - max
-    - 0
-    - norm
-    - gauss
-    - scale
-    - simple
-    - normalise
-    """
-
-    ws = scale_up_dask_array(ws,b=bin_factor)
 
     ws = ws.rechunk(tviews.chunksize)
 

@@ -10,7 +10,7 @@ dependencies:
   - scipy
   - scikit-learn
   - pandas
-  - dask
+  - dask=1.2.2
   - distributed
   - bokeh
   - bcolz

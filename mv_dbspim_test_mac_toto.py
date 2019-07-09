@@ -69,8 +69,8 @@ view_dict = None
 final_volume_mode = 'sample'
 
 # where to save the output
-# out_dir = os.path.dirname(filepaths[0])+'/old'
-out_dir = os.path.dirname(filepaths[0])
+out_dir = os.path.dirname(filepaths[0])+'/old'
+# out_dir = os.path.dirname(filepaths[0])
 
 # whether to perform an affine chromatic correction
 # and which channel to use as reference
@@ -88,15 +88,15 @@ background_level = 200
 mv_registration_bin_factors = np.array([1,1,1])
 
 # final output spacing in um
-# mv_final_spacing = np.array([1.]*3)
-mv_final_spacing = np.array([6.]*3)
+mv_final_spacing = np.array([1.]*3)
+# mv_final_spacing = np.array([6.]*3)
 
 # options for fusion
 # fusion_method
 # 'weighted_average': weighted average of views using the given weights
 # 'LR': Lucy-Richardson multi-view deconvolution
-fusion_method = 'LR'
-#fusion_method = 'weighted_average'
+#fusion_method = 'LR'
+fusion_method = 'weighted_average'
 
 # fusion weights
 # 'blending': uniform weights with blending at the stack borders
@@ -198,6 +198,9 @@ if __name__ == '__main__':
             # p = threaded.get(graph,fusion_params_label)
 
     o = io_utils.get(graph,result_keys,local=True)
+
+    # import dask
+    # dask.get(graph,result_keys)
 
 
 
