@@ -3987,7 +3987,7 @@ def get_dct_options(spacing,size=None,max_kernel=None,gaussian_kernel=None):
 
 def scale_down_dask_array(a, b=3):
 
-    # if b == 1: return a
+    if b == 1: return a
 
     for dim in range(1, 4):
         relevant_size = a.chunks[dim][0]
@@ -4010,9 +4010,9 @@ def scale_down_dask_array(a, b=3):
 
 
 # import sparse
-def scale_up_dask_array(a, b=3, return_sparse = True):
+def scale_up_dask_array(a, b=3):
 
-    # if b ==1: return a
+    if b ==1: return a
 
     if not np.isclose(b, int(b)):
         raise (Exception('scaling up of dask arrays only implemented for integer scalings'))
@@ -4020,6 +4020,8 @@ def scale_up_dask_array(a, b=3, return_sparse = True):
         b = int(b)
 
     def dask_scale_up_chunk(x, b=4):
+
+        # if b > 1:
         res = []
         for i in range(len(x)):
             out_shape = (np.array(x.shape[1:]) * b).astype(np.int64)
@@ -4027,13 +4029,19 @@ def scale_up_dask_array(a, b=3, return_sparse = True):
             tmp = transform_stack_sitk(ImageArray(x[i],origin=binned_origin), None, out_spacing=[1. / b] * 3, out_shape=out_shape,
                                        out_origin=[0., 0, 0],interp='linear')
 
-            # if return_sparse:
-            #     if np.sum(tmp) < 0.01 * np.product(tmp.shape): # one percent
-            #         print('using sparse array after upscale')
-            #         tmp = sparse.COO(tmp)
-
             res.append(tmp)
-        return np.array(res)
+
+        # else:
+        #     res = x
+
+        res = np.array(res)
+
+        # if return_sparse:
+        #     if np.sum(res) < 0.01 * np.product(res.shape): # one percent
+        #         print('using sparse array after upscale')
+        #         res = sparse.COO(res)
+
+        return res
 
     res = da.map_blocks(dask_scale_up_chunk, a, dtype=np.float32,
                         chunks=tuple([a.chunksize[0]] + [a.chunksize[dim] * b for dim in range(1, 4)]), **{'b': b})
@@ -4102,7 +4110,6 @@ def get_weights_dct_dask(tviews,
         return ws/wssum
 
     ws = da.map_blocks(normalise,ws)
-
 
     depth = int(max_kernel)//2
     # depth = 0

@@ -8,7 +8,6 @@ dependencies:
   - h5py
   - numpy
   - scipy
-  - sparse
   - scikit-learn
   - pandas
   - dask=1.2.2
