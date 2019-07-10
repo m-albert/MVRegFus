@@ -3657,7 +3657,8 @@ def fuse_blockwise(fn,
         # weights = da.map_blocks(weights_func,tviews_stack_rechunked,dtype=np.float32, **weights_kwargs)
         # weights = da.map_blocks(lambda x, *args, **kwargs: x/x.max(),tviews_stack_rechunked,dtype=np.float32, **weights_kwargs)
 
-
+    from bcolz import carray
+    weights = weights.map_blocks(carray).persist().map_blocks(np.asarray)
 
     tviews_overlap = da.overlap.overlap(tviews_stack_rechunked,
                            depth=depth_dict,

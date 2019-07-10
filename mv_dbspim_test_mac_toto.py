@@ -69,8 +69,8 @@ view_dict = None
 final_volume_mode = 'sample'
 
 # where to save the output
-out_dir = os.path.dirname(filepaths[0])+'/old'
-# out_dir = os.path.dirname(filepaths[0])
+# out_dir = os.path.dirname(filepaths[0])+'/old'
+out_dir = os.path.dirname(filepaths[0])
 
 # whether to perform an affine chromatic correction
 # and which channel to use as reference
@@ -88,8 +88,8 @@ background_level = 200
 mv_registration_bin_factors = np.array([1,1,1])
 
 # final output spacing in um
-mv_final_spacing = np.array([1.]*3)
-# mv_final_spacing = np.array([6.]*3)
+# mv_final_spacing = np.array([1.]*3)
+mv_final_spacing = np.array([6.]*3)
 
 # options for fusion
 # fusion_method
