@@ -266,6 +266,24 @@ def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,
         stack = stack[:zshape]
         # print('choosing only illumination 1')
         # stack = np.array(stack[1:stack.shape[0]:illuminations]).astype(np.uint16)
+    elif illuminations > 1 and ill == 2:
+
+        stack = czifile.CziFile(filepath).asarray_random_access(view, ch).squeeze()
+        stack = stack.astype(np.uint16)  # czifile can also load in other dtypes
+
+        print('fusing %s illuminations using sample center' %illuminations)
+        # stack = np.mean([stack[i:stack.shape[0]:illuminations] for i in range(illuminations)],0).astype(np.uint16)
+        zshape = int(stack.shape[0]/illuminations)
+        # for z in range(zshape):
+        #     if not z%50: print('fusing z plane: %s' %z)
+        #     stack[z] = np.mean(stack[z*illuminations:z*illuminations+illuminations],0).astype(np.uint16)
+        # stack = stack[:zshape]
+        # # print('choosing only illumination 1')
+        stack0 = np.array(stack[0:stack.shape[0]:illuminations]).astype(np.uint16)
+        stack1 = np.array(stack[1:stack.shape[0]:illuminations]).astype(np.uint16)
+
+        stack = illuminationFusion([stack0,stack1],2,background_level+20)
+
     else:
         stack = czifile.CziFile(filepath).asarray_random_access(view=view, ch=ch, ill=ill).squeeze()
         stack = stack.astype(np.uint16)  # czifile can also load in other dtypes
@@ -301,6 +319,61 @@ def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,
         spacing = (infoDict['spacing'] * np.array(raw_input_binning))[::-1]
     stack = ImageArray(stack,spacing=spacing,origin=infoDict['origins'][view][::-1],rotation=rotation)
 
+    return stack
+
+def illumination_fusion(stack, fusion_axis=2, sample_intensity=220):
+
+    """
+
+    segment sample: seg = mean(stack,0) > sample_intensity
+
+    - divide mask into left and right
+    - smooth
+
+    good stacks for testing:
+
+    x,y,z = np.mgrid[:100,:101,:102]
+    s0 = np.abs(np.sin((y-50+z-50+x-50)/100.*np.pi)*1) * np.abs(np.sin(y/50.*np.pi)*1) * np.sin(z/100.*np.pi)*100 + 200# + np.sin(z/5.*np.pi)*5
+    s1 = s0 + np.sin(z/5.*np.pi)*5
+
+    :param stack:
+    :param fusion_axis:
+    :param sample_intensity:
+    :return:
+    """
+
+    print('fusing illuminations assuming:\nsample intensity (incl. background): %s\nfusion axis: %s' %(sample_intensity,fusion_axis))
+
+    stack = np.array(stack)
+
+    # mask
+    mask = np.sum(stack,0)>(sample_intensity*2)
+
+    # pixels along fusion axis
+    total = np.sum(mask,fusion_axis)
+
+    mask[total == 0] = True
+
+    total[total==0] = mask.shape[fusion_axis]
+    # total[total==0] = (mask.shape[fusion_axis]*(mask.shape[fusion_axis]+1))/2./2.
+
+    print(mask.shape)
+
+    # pixel count from left
+    cumsum = np.cumsum(mask,fusion_axis)
+
+    # right_weight = cumsum > total/2.
+    right_weight = (cumsum.T > total.T/2.).T
+    # right_weight = (cumsum.T > np.sum(cumsum,fusion_axis).T/2.).T
+
+    kernel = np.array(mask.shape)/100*2.
+    right_weight = ndimage.gaussian_filter(right_weight.astype(np.float32),kernel)
+
+    stack = stack[0] * (1-right_weight) + stack[1] * right_weight
+
+    stack = stack.astype(np.uint16)
+
+    # return stack, (1-right_weight), right_weight, mask, cumsum
     return stack
 
 
@@ -3657,8 +3730,9 @@ def fuse_blockwise(fn,
         # weights = da.map_blocks(weights_func,tviews_stack_rechunked,dtype=np.float32, **weights_kwargs)
         # weights = da.map_blocks(lambda x, *args, **kwargs: x/x.max(),tviews_stack_rechunked,dtype=np.float32, **weights_kwargs)
 
-    from bcolz import carray
-    weights = weights.map_blocks(carray).persist().map_blocks(np.asarray)
+    # print('compressing arrays')
+    # from bcolz import carray
+    # weights = weights.map_blocks(carray).persist().map_blocks(np.asarray)
 
     tviews_overlap = da.overlap.overlap(tviews_stack_rechunked,
                            depth=depth_dict,
@@ -3732,7 +3806,7 @@ def fuse_blockwise(fn,
     # with dask.config.set(scheduler='single-threaded'):
 
     # with dask.config.set(scheduler='threads'), ProgressBar():
-    # with dask.config.set(scheduler='single-threaded'):#, ProgressBar():
+    with dask.config.set(scheduler='single-threaded'), ProgressBar():
 
 
         # t = result[50:51,50:51,50:51]
@@ -3741,12 +3815,12 @@ def fuse_blockwise(fn,
         # pdb.set_trace()
     # result = result[:,-300:-250,:]
     # result = result[50:51,50:51,50:51]
-    result = result.compute()
+        result = result.compute()
 
-    result = ImageArray(result,
-                        spacing=stack_properties['spacing'],
-                        origin=stack_properties['origin'],
-                        )
+        result = ImageArray(result,
+                            spacing=stack_properties['spacing'],
+                            origin=stack_properties['origin'],
+                            )
 
     if os.path.exists(fn):
         print('WARNING: OVERWRITING %s' %fn)
@@ -3912,6 +3986,9 @@ def get_dct_options(spacing,size=None,max_kernel=None,gaussian_kernel=None):
 
 
 def scale_down_dask_array(a, b=3):
+
+    # if b == 1: return a
+
     for dim in range(1, 4):
         relevant_size = a.chunks[dim][0]
         if relevant_size % b: raise (
@@ -3932,7 +4009,11 @@ def scale_down_dask_array(a, b=3):
     return res
 
 
-def scale_up_dask_array(a, b=3):
+# import sparse
+def scale_up_dask_array(a, b=3, return_sparse = True):
+
+    # if b ==1: return a
+
     if not np.isclose(b, int(b)):
         raise (Exception('scaling up of dask arrays only implemented for integer scalings'))
     else:
@@ -3945,6 +4026,12 @@ def scale_up_dask_array(a, b=3):
             binned_origin = [(1. - 1./b) / 2.]*3
             tmp = transform_stack_sitk(ImageArray(x[i],origin=binned_origin), None, out_spacing=[1. / b] * 3, out_shape=out_shape,
                                        out_origin=[0., 0, 0],interp='linear')
+
+            # if return_sparse:
+            #     if np.sum(tmp) < 0.01 * np.product(tmp.shape): # one percent
+            #         print('using sparse array after upscale')
+            #         tmp = sparse.COO(tmp)
+
             res.append(tmp)
         return np.array(res)
 

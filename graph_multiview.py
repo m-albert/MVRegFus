@@ -7,20 +7,17 @@ import sys
 # import pickle
 import io_utils
 
-from distributed import Client
-
-# from distributed import LocalCluster, Client
-# client = Client(memory_limit='8GB', processes=False)
-client = Client(processes=False)
-dashboard_link = 'http://localhost:%s' % int(client.cluster.scheduler.service_ports['dashboard'])
-print(dashboard_link)
-
-if sys.platform.startswith("win"):
-    try:
-        os.system("title "+"multi-view fusion: "+dashboard_link)
-    except: pass
-elif sys.platform.startswith("lin") or sys.platform.startswith("dar"):
-    print('\33]0;multi-view fusion: %s\a' %dashboard_link, end='', flush=True)
+# from distributed import Client
+# client = Client(processes=False)
+# dashboard_link = 'http://localhost:%s' % int(client.cluster.scheduler.service_ports['dashboard'])
+# print(dashboard_link)
+#
+# if sys.platform.startswith("win"):
+#     try:
+#         os.system("title "+"multi-view fusion: "+dashboard_link)
+#     except: pass
+# elif sys.platform.startswith("lin") or sys.platform.startswith("dar"):
+#     print('\33]0;multi-view fusion: %s\a' %dashboard_link, end='', flush=True)
 
 
 multiview_fused_label               = 'mv_%03d_%03d_c%02d.imagear.h5'
