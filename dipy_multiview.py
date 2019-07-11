@@ -436,7 +436,7 @@ def illumination_fusion_planewise(stack, fusion_axis=2):#, sample_intensity=220)
         total[total==0] = mask.shape[fusion_axis-1]
         # total[total==0] = (mask.shape[fusion_axis]*(mask.shape[fusion_axis]+1))/2./2.
 
-        print(mask.shape)
+        # print(mask.shape)
 
         # pixel count from left
         cumsum = np.cumsum(mask,fusion_axis-1)
