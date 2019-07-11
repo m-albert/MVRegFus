@@ -6,6 +6,7 @@ channels:
 dependencies:
   - ipython
   - h5py
+  - h5pickle
   - numpy
   - scipy
   - scikit-learn

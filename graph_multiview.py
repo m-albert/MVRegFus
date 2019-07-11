@@ -82,6 +82,12 @@ def build_multiview_graph(
     elastix_dir = '/scratch/malbert/dependencies_linux/elastix_linux64_v4.8',
     ):
 
+    if not os.path.exists(out_dir):
+        try:
+            os.mkdir(out_dir)
+        except:
+            raise(Exception('cannot create output directory %s' %out_dir))
+
     mv_final_spacing = np.array(mv_final_spacing).astype(np.float64)
 
     # ref_channel_chrom = channels[ref_channel_index_chrom]
@@ -210,9 +216,10 @@ def build_multiview_graph(
         print("No groupwise registration because SimpleElastix is not available")
         simple_elastix_available = False
 
-    # print('Not using groupwise registration for the moment')
-    print('Using groupwise registration!')
-    simple_elastix_available = True
+    print('Not using groupwise registration for the moment')
+    # print('Using groupwise registration!')
+    simple_elastix_available = False
+    # simple_elastix_available = True
 
     if simple_elastix_available and len(all_views) >= 4:  # restiction given by current elastix groupwise registration implementatin
         graph[fusion_params_label % (ds, sample)] = (
