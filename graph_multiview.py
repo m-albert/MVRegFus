@@ -173,7 +173,9 @@ def build_multiview_graph(
         # graph[fusion_params_pair_label %(ds,sample,ipair)] = (
 
         fusion_params_pair_file = os.path.join(out_dir,fusion_params_pair_label % (ds, sample, pair[0], pair[1]))
-        if os.path.exists(fusion_params_pair_file):
+        if pair[0] == pair[1]:
+            graph[fusion_params_pair_label % (ds, sample, pair[0], pair[1])] = np.array([1.,0,0,0,1,0,0,0,1,0,0,0])
+        elif os.path.exists(fusion_params_pair_file):
             graph[fusion_params_pair_label %(ds,sample,pair[0],pair[1])] = fusion_params_pair_file
         else:
 
