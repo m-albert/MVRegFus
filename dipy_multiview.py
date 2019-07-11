@@ -412,13 +412,11 @@ def illumination_fusion_planewise(stack, fusion_axis=2):#, sample_intensity=220)
 
     stack = da.from_array(stack,chunks = (2,1,stack.shape[-2],stack.shape[-1]))
     print(stack.shape)
-    # pdb.set_trace()
 
     def fuse_planes(planes):
 
         planes = planes.squeeze()
 
-        # pdb.set_trace()
 
         # mask
         # mask = np.sum(stack,0)>(sample_intensity*2)
@@ -3417,7 +3415,6 @@ def get_weights_simple(
         else:
             print('block lies partially inside')
 
-        # pdb.set_trace()
 
         # tmporigin = views[iview].origin+views[iview].spacing/2.
         # badplanes = int(0/views[iview].spacing[0]) # in microns
@@ -3915,11 +3912,11 @@ def fuse_blockwise(fn,
 
     from dask.diagnostics import ProgressBar
 
-    # from distributed import Client
-    # client = Client(processes=False)
-    # dashboard_link = 'http://localhost:%s' % int(client.cluster.scheduler.service_ports['dashboard'])
-    # print(dashboard_link)
-    # with dask.config.set(get=client):
+    from distributed import Client
+    client = Client(processes=False)
+    dashboard_link = 'http://localhost:%s' % int(client.cluster.scheduler.service_ports['dashboard'])
+    print(dashboard_link)
+    with dask.config.set(get=client):
 
     # lc = LocalCluster(n_workers=1,processes=False)
     # lc = LocalCluster(processes=False)
@@ -3929,7 +3926,7 @@ def fuse_blockwise(fn,
     # with dask.config.set(scheduler='single-threaded'):
 
     # with dask.config.set(scheduler='processes'), ProgressBar():
-    with dask.config.set(scheduler='threads'), ProgressBar():
+    # with dask.config.set(scheduler='threads'), ProgressBar():
     # with dask.config.set(scheduler='single-threaded'):#, ProgressBar():
 
 
@@ -3939,10 +3936,10 @@ def fuse_blockwise(fn,
         # pdb.set_trace()
     # result = result[:,-300:-250,:]
     # result = result[50:51,50:51,50:51]
-    #     result = result[50:51,50:51,50:51].compute()
+    #     result = result[400:401,-300:-299,400:401].compute()
     #     result = result[50,50:51,50:51].compute()
-    #     result = result[:,-300:-200,:].compute()
-        result = result.compute()
+    #     result = result[:,-300:-250,:].compute()
+    #     result = result.compute()
 
         result = ImageArray(result,
                             spacing=stack_properties['spacing'],
@@ -4057,6 +4054,8 @@ def fuse_block(tviews_block,weights,params,stack_properties,orig_stack_propertie
     print('max_vals')
 
     inds = np.where(max_vals>0)[0]
+
+    # pdb.set_trace()
 
     # abort in trivial case
     if len(inds) == 0:
@@ -5474,83 +5473,195 @@ def blur_view_in_view_space(view,
     return o
 
 
-def blur_view_in_target_space(view,
-              p,
-              orig_properties_unused,
-              stack_properties,
-              sz,
-              sxy,
-              ):
-    """
+# def blur_view_in_target_space(view,
+#               p,
+#               orig_properties_unused,
+#               stack_properties,
+#               sz,
+#               sxy,
+#               ):
+#     """
+#
+#     :param view: in target space
+#     :param p: normal view p
+#     :param stack_properties:
+#     :param sz:
+#     :param sxy:
+#     :return:
+#     """
+#
+#     if not sz and not sxy:
+#         print('not blurring because of zero sigmas')
+#         return view
+#
+#     # print('blur view..')
+#
+#     # construct psf with shape containing kernel radius three times
+#     psf_shape = (np.array([np.max([1,np.max([sz,sxy,sxy])*3])]) / stack_properties['spacing']).astype(np.int64)
+#     ## make shape odd
+#     psf_shape = np.array([ps+[1,0][int(ps%2)] for ps in psf_shape]).astype(np.int64)
+#     # print('psf with sigma %s has shape %s' %([sxy,sxy,sz],list(psf_shape)))
+#     psf_orig = np.zeros(psf_shape,dtype=np.float32)
+#     psf_orig[psf_shape[0]//2,psf_shape[1]//2,psf_shape[2]//2]     = 1
+#
+#     ## blur
+#     psf_orig = ndimage.gaussian_filter(psf_orig,np.array([sz,sxy,sxy])/stack_properties['spacing'])
+#     ## assign metadata
+#     psf_orig = ImageArray(psf_orig)
+#     psf_orig.spacing = stack_properties['spacing']
+#     psf_orig.origin = -stack_properties['spacing']*(psf_shape//2)
+#     # psf_orig_sitk = image_to_sitk(psf_orig)
+#
+#     psf_stack_properties = dict()
+#     psf_stack_properties['spacing'] = stack_properties['spacing']
+#     psf_stack_properties['origin']  = psf_orig.origin
+#     # psf_stack_properties['origin']  = np.zeros(3)
+#     psf_stack_properties['size']    = psf_shape
+#
+#     # print(psf_orig.get_info())
+#     # print(psf_stack_properties)
+#
+#     # eliminate translation component from parameters
+#     tmpp = np.copy(p)
+#     tmpp[-3:] = 0
+#
+#     psf_target = transform_stack_sitk(psf_orig, tmpp,
+#                                 out_origin=psf_stack_properties['origin'],
+#                                 out_shape=psf_stack_properties['size'],
+#                                 out_spacing=psf_stack_properties['spacing'],
+#                                 interp='linear')
+#
+#     # normalise
+#     psf_target = psf_target / np.sum(psf_target)
+#     psf_target = psf_target.astype(np.float32)
+#
+#     psf_target = image_to_sitk(psf_target)
+#     # conv = sitk.Convolution(sitk.Cast(view,sitk.sitkFloat32),psf_target)
+#     # pdb.set_trace()
+#     conv = sitk.FFTConvolution(sitk.Cast(view,sitk.sitkFloat32),psf_target)
+#
+#     return conv
 
-    :param view: in target space
-    :param p: normal view p
-    :param stack_properties:
-    :param sz:
-    :param sxy:
-    :return:
-    """
+def get_psf(p,
+            stack_properties,
+            sz,
+            sxy):
 
-    if not sz and not sxy:
-        print('not blurring because of zero sigmas')
-        return view
-
-    # print('blur view..')
-
-    # construct psf with shape containing kernel radius three times
-    psf_shape = (np.array([np.max([1,np.max([sz,sxy,sxy])*3])]) / stack_properties['spacing']).astype(np.int64)
+    psf_shape=(np.array([np.max([1, np.max([sz, sxy, sxy]) * 3])]) / stack_properties['spacing']).astype(np.int64)
     ## make shape odd
-    psf_shape = np.array([ps+[1,0][int(ps%2)] for ps in psf_shape]).astype(np.int64)
+    psf_shape = np.array([ps + [1, 0][int(ps % 2)] for ps in psf_shape]).astype(np.int64)
+
+
     # print('psf with sigma %s has shape %s' %([sxy,sxy,sz],list(psf_shape)))
-    psf_orig = np.zeros(psf_shape,dtype=np.float32)
-    psf_orig[psf_shape[0]//2,psf_shape[1]//2,psf_shape[2]//2]     = 1
+    psf_orig = np.zeros(psf_shape, dtype=np.float32)
+    psf_orig[psf_shape[0] // 2, psf_shape[1] // 2, psf_shape[2] // 2] = 1
 
     ## blur
-    psf_orig = ndimage.gaussian_filter(psf_orig,np.array([sz,sxy,sxy])/stack_properties['spacing'])
+    psf_orig = ndimage.gaussian_filter(psf_orig, np.array([sz, sxy, sxy]) / stack_properties['spacing'])
     ## assign metadata
     psf_orig = ImageArray(psf_orig)
     psf_orig.spacing = stack_properties['spacing']
-    psf_orig.origin = -stack_properties['spacing']*(psf_shape//2)
+    psf_orig.origin = -stack_properties['spacing'] * (psf_shape // 2)
     # psf_orig_sitk = image_to_sitk(psf_orig)
 
     psf_stack_properties = dict()
     psf_stack_properties['spacing'] = stack_properties['spacing']
-    psf_stack_properties['origin']  = psf_orig.origin
+    psf_stack_properties['origin'] = psf_orig.origin
     # psf_stack_properties['origin']  = np.zeros(3)
-    psf_stack_properties['size']    = psf_shape
-
-    # print(psf_orig.get_info())
-    # print(psf_stack_properties)
+    psf_stack_properties['size'] = psf_shape
 
     # eliminate translation component from parameters
     tmpp = np.copy(p)
     tmpp[-3:] = 0
 
     psf_target = transform_stack_sitk(psf_orig, tmpp,
-                                out_origin=psf_stack_properties['origin'],
-                                out_shape=psf_stack_properties['size'],
-                                out_spacing=psf_stack_properties['spacing'],
-                                interp='linear')
+                                      out_origin=psf_stack_properties['origin'],
+                                      out_shape=psf_stack_properties['size'],
+                                      out_spacing=psf_stack_properties['spacing'],
+                                      interp='linear')
 
     # normalise
     psf_target = psf_target / np.sum(psf_target)
     psf_target = psf_target.astype(np.float32)
 
-    psf_target = image_to_sitk(psf_target)
-    # conv = sitk.Convolution(sitk.Cast(view,sitk.sitkFloat32),psf_target)
-    # pdb.set_trace()
-    conv = sitk.FFTConvolution(sitk.Cast(view,sitk.sitkFloat32),psf_target)
+    return psf_target
 
-    return conv
 
-def density_to_multiview_data(
+# def density_to_multiview_data(
+#                               density,
+#                               params,
+#                               orig_prop_list,
+#                               stack_properties,
+#                               sz,
+#                               sxy,
+#                               blur_func,
+#                               ):
+#     """
+#     Takes a 3D image input, returns a stack of multiview data
+#     adapted from https://code.google.com/archive/p/iterative-fusion/
+#     """
+#
+#     """
+#     Simulate the imaging process by applying multiple blurs
+#     """
+#     out = []
+#     for ip,p in enumerate(params):
+#         # print('gauss dm %s' %ip)
+#         # o = sitk.SmoothingRecursiveGaussian(density,sigmas[ip])
+#         o = blur_func(density,p,orig_prop_list[ip],stack_properties,sz,sxy)
+#         o = sitk.Cast(o, sitk.sitkFloat32)
+#         out.append(o)
+#     return out
+
+# def multiview_data_to_density(
+#                               multiview_data,
+#                               params,
+#                               orig_prop_list,
+#                               stack_properties,
+#                               sz,
+#                               sxy,
+#                               weights,
+#                               blur_func,
+#                               ):
+#     """
+#     The transpose of the density_to_multiview_data operation we perform above.
+#     adapted from https://code.google.com/archive/p/iterative-fusion/
+#
+#     - multiply with DCT weights here
+#     """
+#
+#     density = multiview_data[0]*0.
+#     density = sitk.Cast(density,sitk.sitkFloat32)
+#     # outs = multiview_data[0]*0.
+#     # outs = sitk.Cast(outs,sitk.sitkUInt16)
+#     for ip,p in enumerate(params):
+#         # print('gauss md %s' %ip)
+#         o = multiview_data[ip]
+#         # o = sitk.SmoothingRecursiveGaussian(multiview_data[ip],sigmas[ip])
+#
+#         # smooth and resample in original view
+#         o = blur_func(o,p,orig_prop_list[ip],stack_properties,sz,sxy)
+#
+#         o = sitk.Cast(o,sitk.sitkFloat32)
+#
+#         if weights is not None:
+#             o = o*weights[ip]
+#
+#         density += o
+#
+#     density = sitk.Cast(density,sitk.sitkFloat32)
+#     return density
+
+from scipy.signal import fftconvolve
+def blur_with_psf(im,psf):
+    return fftconvolve(im,psf, mode='same')
+
+def density_to_multiview_data_np(
                               density,
-                              params,
-                              orig_prop_list,
-                              stack_properties,
+                              psfs,
                               sz,
                               sxy,
-                              blur_func,
+                              # blur_func,
                               ):
     """
     Takes a 3D image input, returns a stack of multiview data
@@ -5561,23 +5672,19 @@ def density_to_multiview_data(
     Simulate the imaging process by applying multiple blurs
     """
     out = []
-    for ip,p in enumerate(params):
-        # print('gauss dm %s' %ip)
-        # o = sitk.SmoothingRecursiveGaussian(density,sigmas[ip])
-        o = blur_func(density,p,orig_prop_list[ip],stack_properties,sz,sxy)
-        o = sitk.Cast(o, sitk.sitkFloat32)
+    for ip,p in enumerate(psfs):
+        # o = blur_func(density,p,orig_prop_list[ip],stack_properties,sz,sxy)
+        o = blur_with_psf(density, psfs[ip])
         out.append(o)
-    return out
+    return np.array(out)
 
-def multiview_data_to_density(
+def multiview_data_to_density_np(
                               multiview_data,
-                              params,
-                              orig_prop_list,
-                              stack_properties,
+                              psfs,
                               sz,
                               sxy,
                               weights,
-                              blur_func,
+                              # blur_func,
                               ):
     """
     The transpose of the density_to_multiview_data operation we perform above.
@@ -5587,25 +5694,15 @@ def multiview_data_to_density(
     """
 
     density = multiview_data[0]*0.
-    density = sitk.Cast(density,sitk.sitkFloat32)
-    # outs = multiview_data[0]*0.
-    # outs = sitk.Cast(outs,sitk.sitkUInt16)
-    for ip,p in enumerate(params):
-        # print('gauss md %s' %ip)
-        o = multiview_data[ip]
-        # o = sitk.SmoothingRecursiveGaussian(multiview_data[ip],sigmas[ip])
+    for ip,p in enumerate(psfs):
 
-        # smooth and resample in original view
-        o = blur_func(o,p,orig_prop_list[ip],stack_properties,sz,sxy)
-
-        o = sitk.Cast(o,sitk.sitkFloat32)
+        # o = blur_func(multiview_data[ip],p,orig_prop_list[ip],stack_properties,sz,sxy)
+        o = blur_with_psf(multiview_data[ip],psfs[ip])
 
         if weights is not None:
             o = o*weights[ip]
 
         density += o
-
-    density = sitk.Cast(density,sitk.sitkFloat32)
     return density
 
 @io_decorator
@@ -5613,7 +5710,7 @@ def get_image_from_list_of_images(ims,ind):
     return ims[ind]
 
 # @io_decorator
-def fuse_LR_with_weights(
+def fuse_LR_with_weights_np(
         views,
         params,
         stack_properties,
@@ -5622,11 +5719,7 @@ def fuse_LR_with_weights(
         sxy = 0.5,
         tol = 5e-5,
         weights = None,
-        regularisation = False,
-        blur_func = blur_view_in_view_space,
         # orig_prop_list = None,
-        orig_stack_propertiess = None,
-        views_in_target_space = True,
 ):
     """
     Combine
@@ -5676,91 +5769,7 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
     :return:
     """
 
-    # get orig properties
-    # zfactor = float(1)
-
-    if orig_stack_propertiess is None and not views_in_target_space:
-        orig_stack_propertiess = []
-        for ip in range(len(params)):
-            prop_dict = dict()
-            prop_dict['size'] = views[ip].shape
-            prop_dict['origin'] = views[ip].origin
-            prop_dict['spacing'] = views[ip].spacing
-            orig_stack_propertiess.append(prop_dict)
-
-    # weights = weight_func(
-    #                    views,
-    #                    params,
-    #                    stack_properties,
-    #                    **(weight_func_kwargs or {})
-    # )
-
-    # if weight_func == get_weights_dct:
-    #     weights = get_weights_dct(
-    #                        views,
-    #                        params,
-    #                        stack_properties,
-    #                        # size=50,
-    #                        size=None,
-    #                        # max_kernel=10,
-    #                        max_kernel=None,
-    #                        # gaussian_kernel=10)
-    #                        gaussian_kernel=None)
-    # else:
-    #     weights = weight_func(
-    #                        views,
-    #                        params,
-    #                        stack_properties,
-    #     )
-
-    # tmp_fused = fuse_views_weights(views, params, stack_properties, weights = weights)
-
-    weights = list(weights)
-    for iw in range(len(weights)):
-        tmp = sitk.GetImageFromArray(weights[iw])
-        tmp.SetSpacing(stack_properties['spacing'][::-1])
-        tmp.SetOrigin(stack_properties['origin'][::-1])
-        tmp = sitk.Cast(tmp,sitk.sitkFloat32)
-        weights[iw] = tmp
-
-    if not views_in_target_space:
-        nviews = []
-        for iview,view in enumerate(views):
-            tmp = transform_stack_sitk(view,params[iview],
-                                   out_origin=stack_properties['origin'],
-                                   out_shape=stack_properties['size'],
-                                   out_spacing=stack_properties['spacing'])
-
-            # make sure to take only interpolations with full data
-            # tmp_view = ImageArray(views[iview][:-1,:-1,:-1]+1,spacing=views[iview].spacing,origin=views[iview].origin+views[iview].spacing/2.,rotation=views[iview].rotation)
-
-            # tmp_view = ImageArray(views[iview][:-1,:-1,:-1]+1,spacing=views[iview].spacing,origin=views[iview].origin+views[iview].spacing/2.,rotation=views[iview].rotation)
-            # mask = transform_stack_sitk(tmp_view,params[iview],
-            #                        out_origin=stack_properties['origin'],
-            #                        out_shape=stack_properties['size'],
-            #                        out_spacing=stack_properties['spacing'],
-            #                         interp='nearest')
-            # # tmp[tmp==0] = 10
-            # mask = mask > 0
-            # nviews.append(tmp*(mask))
-
-            nviews.append(tmp)
-            # masks.append(mask)
-        views = nviews
-
-    # convert to sitk images
-    # views_sitk = []
-    for ip,p in enumerate(params):
-        tmp = sitk.GetImageFromArray(views[ip])
-        tmp = sitk.Cast(tmp,sitk.sitkFloat32)
-        tmp.SetSpacing(views[ip].spacing[::-1])
-        tmp.SetOrigin(views[ip].origin[::-1])
-        # debug crop
-        # tmp = tmp[:,500:550,:]
-        views[ip] = tmp
-        # views_sitk.append(tmp)
-
-    # views = views_sitk
+    psfs =  np.array([get_psf(params[ip], stack_properties, sz, sxy) for ip in range(len(params))])
 
     noisy_multiview_data = views
 
@@ -5768,38 +5777,11 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
     Time for deconvolution!!!
     """
 
-    def calc_imsum(im):
-        tmp = sitk.Abs(im)
-        for d in range(3):
-            tmp = sitk.SumProjection(tmp, d)  # [0]
-        return tmp[0, 0, 0]
-    # estimate = sitk.Image(
-    #     int(stack_properties['size'][2]),
-    #     int(stack_properties['size'][1]),
-    #     int(stack_properties['size'][0]),
-    #     sitk.sitkFloat32,
-    # )
-    # estimate *= 0.
-    # estimate += 1.
-    print('WARNING: Initialising with fused views')
-    estimate = weights[0]*views[0]
-    for i in range(1,len(params)):
-        estimate += weights[i]*views[i]
-    estimate = sitk.Cast(estimate,sitk.sitkFloat32)
+    estimate = np.sum([weights[i]*views[i] for i in range(len(params))],0).astype(np.float32)
 
-    estimate.SetSpacing(stack_properties['spacing'][::-1])
-    estimate.SetOrigin(stack_properties['origin'][::-1])
+    curr_imsum = np.sum(estimate)
 
-    # return sitk_to_image(estimate),tmp_fused
-
-    # estimate = np.ones(views[0].shape, dtype=np.float64)
-    # expected_data = np.zeros_like(noisy_multiview_data)
-    # correction_factor = np.zeros_like(estimate)
-    # history = np.zeros(((1+num_iterations,) + estimate.shape), dtype=np.float64)
-    # history[0, :, :, :] = estimate
-    # for i in range(num_iterations):
-
-    curr_imsum = calc_imsum(estimate)
+    masks = np.array([weights[ip]>0 for ip in range(len(params))])
 
     i = 0
     while 1:
@@ -5808,60 +5790,54 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
         """
         Construct the expected data from the estimate
         """
-        # print("Constructing estimated data...")
-        # print('WARNING: saving each iteration')
-        # sitk.WriteImage(sitk.Cast(estimate,sitk.sitkUInt16),'/data/malbert/regtest/ills/ills_gw_reg2_fus1/iter%03d.mhd' %i)
 
-        expected_data = density_to_multiview_data(
+        expected_data = density_to_multiview_data_np(
               estimate,
-              params,
-              orig_stack_propertiess,
-              stack_properties,
+              psfs,
               sz,
               sxy,
-              blur_func,
         )
-        # multiview_data_to_visualization(expected_data, outfile='expected_data.tif')
         "Done constructing."
         """
         Take the ratio between the measured data and the expected data.
         Store this ratio in 'expected_data'
         """
-        for ip in range(len(params)):
-            expected_data[ip] += 1e-6 #Don't want to divide by 0!
-        expected_data = [sitk.Cast(noisy_multiview_data[ip] / expected_data[ip],sitk.sitkFloat32) for ip in range(len(params))]
+        expected_data = noisy_multiview_data / (expected_data + 1e-6)
+
+        # for ip in range(len(params)):
+        #     expected_data[ip] += 1e-6 #Don't want to divide by 0!
+        # expected_data = [sitk.Cast(noisy_multiview_data[ip] / expected_data[ip],sitk.sitkFloat32) for ip in range(len(params))]
 
         # multiply with mask to reduce border artifacts
-        for ip in range(len(params)):
-            expected_data[ip] = expected_data[ip] * sitk.Cast(weights[ip]>0,sitk.sitkFloat32)
+
+        expected_data *= masks
+
+        # for ip in range(len(params)):
+        #     expected_data[ip] = expected_data[ip] * sitk.Cast(weights[ip]>0,sitk.sitkFloat32)
         """
         Apply the transpose of the expected data operation to the correction factor
         """
-        correction_factor = multiview_data_to_density(
+        correction_factor = multiview_data_to_density_np(
             expected_data,
-            params,
-            orig_stack_propertiess,
-            stack_properties,
+            psfs,
             sz,
             sxy,
             weights,
-            blur_func,
         )#, out=correction_factor)
 
         """
         Multiply the old estimate by the correction factor to get the new estimate
         """
-        if regularisation:
-            print('WARNING: regularising')
-            correction_factor = sitk.Cast(correction_factor / get_LR_regularisation(estimate,len(params)), sitk.sitkFloat32)
 
         estimate = estimate * correction_factor
 
-        estimate = estimate * sitk.Cast(estimate<2**16,sitk.sitkFloat32)
-        estimate = estimate * sitk.Cast(estimate>0,    sitk.sitkFloat32)
+        estimate = np.clip(estimate,0,2**16-1)
+
+        # estimate = estimate * sitk.Cast(estimate<2**16,sitk.sitkFloat32)
+        # estimate = estimate * sitk.Cast(estimate>0,    sitk.sitkFloat32)
 
         # if num_iterations < 1:
-        new_imsum = calc_imsum(estimate)
+        new_imsum = np.sum(estimate)
         conv = np.abs(1-new_imsum/curr_imsum)
         print('convergence: %s' %conv)
 
@@ -5876,9 +5852,277 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
         """
     print("Done deconvolving")
 
-    estimate = ImageArray(sitk.GetArrayFromImage(estimate).astype(np.uint16),spacing=np.array(estimate.GetSpacing())[::-1],origin=np.array(estimate.GetOrigin())[::-1])
+    estimate = ImageArray(estimate.astype(np.uint16),spacing=stack_properties['spacing'],origin=stack_properties['origin'])
 
     return estimate
+
+# # @io_decorator
+# def fuse_LR_with_weights(
+#         views,
+#         params,
+#         stack_properties,
+#         num_iterations = 25,
+#         sz = 4,
+#         sxy = 0.5,
+#         tol = 5e-5,
+#         weights = None,
+#         regularisation = False,
+#         blur_func = blur_view_in_view_space,
+#         # orig_prop_list = None,
+#         orig_stack_propertiess = None,
+#         views_in_target_space = True,
+# ):
+#     """
+#     Combine
+#     - LR multiview fusion
+#       (adapted from python code given in https://code.google.com/archive/p/iterative-fusion/
+#        from publication https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3986040/)
+#     - DCT weights
+#
+#     This addresses the problems that
+#     1) multi-view deconvolution is highly dependent on high precision registration
+#     between views. However, an affine transformation is often not enough due to
+#     optical aberrations and results in poor overlap.
+#     2) due to scattering, the psf strongly varies within each view
+#
+#     In the case of highly scattering samples, FFT+elastix typically results in good
+#     registration accuracy in regions of good image quality (those with small psfs
+#     and short optical paths through the sample). These regions are found using a DCT
+#     quality measure and weighted accordingly. Therefore, to reduce the contribution
+#     to multi-view LR of unwanted regions in the individual views, the weights are
+#     applied in each iteration during convolution with the psf.
+#
+#     Adaptations and details:
+#     - convolve views in original space
+#      - recapitulates imaging process and trivially deals with view parameters
+#      - allows for iterative raw data reconstruction without deconvolution
+#      - disadvantage: slow in current implementation
+#     - apply DCT weights in each blurring iteration to account for strong scattering
+#     - simulate convolution by psf with gaussian blurring
+#     - TV regularisation not working yet, to be optimised (Multiview Deblurring for 3-D Images from
+# Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/6112225)
+#
+#     Interesting case: sz,sxy=0
+#     - formally no deconvolution but iterative multi-view raw data reconstruction
+#
+#     works well:
+#     - sz6 it 10, some rings
+#     - sz5 it 20, looks good (good compromise between sz and its)
+#     - sz4 it 30, good and no rings
+#
+#     :param views: original views
+#     :param params: parameters mapping views into target space
+#     :param stack_properties: properties of target space
+#     :param num_iterations: max number of deconvolution iterations
+#     :param sz: sigma z
+#     :param sxy: sigma xy
+#     :param tol: convergence threshold
+#     :return:
+#     """
+#
+#     # get orig properties
+#     # zfactor = float(1)
+#
+#     if orig_stack_propertiess is None and not views_in_target_space:
+#         orig_stack_propertiess = []
+#         for ip in range(len(params)):
+#             prop_dict = dict()
+#             prop_dict['size'] = views[ip].shape
+#             prop_dict['origin'] = views[ip].origin
+#             prop_dict['spacing'] = views[ip].spacing
+#             orig_stack_propertiess.append(prop_dict)
+#
+#     # weights = weight_func(
+#     #                    views,
+#     #                    params,
+#     #                    stack_properties,
+#     #                    **(weight_func_kwargs or {})
+#     # )
+#
+#     # if weight_func == get_weights_dct:
+#     #     weights = get_weights_dct(
+#     #                        views,
+#     #                        params,
+#     #                        stack_properties,
+#     #                        # size=50,
+#     #                        size=None,
+#     #                        # max_kernel=10,
+#     #                        max_kernel=None,
+#     #                        # gaussian_kernel=10)
+#     #                        gaussian_kernel=None)
+#     # else:
+#     #     weights = weight_func(
+#     #                        views,
+#     #                        params,
+#     #                        stack_properties,
+#     #     )
+#
+#     # tmp_fused = fuse_views_weights(views, params, stack_properties, weights = weights)
+#
+#     weights = list(weights)
+#     for iw in range(len(weights)):
+#         tmp = sitk.GetImageFromArray(weights[iw])
+#         tmp.SetSpacing(stack_properties['spacing'][::-1])
+#         tmp.SetOrigin(stack_properties['origin'][::-1])
+#         tmp = sitk.Cast(tmp,sitk.sitkFloat32)
+#         weights[iw] = tmp
+#
+#     if not views_in_target_space:
+#         nviews = []
+#         for iview,view in enumerate(views):
+#             tmp = transform_stack_sitk(view,params[iview],
+#                                    out_origin=stack_properties['origin'],
+#                                    out_shape=stack_properties['size'],
+#                                    out_spacing=stack_properties['spacing'])
+#
+#             # make sure to take only interpolations with full data
+#             # tmp_view = ImageArray(views[iview][:-1,:-1,:-1]+1,spacing=views[iview].spacing,origin=views[iview].origin+views[iview].spacing/2.,rotation=views[iview].rotation)
+#
+#             # tmp_view = ImageArray(views[iview][:-1,:-1,:-1]+1,spacing=views[iview].spacing,origin=views[iview].origin+views[iview].spacing/2.,rotation=views[iview].rotation)
+#             # mask = transform_stack_sitk(tmp_view,params[iview],
+#             #                        out_origin=stack_properties['origin'],
+#             #                        out_shape=stack_properties['size'],
+#             #                        out_spacing=stack_properties['spacing'],
+#             #                         interp='nearest')
+#             # # tmp[tmp==0] = 10
+#             # mask = mask > 0
+#             # nviews.append(tmp*(mask))
+#
+#             nviews.append(tmp)
+#             # masks.append(mask)
+#         views = nviews
+#
+#     # convert to sitk images
+#     # views_sitk = []
+#     for ip,p in enumerate(params):
+#         tmp = sitk.GetImageFromArray(views[ip])
+#         tmp = sitk.Cast(tmp,sitk.sitkFloat32)
+#         tmp.SetSpacing(views[ip].spacing[::-1])
+#         tmp.SetOrigin(views[ip].origin[::-1])
+#         # debug crop
+#         # tmp = tmp[:,500:550,:]
+#         views[ip] = tmp
+#         # views_sitk.append(tmp)
+#
+#     # views = views_sitk
+#
+#     noisy_multiview_data = views
+#
+#     """
+#     Time for deconvolution!!!
+#     """
+#
+#     def calc_imsum(im):
+#         tmp = sitk.Abs(im)
+#         for d in range(3):
+#             tmp = sitk.SumProjection(tmp, d)  # [0]
+#         return tmp[0, 0, 0]
+#     # estimate = sitk.Image(
+#     #     int(stack_properties['size'][2]),
+#     #     int(stack_properties['size'][1]),
+#     #     int(stack_properties['size'][0]),
+#     #     sitk.sitkFloat32,
+#     # )
+#     # estimate *= 0.
+#     # estimate += 1.
+#     print('WARNING: Initialising with fused views')
+#     estimate = weights[0]*views[0]
+#     for i in range(1,len(params)):
+#         estimate += weights[i]*views[i]
+#     estimate = sitk.Cast(estimate,sitk.sitkFloat32)
+#
+#     estimate.SetSpacing(stack_properties['spacing'][::-1])
+#     estimate.SetOrigin(stack_properties['origin'][::-1])
+#
+#     # return sitk_to_image(estimate),tmp_fused
+#
+#     # estimate = np.ones(views[0].shape, dtype=np.float64)
+#     # expected_data = np.zeros_like(noisy_multiview_data)
+#     # correction_factor = np.zeros_like(estimate)
+#     # history = np.zeros(((1+num_iterations,) + estimate.shape), dtype=np.float64)
+#     # history[0, :, :, :] = estimate
+#     # for i in range(num_iterations):
+#
+#     curr_imsum = calc_imsum(estimate)
+#
+#     i = 0
+#     while 1:
+#         print("Iteration", i)
+#
+#         """
+#         Construct the expected data from the estimate
+#         """
+#         # print("Constructing estimated data...")
+#         # print('WARNING: saving each iteration')
+#         # sitk.WriteImage(sitk.Cast(estimate,sitk.sitkUInt16),'/data/malbert/regtest/ills/ills_gw_reg2_fus1/iter%03d.mhd' %i)
+#
+#         expected_data = density_to_multiview_data(
+#               estimate,
+#               params,
+#               orig_stack_propertiess,
+#               stack_properties,
+#               sz,
+#               sxy,
+#               blur_func,
+#         )
+#         # multiview_data_to_visualization(expected_data, outfile='expected_data.tif')
+#         "Done constructing."
+#         """
+#         Take the ratio between the measured data and the expected data.
+#         Store this ratio in 'expected_data'
+#         """
+#         for ip in range(len(params)):
+#             expected_data[ip] += 1e-6 #Don't want to divide by 0!
+#         expected_data = [sitk.Cast(noisy_multiview_data[ip] / expected_data[ip],sitk.sitkFloat32) for ip in range(len(params))]
+#
+#         # multiply with mask to reduce border artifacts
+#         for ip in range(len(params)):
+#             expected_data[ip] = expected_data[ip] * sitk.Cast(weights[ip]>0,sitk.sitkFloat32)
+#         """
+#         Apply the transpose of the expected data operation to the correction factor
+#         """
+#         correction_factor = multiview_data_to_density(
+#             expected_data,
+#             params,
+#             orig_stack_propertiess,
+#             stack_properties,
+#             sz,
+#             sxy,
+#             weights,
+#             blur_func,
+#         )#, out=correction_factor)
+#
+#         """
+#         Multiply the old estimate by the correction factor to get the new estimate
+#         """
+#         if regularisation:
+#             print('WARNING: regularising')
+#             correction_factor = sitk.Cast(correction_factor / get_LR_regularisation(estimate,len(params)), sitk.sitkFloat32)
+#
+#         estimate = estimate * correction_factor
+#
+#         estimate = estimate * sitk.Cast(estimate<2**16,sitk.sitkFloat32)
+#         estimate = estimate * sitk.Cast(estimate>0,    sitk.sitkFloat32)
+#
+#         # if num_iterations < 1:
+#         new_imsum = calc_imsum(estimate)
+#         conv = np.abs(1-new_imsum/curr_imsum)
+#         print('convergence: %s' %conv)
+#
+#         if conv < tol and i>=10: break
+#         if i >= num_iterations-1: break
+#
+#         curr_imsum = new_imsum
+#         i += 1
+#
+#         """
+#         Update the history
+#         """
+#     print("Done deconvolving")
+#
+#     estimate = ImageArray(sitk.GetArrayFromImage(estimate).astype(np.uint16),spacing=np.array(estimate.GetSpacing())[::-1],origin=np.array(estimate.GetOrigin())[::-1])
+#
+#     return estimate
 
 # @io_decorator
 # def fuse_LR_with_weights_dct(

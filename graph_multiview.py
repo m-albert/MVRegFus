@@ -216,10 +216,10 @@ def build_multiview_graph(
         print("No groupwise registration because SimpleElastix is not available")
         simple_elastix_available = False
 
-    print('Not using groupwise registration for the moment')
-    # print('Using groupwise registration!')
-    simple_elastix_available = False
-    # simple_elastix_available = True
+    # print('Not using groupwise registration for the moment')
+    print('Using groupwise registration!')
+    # simple_elastix_available = False
+    simple_elastix_available = True
 
     if simple_elastix_available and len(all_views) >= 4:  # restiction given by current elastix groupwise registration implementatin
         graph[fusion_params_label % (ds, sample)] = (
@@ -357,14 +357,15 @@ def build_multiview_graph(
 
         if fusion_method == 'LR':
 
-            fusion_func = dipy_multiview.fuse_LR_with_weights
+            # fusion_func = dipy_multiview.fuse_LR_with_weights
+            fusion_func = dipy_multiview.fuse_LR_with_weights_np
 
             fusion_kwargs = {
                 'num_iterations': LR_niter,
                 'sz': LR_sigma_z,
                 'sxy': LR_sigma_xy,
                 'tol': LR_tol,
-                'blur_func': dipy_multiview.blur_view_in_target_space,
+                # 'blur_func': dipy_multiview.blur_view_in_target_space,
             }
 
             fusion_block_overlap = np.max([fusion_block_overlap,
