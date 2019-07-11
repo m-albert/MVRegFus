@@ -282,7 +282,8 @@ def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,
         stack0 = np.array(stack[0:stack.shape[0]:illuminations]).astype(np.uint16)
         stack1 = np.array(stack[1:stack.shape[0]:illuminations]).astype(np.uint16)
 
-        stack = illumination_fusion([stack0,stack1],2)#,background_level+20)
+        # stack = illumination_fusion([stack0,stack1],2)#,background_level+20)
+        stack = illumination_fusion_planewise([stack0,stack1],2)#,background_level+20)
 
     else:
         stack = czifile.CziFile(filepath).asarray_random_access(view=view, ch=ch, ill=ill).squeeze()
@@ -321,7 +322,68 @@ def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,
 
     return stack
 
-def illumination_fusion(stack, fusion_axis=2):#, sample_intensity=220):
+# def illumination_fusion(stack, fusion_axis=2):#, sample_intensity=220):
+#
+#     """
+#
+#     segment sample: seg = mean(stack,0) > sample_intensity
+#
+#     - divide mask into left and right
+#     - smooth
+#
+#     good stacks for testing:
+#
+#     x,y,z = np.mgrid[:100,:101,:102]
+#     s0 = np.abs(np.sin((y-50+z-50+x-50)/100.*np.pi)*1) * np.abs(np.sin(y/50.*np.pi)*1) * np.sin(z/100.*np.pi)*100 + 200# + np.sin(z/5.*np.pi)*5
+#     s1 = s0 + np.sin(z/5.*np.pi)*5
+#
+#     :param stack:
+#     :param fusion_axis:
+#     :param sample_intensity:
+#     :return:
+#     """
+#
+#     # print('fusing illuminations assuming:\nsample intensity (incl. background): %s\nfusion axis: %s' %(sample_intensity,fusion_axis))
+#     print('fusing illuminations assuming fusion axis: %s' %(fusion_axis))
+#
+#     stack = np.array(stack)
+#
+#     # mask
+#     # mask = np.sum(stack,0)>(sample_intensity*2)
+#     mask = np.sum(stack,0)-stack.min()
+#
+#     mask = np.log(mask)
+#
+#     mask = (mask - mask.min())/(mask.max()-mask.min())
+#
+#     # pixels along fusion axis
+#     total = np.sum(mask,fusion_axis)
+#
+#     mask[total == 0] = True
+#
+#     total[total==0] = mask.shape[fusion_axis]
+#     # total[total==0] = (mask.shape[fusion_axis]*(mask.shape[fusion_axis]+1))/2./2.
+#
+#     print(mask.shape)
+#
+#     # pixel count from left
+#     cumsum = np.cumsum(mask,fusion_axis)
+#
+#     # right_weight = cumsum > total/2.
+#     right_weight = (cumsum.T > total.T/2.).T
+#     # right_weight = (cumsum.T > np.sum(cumsum,fusion_axis).T/2.).T
+#
+#     kernel = np.array(mask.shape)/100*2.
+#     right_weight = ndimage.gaussian_filter(right_weight.astype(np.float32),kernel)
+#
+#     stack = stack[0] * (1-right_weight) + stack[1] * right_weight
+#
+#     stack = stack.astype(np.uint16)
+#
+#     return stack, (1-right_weight), right_weight, mask, cumsum
+#     # return stack
+
+def illumination_fusion_planewise(stack, fusion_axis=2):#, sample_intensity=220):
 
     """
 
@@ -342,44 +404,59 @@ def illumination_fusion(stack, fusion_axis=2):#, sample_intensity=220):
     :return:
     """
 
-    # print('fusing illuminations assuming:\nsample intensity (incl. background): %s\nfusion axis: %s' %(sample_intensity,fusion_axis))
-    print('fusing illuminations assuming fusion axis: %s' %(fusion_axis))
+    print('fusing illuminations planewise')
 
     stack = np.array(stack)
 
-    # mask
-    # mask = np.sum(stack,0)>(sample_intensity*2)
-    mask = np.sum(stack,0)-stack.min()
+    # stack = np.moveaxis(stack,fusion_axis,-1)
 
-    mask = np.log(mask)
+    stack = da.from_array(stack,chunks = (2,1,stack.shape[-2],stack.shape[-1]))
+    print(stack.shape)
+    # pdb.set_trace()
 
-    mask = (mask - mask.min())/(mask.max()-mask.min())
+    def fuse_planes(planes):
 
-    # pixels along fusion axis
-    total = np.sum(mask,fusion_axis)
+        planes = planes.squeeze()
 
-    mask[total == 0] = True
+        # pdb.set_trace()
 
-    total[total==0] = mask.shape[fusion_axis]
-    # total[total==0] = (mask.shape[fusion_axis]*(mask.shape[fusion_axis]+1))/2./2.
+        # mask
+        # mask = np.sum(stack,0)>(sample_intensity*2)
+        mask = np.sum(planes,0)-planes.min()
 
-    print(mask.shape)
+        mask = np.log(mask)
 
-    # pixel count from left
-    cumsum = np.cumsum(mask,fusion_axis)
+        mask = (mask - mask.min())/(mask.max()-mask.min())
 
-    # right_weight = cumsum > total/2.
-    right_weight = (cumsum.T > total.T/2.).T
-    # right_weight = (cumsum.T > np.sum(cumsum,fusion_axis).T/2.).T
+        # pixels along fusion axis
+        total = np.sum(mask,fusion_axis-1)
 
-    kernel = np.array(mask.shape)/100*2.
-    right_weight = ndimage.gaussian_filter(right_weight.astype(np.float32),kernel)
+        mask[total == 0] = True
 
-    stack = stack[0] * (1-right_weight) + stack[1] * right_weight
+        total[total==0] = mask.shape[fusion_axis-1]
+        # total[total==0] = (mask.shape[fusion_axis]*(mask.shape[fusion_axis]+1))/2./2.
 
-    stack = stack.astype(np.uint16)
+        print(mask.shape)
 
-    return stack, (1-right_weight), right_weight, mask, cumsum
+        # pixel count from left
+        cumsum = np.cumsum(mask,fusion_axis-1)
+
+        # right_weight = cumsum > total/2.
+        right_weight = (cumsum.T > total.T/2.).T
+        # right_weight = (cumsum.T > np.sum(cumsum,fusion_axis).T/2.).T
+
+        kernel = np.array(mask.shape)/100*2.
+        right_weight = ndimage.gaussian_filter(right_weight.astype(np.float32),kernel)
+
+        planes = planes[0] * (1-right_weight) + planes[1] * right_weight
+
+        planes = planes.astype(np.uint16)[None,:,:]
+
+        return planes
+
+    stack = stack.map_blocks(fuse_planes,drop_axis=0,dtype=np.uint16).compute(scheduler='threads')
+
+    return stack#, (1-right_weight), right_weight, mask, cumsum
     # return stack
 
 # import dask_image.ndfilters
