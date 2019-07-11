@@ -3926,10 +3926,10 @@ def fuse_blockwise(fn,
     # client = Client(lc)
     # print(lc.dashboard_link)
 
-    with dask.config.set(scheduler='single-threaded'):
+    # with dask.config.set(scheduler='single-threaded'):
 
     # with dask.config.set(scheduler='processes'), ProgressBar():
-    # with dask.config.set(scheduler='threads'), ProgressBar():
+    with dask.config.set(scheduler='threads'), ProgressBar():
     # with dask.config.set(scheduler='single-threaded'):#, ProgressBar():
 
 
@@ -3941,8 +3941,8 @@ def fuse_blockwise(fn,
     # result = result[50:51,50:51,50:51]
     #     result = result[50:51,50:51,50:51].compute()
     #     result = result[50,50:51,50:51].compute()
-        result = result[:,-300:-200,:].compute()
-    #     result = result.compute()
+    #     result = result[:,-300:-200,:].compute()
+        result = result.compute()
 
         result = ImageArray(result,
                             spacing=stack_properties['spacing'],
