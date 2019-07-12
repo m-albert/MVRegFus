@@ -4205,9 +4205,11 @@ def get_weights_dct_dask(tviews,
                          size=None,
                          max_kernel=None,
                          gaussian_kernel=None,
-                         how_many_best_views=1,
+                         how_many_best_views=2,
                          cumulative_weight_best_views=0.9,
                          ):
+
+    print(orig_stack_propertiess)
 
     # assumes dask array with chunks 128 and a shape which is a multiple
 
@@ -4258,6 +4260,7 @@ def get_weights_dct_dask(tviews,
     ws = np.array([ndimage.maximum_filter(ws[i],3) for i in range(len(ws))])
     ws = np.array([ndimage.gaussian_filter(ws[i],1) for i in range(len(ws))])
 
+    # ws_small = np.copy(ws)
     # dct_chunks = 2
 
     binned_origin = stack_properties['origin'] + (stack_properties['spacing']*(size*bin_factor - 1)) / 2.
@@ -4321,12 +4324,12 @@ def get_weights_dct_dask(tviews,
 
     # github issue to ask whether it makes sense to combine overlap with rechunk
 
-    def normalise(ws):
-        wssum = np.sum(ws,0)
-        wssum[wssum==0] = 1
-        return ws/wssum
-
-    ws = da.map_blocks(normalise,ws,dtype=np.float32)
+    # def normalise(ws):
+    #     wssum = np.sum(ws,0)
+    #     wssum[wssum==0] = 1
+    #     return ws/wssum
+    #
+    # ws = da.map_blocks(normalise,ws,dtype=np.float32)
 
     # depth = int(max_kernel)//2
     # # depth = 0
@@ -4350,7 +4353,7 @@ def get_weights_dct_dask(tviews,
     #     for i in range(len(views)):
     #         res.append( views[i] > 0)
     #     return np.array(res)
-
+    #
     # mask = da.map_blocks(calc_zero_mask,tviews_binned,dtype=np.float32)
 
     # def apply_mask(view,mask):
@@ -4398,6 +4401,13 @@ def get_weights_dct_dask(tviews,
 
     ws = da.map_blocks(mult_simple_weights_chunk, ws, **simple_weight_kwargs, dtype=np.float32)
 
+    def normalise(ws):
+        wssum = np.sum(ws,0)
+        wssum[wssum==0] = 1
+        res = ws/wssum
+        res[wssum==0] = 0
+        return res
+
     ws = da.map_blocks(normalise, ws,dtype=np.float32)
 
     # ws = ws.rechunk(tviews.chunksize)
@@ -4407,7 +4417,7 @@ def get_weights_dct_dask(tviews,
     # ws = np.array(ws)
 
 
-    return ws
+    return ws#,ws_small
 
 def determine_chunk_quality(vrs,how_many_best_views,cumulative_weight_best_views):
 
