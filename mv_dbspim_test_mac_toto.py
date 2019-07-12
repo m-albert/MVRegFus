@@ -88,15 +88,15 @@ background_level = 200
 mv_registration_bin_factors = np.array([1,1,1])
 
 # final output spacing in um
-mv_final_spacing = np.array([1.]*3)
-# mv_final_spacing = np.array([6.]*3)
+# mv_final_spacing = np.array([1.]*3)
+mv_final_spacing = np.array([6.]*3)
 
 # options for fusion
 # fusion_method
 # 'weighted_average': weighted average of views using the given weights
 # 'LR': Lucy-Richardson multi-view deconvolution
-fusion_method = 'LR'
-#fusion_method = 'weighted_average'
+# fusion_method = 'LR'
+fusion_method = 'weighted_average'
 
 # fusion weights
 # 'blending': uniform weights with blending at the stack borders

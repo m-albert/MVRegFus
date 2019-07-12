@@ -229,7 +229,7 @@ def process_output_element(element,path):
     elif path.endswith('.imagear.h5') and type(element) == ImageArray:
         tmpFile = h5py.File(path)
         tmpFile.clear()
-        chunks = np.min([[64]*3,element.shape],0)
+        chunks = np.min([[128]*3,element.shape],0)
         chunks = tuple(chunks)
         tmpFile.create_dataset("array", data=np.array(element), chunks=chunks, compression="gzip")
         # tmpFile['array'] = np.array(element)
@@ -442,6 +442,18 @@ def io_decorator_distributed(func):
 
     return full_func
 
+def process_graph(graph):
+    new_graph = graph.copy()
+    for key,value in graph.items():
+        if type(value) == tuple:
+            if 'is_io_func' in value[0].__dict__.keys():
+                if is_io_path(value[1]) and os.path.exists(value[1]):
+                    print('using existing %s' %value[1])
+                    new_graph[key] = value[1]
+
+    return new_graph
+
+
 def io_decorator_local(func):
 
     """
@@ -493,6 +505,7 @@ def io_decorator_local(func):
         return result
 
     full_func.orig_name = func.__name__
+    full_func.is_io_func = True
 
     return full_func
 

@@ -557,4 +557,5 @@ def build_multiview_graph(
                                                                     chromatic_correction_params_label %(ds,sample,ref_channel_chrom,ch),
                                                                     )
 
+    graph = io_utils.process_graph(graph)
     return graph
