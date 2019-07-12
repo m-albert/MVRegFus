@@ -4405,7 +4405,7 @@ def get_weights_dct_dask(tviews,
         wssum = np.sum(ws,0)
         wssum[wssum==0] = 1
         res = ws/wssum
-        res[wssum==0] = 0
+        res[:,wssum==0] = 0
         return res
 
     ws = da.map_blocks(normalise, ws,dtype=np.float32)
