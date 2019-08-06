@@ -1464,7 +1464,7 @@ def register_linear(static,moving,t0=None):
     # return params,[0]#metric.metric_evolution
     return params,[metric.metric_evolution,params_evolution]
 
-def transform_stack_sitk(stack,p=None,out_shape=None,out_spacing=None,out_origin=None,interp='interp',stack_properties=None):
+def transform_stack_sitk(stack,p=None,out_shape=None,out_spacing=None,out_origin=None,interp='linear',stack_properties=None):
 
     # print('WARNING: USING BSPLINE INTERPOLATION AS DEFAULT')
     if p is None:
@@ -3759,10 +3759,10 @@ def fuse_blockwise(fn,
                    fusion_kwargs=None,
                    ):
 
-    from distributed import Client
-    client = Client(processes=False)
-    dashboard_link = 'http://localhost:%s' % int(client.cluster.scheduler.service_ports['dashboard'])
-    print(dashboard_link)
+    # from distributed import Client
+    # client = Client(processes=False)
+    # dashboard_link = 'http://localhost:%s' % int(client.cluster.scheduler.service_ports['dashboard'])
+    # print(dashboard_link)
 
     print('fusion block overlap: ', fusion_block_overlap)
 
@@ -3853,19 +3853,20 @@ def fuse_blockwise(fn,
     # from bcolz import carray
     # weights = weights.map_blocks(carray).persist().map_blocks(np.asarray)
 
-    tviews_overlap = da.overlap.overlap(tviews_stack_rechunked,
-                           depth=depth_dict,
-                           # boundary = {0: 'periodic', 1: 'periodic', 2: 'periodic', 3: 'periodic'})
-                           boundary = {1: 'periodic', 2: 'periodic', 3: 'periodic'})
+    if depth > 0:
 
-    weights_overlap = da.overlap.overlap(weights,
-                           depth=depth_dict,
-                           # boundary = {0: 'periodic', 1: 'periodic', 2: 'periodic', 3: 'periodic'})
-                           boundary = {1: 'periodic', 2: 'periodic', 3: 'periodic'})
+        tviews_stack_rechunked = da.overlap.overlap(tviews_stack_rechunked,
+                               depth=depth_dict,
+                               # boundary = {0: 'periodic', 1: 'periodic', 2: 'periodic', 3: 'periodic'})
+                               boundary = {1: 'periodic', 2: 'periodic', 3: 'periodic'})
 
+        if weights is not None:
+            weights = da.overlap.overlap(weights,
+                                   depth=depth_dict,
+                                   # boundary = {0: 'periodic', 1: 'periodic', 2: 'periodic', 3: 'periodic'})
+                                   boundary = {1: 'periodic', 2: 'periodic', 3: 'periodic'})
 
-
-    result_overlap = da.map_blocks(fuse_block,tviews_overlap, weights_overlap, drop_axis = [0], dtype=tviews[0].dtype,
+    result_overlap = da.map_blocks(fuse_block,tviews_stack_rechunked, weights, drop_axis = [0], dtype=tviews[0].dtype,
                                                **{
                                                    'params': params,
                                                    'orig_stack_propertiess': orig_stack_propertiess,
@@ -3892,7 +3893,7 @@ def fuse_blockwise(fn,
     # client = Client(processes=False)
     # dashboard_link = 'http://localhost:%s' % int(client.cluster.scheduler.service_ports['dashboard'])
     # print(dashboard_link)
-    with dask.config.set(get=client):
+    # with dask.config.set(get=client):
 
     # lc = LocalCluster(n_workers=1,processes=False)
     # lc = LocalCluster(processes=False)
@@ -3903,7 +3904,7 @@ def fuse_blockwise(fn,
 
     # with dask.config.set(scheduler='processes'), ProgressBar():
     # with dask.config.set(scheduler='threads'), ProgressBar():
-    # with dask.config.set(scheduler='single-threaded'), ProgressBar():
+    with dask.config.set(scheduler='single-threaded'), ProgressBar():
     #
     #
     #     # t = result[50:51,50:51,50:51]

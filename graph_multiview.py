@@ -218,8 +218,8 @@ def build_multiview_graph(
 
     # print('Not using groupwise registration for the moment')
     print('Using groupwise registration!')
-    # simple_elastix_available = False
-    simple_elastix_available = True
+    simple_elastix_available = False
+    # simple_elastix_available = True
 
     if simple_elastix_available and len(all_views) >= 4:  # restiction given by current elastix groupwise registration implementatin
         graph[fusion_params_label % (ds, sample)] = (
