@@ -3904,7 +3904,8 @@ def fuse_blockwise(fn,
 
     # with dask.config.set(scheduler='processes'), ProgressBar():
     # with dask.config.set(scheduler='threads'), ProgressBar():
-    with dask.config.set(scheduler='single-threaded'), ProgressBar():
+    # with dask.config.set(scheduler='single-threaded'), ProgressBar():
+    # with dask.config.set(scheduler='single-threaded'):#, ProgressBar():
     #
     #
     #     # t = result[50:51,50:51,50:51]
@@ -3930,7 +3931,7 @@ def fuse_blockwise(fn,
     #     p.map(execute, result_keys)
     #
     #
-        result = result.compute()
+    result = result.compute()
 
     # starts, sizes = [], []
     # chunks = result.chunks
@@ -4258,6 +4259,7 @@ def get_weights_dct_dask(tviews,
 
     ws = ws.compute()#scheduler='single-threaded')
 
+
     ws = np.array([ndimage.maximum_filter(ws[i],3) for i in range(len(ws))])
     ws = np.array([ndimage.gaussian_filter(ws[i],1) for i in range(len(ws))])
 
@@ -4303,7 +4305,6 @@ def get_weights_dct_dask(tviews,
                        out_size=np.array([tviews.chunksize[1]]*3),
                        stack_properties=stack_properties,
                        )
-
 
 
     # da.map_blocks()
@@ -5718,7 +5719,9 @@ def get_psf(p,
 
 from scipy.signal import fftconvolve
 def blur_with_psf(im,psf):
-    return fftconvolve(im,psf, mode='same')
+    res = fftconvolve(im,psf, mode='same')
+    res[res<0] = 0 # for some reason the convolution can contain negative results
+    return res
 
 def density_to_multiview_data_np(
                               density,
@@ -5835,7 +5838,7 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
 
     psfs =  np.array([get_psf(params[ip], stack_properties, sz, sxy) for ip in range(len(params))])
 
-    noisy_multiview_data = views
+    noisy_multiview_data = np.array(views)
 
     """
     Time for deconvolution!!!
@@ -5861,6 +5864,7 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
               sz,
               sxy,
         )
+
         "Done constructing."
         """
         Take the ratio between the measured data and the expected data.
