@@ -5,7 +5,6 @@ import io_utils
 import sys
 import graph_multiview
 
-
 ##########################
 #### parameters to modify
 #### in descending order of relevance
@@ -40,7 +39,7 @@ registration_pairss = [registration_pairs] *len(filepaths)
 final_volume_mode = 'sample'
 
 # where to save the output
-out_dir = os.path.dirname(filepaths[0])
+out_dir = os.path.dirname(filepaths[0])+'/small'
 
 # whether to perform an affine chromatic correction
 # and which channel to use as reference
@@ -49,17 +48,17 @@ ref_channel_chrom = 0
 
 # binning of raw input from views (x,y,z)
 # [1,1,1]: no binning
-raw_input_binning = [4,4,1]
+raw_input_binning = [8,8,2]
 
 # background level to subtract
 background_level = 200
 
 # which binning to use for registration
 # mv_registration_bin_factors = np.array([1,1,1])
-mv_registration_bin_factors = np.array([4,4,4])
+mv_registration_bin_factors = np.array([2,2,2])
 
 # final output spacing in um
-mv_final_spacing = np.array([1.]*3)
+mv_final_spacing = np.array([5.]*3)
 
 # options for fusion
 # fusion_method

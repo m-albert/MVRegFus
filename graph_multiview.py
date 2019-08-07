@@ -8,7 +8,8 @@ import sys
 import io_utils
 
 from distributed import Client
-client = Client(processes=False)
+# client = Client(processes=True)
+client = Client(processes=False)#,threads_per_worker=1)
 dashboard_link = 'http://localhost:%s' % int(client.cluster.scheduler.service_ports['dashboard'])
 print(dashboard_link)
 

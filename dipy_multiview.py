@@ -1469,6 +1469,84 @@ def register_linear(static,moving,t0=None):
     # return params,[0]#metric.metric_evolution
     return params,[metric.metric_evolution,params_evolution]
 
+def transform_stack_dipy(stack,p=None,out_shape=None,out_spacing=None,out_origin=None,interp='linear',stack_properties=None):
+
+    """
+    In [19]: %timeit transform_stack_numpy(stack00,a0)
+    4.17 s 8.1 ms per loop (mean std. dev. of 7 runs, 1 loop each)
+
+    In [20]: %timeit transform_stack_dipy(stack00,a0)
+    382 ms 2.85 ms per loop (mean std. dev. of 7 runs, 1 loop each)
+    """
+
+
+    if p is None:
+        p = np.array([1.,0,0,0,1,0,0,0,1,0,0,0])
+
+    p = np.array(p)
+    params = np.eye(4)
+    params[:3,:3] = p[:9].reshape((3,3))
+    params[:3,3] = p[9:]
+
+    if stack_properties is not None:
+        out_shape = stack_properties['size']
+        out_origin = stack_properties['origin']
+        out_spacing = stack_properties['spacing']
+
+    else:
+        if out_shape is None:
+            out_shape = stack.shape
+
+        if out_origin is None:
+            out_origin = stack.origin
+
+        if out_spacing is None:
+            out_spacing = stack.spacing
+
+    static_grid2world = np.eye(4)
+    moving_grid2world = np.eye(4)
+
+    np.fill_diagonal(static_grid2world,list(out_spacing)+[1])
+    np.fill_diagonal(moving_grid2world,list(stack.spacing)+[1])
+
+    static_grid2world[:3,3] = out_origin
+    moving_grid2world[:3,3] = stack.origin
+
+    affine_map = AffineMap(params,
+                           out_shape, static_grid2world,
+                           stack.shape, moving_grid2world)
+
+    resampled = affine_map.transform(stack,interp=interp)
+
+    resampled = ImageArray(resampled,origin=out_origin,spacing=out_spacing)
+
+    return resampled
+
+# def transform_stack_ndimage(stack,p=None,out_shape=None,out_spacing=None,out_origin=None,interp='linear',stack_properties=None):
+#     if p is None:
+#         p = np.array([1.,0,0,0,1,0,0,0,1,0,0,0])
+#
+#     p = np.array(p)
+#
+#     if stack_properties is not None:
+#         out_shape = stack_properties['size']
+#         out_origin = stack_properties['origin']
+#         out_spacing = stack_properties['spacing']
+#
+#     else:
+#         if out_shape is None:
+#             out_shape = stack.shape
+#
+#         if out_origin is None:
+#             out_origin = stack.origin
+#
+#         if out_spacing is None:
+#             out_spacing = stack.spacing
+#
+#
+#
+#     return t
+
 def transform_stack_sitk(stack,p=None,out_shape=None,out_spacing=None,out_origin=None,interp='linear',stack_properties=None):
 
     # print('WARNING: USING BSPLINE INTERPOLATION AS DEFAULT')
@@ -3394,7 +3472,11 @@ def get_weights_simple(
         border_points.append(phys_point)
 
     # for iview,view in enumerate(views):
+    import time
+    times = []
     for iview in range(len(params)):
+
+        start = time.time()
 
         # quick check if stack_properties inside orig volume
         osp = orig_stack_propertiess[iview]
@@ -3489,12 +3571,14 @@ def get_weights_simple(
                                  stack_properties,
                                  params[iview]
                                  )
-
+        times.append(time.time()-start)
         # mask = mask > 0
         # print('WARNING; 1 ITERATIONS FOR MASK DILATION (DCT WEIGHTS')
         # mask = ndimage.binary_dilation(mask == 0,iterations=1)
         ws.append(tmpvs*(mask))
         # ws.append(tmpvs)
+
+    print('times',times)
 
     wsum = np.sum(ws,0)
     wsum[wsum==0] = 1
@@ -4297,6 +4381,8 @@ def get_weights_dct_dask(tviews,
         block_stack_properties['spacing'] = np.array([out_spacing]*3)
 
         res = np.array([transform_stack_sitk(w,stack_properties=block_stack_properties,interp='linear') for w in ws]).astype(np.float32)
+        # res = np.array([transform_stack_dipy(w,stack_properties=block_stack_properties,interp='linear') for w in ws]).astype(np.float32)
+
         return res
 
     # ws = da.ones(tviews.numblocks,chunks=(tviews_binned.chunksize[0],)+tuple([1]*3))
@@ -4386,8 +4472,6 @@ def get_weights_dct_dask(tviews,
     def mult_simple_weights_chunk(ws,stack_properties,params,orig_stack_propertiess,block_info=None):
         # approx. 2 sec on 8,128,128,128
 
-        import time
-        start = time.time()
         curr_origin = []
         for i in range(3):
             # pixel_offset = block_info[0]['chunk-location'][i + 1] * array_info['chunksize'] - array_info['depth']
@@ -4399,11 +4483,7 @@ def get_weights_dct_dask(tviews,
         block_stack_properties = stack_properties.copy()
         block_stack_properties['size'] = np.array(block_info[None]['chunk-shape'][1:])#+2*array_info['depth'])
         block_stack_properties['origin'] = np.array(curr_origin)
-        stop = time.time()
-        print('time1: %s' %(stop-start))
         tmpws = get_weights_simple(orig_stack_propertiess,params,block_stack_properties)
-        stop2 = time.time()
-        print('time2: %s' %(stop2 - stop))
         # t = ImageArray(np.ones((1,1,1)),origin=orig_stack_propertiess[i]['origin'],spacing=orig_stack_propertiess[i]['spacing']*orig_stack_propertiess[i]['size'])
         # transform_stack_sitk(t,stack_properties=block_stack_properties,interp='linear').max()
         return tmpws*ws
@@ -5171,7 +5251,8 @@ def transform_view_and_save_chunked(fn,view,params,iview,stack_properties,chunks
     params = io_utils.process_input_element(params)
     stack_properties = io_utils.process_input_element(stack_properties)
 
-    res = transform_stack_sitk(view, params[iview], stack_properties=stack_properties,interp='bspline')
+    # res = transform_stack_sitk(view, params[iview], stack_properties=stack_properties,interp='bspline')
+    res = transform_stack_sitk(view, params[iview], stack_properties=stack_properties,interp='linear')
 
     # if chunksize_phys is not None:
     #
