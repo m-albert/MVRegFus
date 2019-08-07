@@ -3453,7 +3453,8 @@ def get_weights_simple(
 
         r = 0.05 # relative border width
         # sig = np.ones(reducedview.shape,dtype=np.float32)
-        sigN = 200
+        # sigN = 200
+        sigN = 100
         sig = np.ones([sigN]*3,dtype=np.float32)
 
         for d in range(3):
@@ -3481,7 +3482,7 @@ def get_weights_simple(
                                out_origin=stack_properties['origin'],
                                out_shape=stack_properties['size'],
                                out_spacing=stack_properties['spacing'],
-                               interp='linear',
+                               interp='nearest',
                                      )
 
         mask = get_mask_in_target_space(orig_stack_propertiess[iview],
