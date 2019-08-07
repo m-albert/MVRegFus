@@ -4298,8 +4298,8 @@ def get_weights_dct_dask(tviews,
         res = np.array([transform_stack_sitk(w,stack_properties=block_stack_properties,interp='linear') for w in ws]).astype(np.float32)
         return res
 
-
-    ws = da.ones(tviews.numblocks,chunks=(tviews_binned.chunksize[0],)+tuple([1]*3))
+    # ws = da.ones(tviews.numblocks,chunks=(tviews_binned.chunksize[0],)+tuple([1]*3))
+    ws = da.empty(tviews.numblocks,chunks=(tviews_binned.chunksize[0],)+tuple([1]*3))
 
     ws = da.map_blocks(construct_weights,ws,dtype=np.float32,
                        # chunks=tviews_binned_rechunked.chunksize,
@@ -4385,6 +4385,8 @@ def get_weights_dct_dask(tviews,
     def mult_simple_weights_chunk(ws,stack_properties,params,orig_stack_propertiess,block_info=None):
         # approx. 2 sec on 8,128,128,128
 
+        import time
+        start = time.time()
         curr_origin = []
         for i in range(3):
             # pixel_offset = block_info[0]['chunk-location'][i + 1] * array_info['chunksize'] - array_info['depth']
@@ -4396,8 +4398,11 @@ def get_weights_dct_dask(tviews,
         block_stack_properties = stack_properties.copy()
         block_stack_properties['size'] = np.array(block_info[None]['chunk-shape'][1:])#+2*array_info['depth'])
         block_stack_properties['origin'] = np.array(curr_origin)
-
+        stop = time.time()
+        print('time1: %s' (stop-start))
         tmpws = get_weights_simple(orig_stack_propertiess,params,block_stack_properties)
+        stop2 = time.time()
+        print('time2: %s'(stop2 - stop))
         # t = ImageArray(np.ones((1,1,1)),origin=orig_stack_propertiess[i]['origin'],spacing=orig_stack_propertiess[i]['spacing']*orig_stack_propertiess[i]['size'])
         # transform_stack_sitk(t,stack_properties=block_stack_properties,interp='linear').max()
         return tmpws*ws

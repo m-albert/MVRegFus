@@ -48,30 +48,30 @@ ref_channel_chrom = 0
 
 # binning of raw input from views (x,y,z)
 # [1,1,1]: no binning
-raw_input_binning = [1,1,1]
+raw_input_binning = [4,4,1]
 
 # background level to subtract
 background_level = 200
 
 # which binning to use for registration
 # mv_registration_bin_factors = np.array([1,1,1])
-mv_registration_bin_factors = np.array([8,8,2])
+mv_registration_bin_factors = np.array([4,4,4])
 
 # final output spacing in um
-mv_final_spacing = np.array([2.]*3)
+mv_final_spacing = np.array([5.]*3)
 
 # options for fusion
 # fusion_method
 # 'weighted_average': weighted average of views using the given weights
 # 'LR': Lucy-Richardson multi-view deconvolution
-# fusion_method = 'LR'
-fusion_method = 'weighted_average'
+fusion_method = 'LR'
+# fusion_method = 'weighted_average'
 
 # fusion weights
 # 'blending': uniform weights with blending at the stack borders
 # 'dct': weights derived from DCT image quality metric
-# fusion_weights = 'dct'
-fusion_weights = 'blending'
+fusion_weights = 'dct'
+# fusion_weights = 'blending'
 
 # options for DCT image quality metric for fusion
 # setting None automatically calculates good values
