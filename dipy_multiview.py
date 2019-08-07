@@ -3866,63 +3866,129 @@ def fuse_blockwise(fn,
 
     nviews = len(fns_tview)
 
-    tviews = []
-    for fn_tview in fns_tview:
-        tmpdset = h5py.File(fn_tview)['array']
-        tmpda = da.from_array(tmpdset,chunks = tmpdset.chunks)
-        tviews.append(tmpda)
+    def overlap_from_sources(x, sources, depth, block_info=None):
+        nviews = len(sources)
+        #     print(block_info)
+        pads = []
+        srcshape = np.array(sources[0].shape)
+        slices = []
+        outside_of_src = False
+        for dim in range(1, 4):
 
-    # tviews_stack = da.stack(tviews,axis=0)
+            l, u = block_info[0]['array-location'][dim]  # lower and upper coord
+            if l >= srcshape[dim - 1]:
+                outside_of_src = True
+                break
 
-    import dask
+            if l == 0:
+                padl = depth
+            else:
+                padl = 0
 
+            udiff = srcshape[dim - 1] - u
+            if udiff < depth:
+                padu = depth - udiff
+            else:
+                padu = 0
 
-    # tviews_stack = da.from_array(tviews, chunks = ((nviews,),)+tviews[0].chunks)
-    # tviews_stack = da.from_array(tviews, chunks = (nviews,50,50,50))
-    # tviews_stack = da.concatenate(tviews,axis=0)
-    # tviews_stack = da.vstack(tviews)
-    tviews_stack = da.stack(tviews)
+            pads.append([padl, padu])
+
+            sl = slice(np.max([0, l - depth]), np.min([srcshape[dim - 1], u + depth]))
+            slices.append(sl)
+
+        ys = np.zeros([nviews] + [np.diff(block_info[0]['array-location'][dim])[0] + 2 * depth for dim in range(1, 4)],
+                      dtype=sources[0].dtype)
+        if outside_of_src:
+            return ys
+
+        pads = np.array(pads)
+        for iv in range(nviews):
+            y = np.array(sources[iv][tuple(slices)])
+            if pads.max() > 0:
+                y = np.pad(y, pads, mode='reflect')
+            ys[iv] = y
+        #   debug
+        #     if np.min(y.shape)<20:
+        #         print('loc:', block_info[0]['array-location'])
+        #         print(y.shape,pads,slices)
+        return ys
+
+    tviews_dsets = [h5py.File(fn_tview)['array'] for fn_tview in fns_tview]
 
     depth = int(fusion_block_overlap)
     # depth = 0
     depth_dict = {0: 0, 1: depth, 2: depth, 3: depth}
 
-    # rechunk here to adapt to parameters
-
-    # cross platform way of getting available memory
-    # from psutil import virtual_memory
-    # mem = virtual_memory()
     chunksize = 128
-    proc_chunk_size = (nviews,chunksize,chunksize,chunksize)
+    block_chunk_size = np.array([nviews,chunksize,chunksize,chunksize])
+    overlap_block_chunk_size = np.array([nviews,chunksize,chunksize,chunksize])
+    overlap_block_chunk_size[-3:] += depth
 
-    # resize (pad) array because small chunk sizes on the borders
-    # are incompatible with overlaps larger than this chunk size
-    orig_shape = tviews_stack.shape
-    proc_shape = [orig_shape[0]]
+    orig_shape = np.array(tviews_dsets[0].shape)
+    # expanded_shape = np.array(block_chunk_size[-3:]) * (np.array(tviews_dsets[0].shape) // chunksize) + np.array(tviews_dsets[0].shape) % chunksize
+    expanded_shape = np.array(block_chunk_size[-3:]) * (np.array(tviews_dsets[0].shape) // chunksize) \
+            + np.array([[0,chunksize][tviews_dsets[0].shape[dim] % chunksize > 0] for dim in range(3)])
+    print('expanded_shape', expanded_shape)
 
-    for i in range(1,4):
-        # modulus = orig_shape[i] % proc_chunk_size[i]
+    array_template = da.empty((len(tviews_dsets),)+tuple(expanded_shape),chunks=block_chunk_size,dtype=np.uint16)
 
-        # if modulus == 0 or modulus > depth:
-        #     new_size = orig_shape[i]
-        #
-        # else:
-        #     new_size = orig_shape[i] + depth - modulus
+    tviews_stack = array_template.map_blocks(overlap_from_sources, dtype=np.uint16, sources=tviews_dsets, depth=0, chunks=block_chunk_size)
 
-        new_size = np.ceil(orig_shape[i]/float(proc_chunk_size[i])) * proc_chunk_size[i]
-        # if modulus: new_size += proc_chunk_size[i]
-        # + modulus
+    # tviews_stack = da.stack(tviews,axis=0)
 
-        proc_shape.append(new_size)
-
-    # print('hello',proc_shape,orig_shape,fusion_block_overlap)
-    if not np.all(np.array(proc_shape)==np.array(orig_shape)):
-        pad_widths = [[0,0]]+[[0,proc_shape[i]-orig_shape[i]] for i in range(1,4)]
-        print('padding',pad_widths)
-        tviews_stack = da.pad(tviews_stack,pad_widths,mode='constant')
-
-    tviews_stack_rechunked = tviews_stack.rechunk(proc_chunk_size)
-    # tviews_stack_rechunked = tviews_stack
+    # import dask
+    #
+    # tviews = []
+    # for fn_tview in fns_tview:
+    #     tmpdset = h5py.File(fn_tview)['array']
+    #     tmpda = da.from_array(tmpdset,chunks = tmpdset.chunks)
+    #     tviews.append(tmpda)
+    #
+    # # tviews_stack = da.from_array(tviews, chunks = ((nviews,),)+tviews[0].chunks)
+    # # tviews_stack = da.from_array(tviews, chunks = (nviews,50,50,50))
+    # # tviews_stack = da.concatenate(tviews,axis=0)
+    # # tviews_stack = da.vstack(tviews)
+    # tviews_stack = da.stack(tviews)
+    #
+    #
+    #
+    # # rechunk here to adapt to parameters
+    #
+    # # cross platform way of getting available memory
+    # # from psutil import virtual_memory
+    # # mem = virtual_memory()
+    # chunksize = 128
+    # proc_chunk_size = (nviews,chunksize,chunksize,chunksize)
+    #
+    # # resize (pad) array because small chunk sizes on the borders
+    # # are incompatible with overlaps larger than this chunk size
+    # orig_shape = tviews_stack.shape
+    # proc_shape = [orig_shape[0]]
+    #
+    # for i in range(1,4):
+    #     # modulus = orig_shape[i] % proc_chunk_size[i]
+    #
+    #     # if modulus == 0 or modulus > depth:
+    #     #     new_size = orig_shape[i]
+    #     #
+    #     # else:
+    #     #     new_size = orig_shape[i] + depth - modulus
+    #
+    #     new_size = np.ceil(orig_shape[i]/float(proc_chunk_size[i])) * proc_chunk_size[i]
+    #     # if modulus: new_size += proc_chunk_size[i]
+    #     # + modulus
+    #
+    #     proc_shape.append(new_size)
+    #
+    # # print('hello',proc_shape,orig_shape,fusion_block_overlap)
+    # if not np.all(np.array(proc_shape)==np.array(orig_shape)):
+    #     pad_widths = [[0,0]]+[[0,proc_shape[i]-orig_shape[i]] for i in range(1,4)]
+    #     print('padding',pad_widths)
+    #     tviews_stack = da.pad(tviews_stack,pad_widths,mode='constant')
+    #
+    # tviews_stack_rechunked = tviews_stack.rechunk(proc_chunk_size)
+    #
+    # # tviews_stack_rechunked = tviews_stack
 
     if weights_func == get_weights_dct:
         weights_kwargs['size'],weights_kwargs['max_kernel'],weights_kwargs['gaussian_kernel'] = get_dct_options(stack_properties['spacing'][0],
@@ -3938,26 +4004,27 @@ def fuse_blockwise(fn,
         weights = None
     else:
 
-        weights = get_weights_dct_dask(tviews_stack_rechunked,params,orig_stack_propertiess,stack_properties,**weights_kwargs)
+        weights = get_weights_dct_dask(tviews_stack,params,orig_stack_propertiess,stack_properties,depth=depth,**weights_kwargs)
 
     # print('compressing arrays')
     # from bcolz import carray
     # weights = weights.map_blocks(carray).persist().map_blocks(np.asarray)
 
-    if depth > 0:
+    # if depth > 0:
+    #
+    #     tviews_stack_rechunked = da.overlap.overlap(tviews_stack_rechunked,
+    #                            depth=depth_dict,
+    #                            # boundary = {0: 'periodic', 1: 'periodic', 2: 'periodic', 3: 'periodic'})
+    #                            boundary = {1: 'periodic', 2: 'periodic', 3: 'periodic'})
+    #
+    #     if weights is not None:
+    #         weights = da.overlap.overlap(weights,
+    #                                depth=depth_dict,
+    #                                # boundary = {0: 'periodic', 1: 'periodic', 2: 'periodic', 3: 'periodic'})
+    #                                boundary = {1: 'periodic', 2: 'periodic', 3: 'periodic'})
+    tviews_stack_overlap = array_template.map_blocks(overlap_from_sources, dtype=np.uint16, sources=tviews_dsets, depth=depth, chunks=overlap_block_chunk_size)
 
-        tviews_stack_rechunked = da.overlap.overlap(tviews_stack_rechunked,
-                               depth=depth_dict,
-                               # boundary = {0: 'periodic', 1: 'periodic', 2: 'periodic', 3: 'periodic'})
-                               boundary = {1: 'periodic', 2: 'periodic', 3: 'periodic'})
-
-        if weights is not None:
-            weights = da.overlap.overlap(weights,
-                                   depth=depth_dict,
-                                   # boundary = {0: 'periodic', 1: 'periodic', 2: 'periodic', 3: 'periodic'})
-                                   boundary = {1: 'periodic', 2: 'periodic', 3: 'periodic'})
-
-    result_overlap = da.map_blocks(fuse_block,tviews_stack_rechunked, weights, drop_axis = [0], dtype=tviews[0].dtype,
+    result = da.map_blocks(fuse_block,tviews_stack_overlap, weights, drop_axis = [0], dtype=tviews_dsets[0].dtype,
                                                **{
                                                    'params': params,
                                                    'orig_stack_propertiess': orig_stack_propertiess,
@@ -3971,12 +4038,13 @@ def fuse_blockwise(fn,
 
     # dummy
     # result_overlap = da.map_blocks(lambda x,y: x[0], tviews_overlap, weights_overlap, drop_axis=[0], dtype=tviews[0].dtype)
-    print('result overlap shape', result_overlap.shape)
+    # print('result overlap shape', result_overlap.shape)
 
-    trim_dict = {i:depth for i in range(3)}
-    result = da.overlap.trim_internal(result_overlap, trim_dict)
+    if depth > 0:
+        trim_dict = {i:depth for i in range(3)}
+        result = da.overlap.trim_internal(result, trim_dict)
 
-    result = result[:orig_shape[1],:orig_shape[2],:orig_shape[3]]
+    result = result[:orig_shape[0],:orig_shape[1],:orig_shape[2]]
 
     from dask.diagnostics import ProgressBar
 
@@ -4295,6 +4363,7 @@ def get_weights_dct_dask(tviews,
                          params,
                          orig_stack_propertiess,
                          stack_properties,
+                         depth=0,
                          size=None,
                          max_kernel=None,
                          gaussian_kernel=None,
@@ -4361,7 +4430,20 @@ def get_weights_dct_dask(tviews,
     weight_im = [ImageArray(w,origin=binned_origin,spacing=stack_properties['spacing']*size*bin_factor) for w in ws]
     # weight_im = [ImageArray(w,origin=stack_properties['origin'],spacing=stack_properties['spacing']*size*bin_factor) for w in ws]
 
-    def construct_weights(x,ws,stack_properties,out_size,in_spacing,out_spacing,block_info=None):
+    def construct_weights(x,
+                          ws,
+                          stack_properties,
+                          out_size,
+                          in_spacing,
+                          out_spacing,
+                          depth,
+                          params=params,
+                          orig_stack_propertiess=orig_stack_propertiess,
+                          block_info=None,
+                          ):
+
+        # sample up weights
+        # consider overlap here
 
         curr_origin = []
         # target_origin = []
@@ -4377,26 +4459,43 @@ def get_weights_dct_dask(tviews,
         # block_stack_properties['size'] = np.array([in_spacing/out_spacing]*3).astype(np.int64)#+2*array_info['depth'])
         # block_stack_properties['size'] = np.array([in_spacing/out_spacing]*3).astype(np.int64)#+2*array_info['depth'])
         block_stack_properties['size'] = np.array(out_size).astype(np.int64)#+2*array_info['depth'])
-        block_stack_properties['origin'] = np.array(curr_origin)
-        block_stack_properties['spacing'] = np.array([out_spacing]*3)
+        block_stack_properties['size'] += 2*depth#+2*array_info['depth'])
+        block_stack_properties['spacing'] = np.array([out_spacing] * 3)
+        block_stack_properties['origin'] = np.array(curr_origin) - depth * block_stack_properties['spacing']
+
 
         res = np.array([transform_stack_sitk(w,stack_properties=block_stack_properties,interp='linear') for w in ws]).astype(np.float32)
         # res = np.array([transform_stack_dipy(w,stack_properties=block_stack_properties,interp='linear') for w in ws]).astype(np.float32)
 
-        return res
+        # curr_origin = []
+        # for i in range(3):
+        #     # pixel_offset = block_info[0]['chunk-location'][i + 1] * array_info['chunksize'] - array_info['depth']
+        #     pixel_offset = block_info[0]['chunk-location'][i + 1] * block_info[None]['chunk-shape'][i+1]# - array_info['depth']
+        #     curr_origin.append(stack_properties['origin'][i] + pixel_offset * stack_properties['spacing'][i])
+
+        print('curr_origin', curr_origin)
+        tmpws = get_weights_simple(orig_stack_propertiess,params,block_stack_properties)
+
+        return res*tmpws
 
     # ws = da.ones(tviews.numblocks,chunks=(tviews_binned.chunksize[0],)+tuple([1]*3))
     ws = da.empty(tviews.numblocks,chunks=(tviews_binned.chunksize[0],)+tuple([1]*3))
 
+    chunksize = np.array(tviews.chunksize)
+    chunksize[-3:] += 2 * depth
     ws = da.map_blocks(construct_weights,ws,dtype=np.float32,
                        # chunks=tviews_binned_rechunked.chunksize,
-                       chunks=tviews.chunksize,
+                       # chunks=tviews.chunksize,
+                       chunks=chunksize,
                        ws=weight_im,
                        # in_spacing=stack_properties['spacing'][0]*(tviews.chunksize[1]/size/bin_factor),
                        in_spacing=stack_properties['spacing'][0]*tviews.chunksize[1],
                        out_spacing=stack_properties['spacing'][0],
                        out_size=np.array([tviews.chunksize[1]]*3),
                        stack_properties=stack_properties,
+                       depth=depth,
+                       params=params,
+                       orig_stack_propertiess=orig_stack_propertiess,
                        )
 
 
@@ -4469,31 +4568,31 @@ def get_weights_dct_dask(tviews,
 
     # ws = scale_up_dask_array(ws,b=bin_factor)
 
-    def mult_simple_weights_chunk(ws,stack_properties,params,orig_stack_propertiess,block_info=None):
-        # approx. 2 sec on 8,128,128,128
-
-        curr_origin = []
-        for i in range(3):
-            # pixel_offset = block_info[0]['chunk-location'][i + 1] * array_info['chunksize'] - array_info['depth']
-            pixel_offset = block_info[0]['chunk-location'][i + 1] * block_info[None]['chunk-shape'][i+1]# - array_info['depth']
-            curr_origin.append(stack_properties['origin'][i] + pixel_offset * stack_properties['spacing'][i])
-
-        print('curr_origin', curr_origin)
-
-        block_stack_properties = stack_properties.copy()
-        block_stack_properties['size'] = np.array(block_info[None]['chunk-shape'][1:])#+2*array_info['depth'])
-        block_stack_properties['origin'] = np.array(curr_origin)
-        tmpws = get_weights_simple(orig_stack_propertiess,params,block_stack_properties)
-        # t = ImageArray(np.ones((1,1,1)),origin=orig_stack_propertiess[i]['origin'],spacing=orig_stack_propertiess[i]['spacing']*orig_stack_propertiess[i]['size'])
-        # transform_stack_sitk(t,stack_properties=block_stack_properties,interp='linear').max()
-        return tmpws*ws
-
-    simple_weight_kwargs = {}
-    simple_weight_kwargs['stack_properties'] = stack_properties
-    simple_weight_kwargs['params'] = params
-    simple_weight_kwargs['orig_stack_propertiess'] = orig_stack_propertiess
-
-    ws = da.map_blocks(mult_simple_weights_chunk, ws, **simple_weight_kwargs, dtype=np.float32)
+    # def mult_simple_weights_chunk(ws,stack_properties,params,orig_stack_propertiess,block_info=None):
+    #     # approx. 2 sec on 8,128,128,128
+    #
+    #     curr_origin = []
+    #     for i in range(3):
+    #         # pixel_offset = block_info[0]['chunk-location'][i + 1] * array_info['chunksize'] - array_info['depth']
+    #         pixel_offset = block_info[0]['chunk-location'][i + 1] * block_info[None]['chunk-shape'][i+1]# - array_info['depth']
+    #         curr_origin.append(stack_properties['origin'][i] + pixel_offset * stack_properties['spacing'][i])
+    #
+    #     print('curr_origin', curr_origin)
+    #
+    #     block_stack_properties = stack_properties.copy()
+    #     block_stack_properties['size'] = np.array(block_info[None]['chunk-shape'][1:])#+2*array_info['depth'])
+    #     block_stack_properties['origin'] = np.array(curr_origin)
+    #     tmpws = get_weights_simple(orig_stack_propertiess,params,block_stack_properties)
+    #     # t = ImageArray(np.ones((1,1,1)),origin=orig_stack_propertiess[i]['origin'],spacing=orig_stack_propertiess[i]['spacing']*orig_stack_propertiess[i]['size'])
+    #     # transform_stack_sitk(t,stack_properties=block_stack_properties,interp='linear').max()
+    #     return tmpws*ws
+    #
+    # simple_weight_kwargs = {}
+    # simple_weight_kwargs['stack_properties'] = stack_properties
+    # simple_weight_kwargs['params'] = params
+    # simple_weight_kwargs['orig_stack_propertiess'] = orig_stack_propertiess
+    #
+    # ws = da.map_blocks(mult_simple_weights_chunk, ws, **simple_weight_kwargs, dtype=np.float32)
 
     def normalise(ws):
         wssum = np.sum(ws,0)
