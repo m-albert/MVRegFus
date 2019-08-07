@@ -4399,10 +4399,10 @@ def get_weights_dct_dask(tviews,
         block_stack_properties['size'] = np.array(block_info[None]['chunk-shape'][1:])#+2*array_info['depth'])
         block_stack_properties['origin'] = np.array(curr_origin)
         stop = time.time()
-        print('time1: %s' (stop-start))
+        print('time1: %s' %(stop-start))
         tmpws = get_weights_simple(orig_stack_propertiess,params,block_stack_properties)
         stop2 = time.time()
-        print('time2: %s'(stop2 - stop))
+        print('time2: %s' %(stop2 - stop))
         # t = ImageArray(np.ones((1,1,1)),origin=orig_stack_propertiess[i]['origin'],spacing=orig_stack_propertiess[i]['spacing']*orig_stack_propertiess[i]['size'])
         # transform_stack_sitk(t,stack_properties=block_stack_properties,interp='linear').max()
         return tmpws*ws
