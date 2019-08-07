@@ -219,8 +219,8 @@ czifile.CziFile.asarray_random_access = asarray_random_access
 def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,
                                           background_level=200,
                                           infoDict=None,
-                                          do_clean_pixels=True,
-                                          do_smooth=True,
+                                          do_clean_pixels=False,
+                                          do_smooth=False,
                                           extract_rotation=True,
                                           do_despeckle=False,
                                           raw_input_binning=None,
@@ -939,8 +939,8 @@ def register_linear_elastix_seq(fixed,moving,t0=None,degree=2,elastix_dir=None):
 // Image specific
 (FixedImageDimension 3)
 (MovingImageDimension 3)
-(FixedInternalImagePixelType "short")
-(MovingInternalImagePixelType "short")
+(FixedInternalImagePixelType "float")
+(MovingInternalImagePixelType "float")
 //(UseDirectionCosines "false")
 
 (CenterOfRotationPoint 0 0 0)
@@ -1102,7 +1102,7 @@ def register_linear_elastix_seq(fixed,moving,t0=None,degree=2,elastix_dir=None):
     final_params = t0
     for i in range(len(param_strings)):
         final_params = matrix_to_params(get_affine_parameters_from_elastix_output(os.path.join(temp_dir,'TransformParameters.%s.txt' %i),t0=final_params))
-
+    print(outdir)
     return final_params
 
 @io_decorator
@@ -1196,6 +1196,11 @@ def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None):
     t0 = np.copy(t00)
     t0[9:] += np.dot(t0[:9].reshape((3,3)),offset)
     # return t0
+
+    # use raw intensities for elastix
+    static = ImageArray(fixed[:,yl0:yu0,:],spacing=fixed.spacing,origin=origin_overlap0)
+    mov = ImageArray(moving[:,yl1:yu1,:],spacing=moving.spacing,origin=origin_overlap1)
+
     parameters = register_linear_elastix_seq(static,mov,t0,degree=degree,elastix_dir=elastix_dir)
     return parameters
 
@@ -2734,8 +2739,9 @@ def register_groupwise_euler_and_affine(orig_ims, params0, ref_view_index=0, iso
                                   out_shape=stack_properties['size'],
                                   out_spacing=stack_properties['spacing'])
 
-        imc = clahe(im, 10, clip_limit=0.02).astype(np.float32)
-        imc = ImageArray(imc,origin=im.origin,spacing=im.spacing)
+        # imc = clahe(im, 10, clip_limit=0.02).astype(np.float32)
+        # don't use clahe for elastix
+        imc = ImageArray(im,origin=im.origin,spacing=im.spacing)
         ims.append(imc)
 
         # ims.append(im)
@@ -2748,8 +2754,8 @@ def register_groupwise_euler_and_affine(orig_ims, params0, ref_view_index=0, iso
 
     # Register
     groupwiseParameterMap1 = sitk.GetDefaultParameterMap('groupwise')
-    groupwiseParameterMap1['FixedInternalImagePixelType'] = ['float']
-    groupwiseParameterMap1['MovingInternalImagePixelType'] = ['float']
+    groupwiseParameterMap1['FixedInternalImagePixelType'] = ['short']
+    groupwiseParameterMap1['MovingInternalImagePixelType'] = ['short']
     groupwiseParameterMap1['NumberOfResolutions'] = ['6']  # default is 4
     # groupwiseParameterMap1['MaximumNumberOfIterations'] = ['5000']  # default is 250
     groupwiseParameterMap1['MaximumNumberOfIterations'] = ['500']  # default is 250
@@ -2769,8 +2775,8 @@ def register_groupwise_euler_and_affine(orig_ims, params0, ref_view_index=0, iso
     # groupwiseParameterMap1['Scales'] = [' '.join(['10000 10000 10000 1 1 1']*len(ims))]  # default is 2048
 
     groupwiseParameterMap2 = sitk.GetDefaultParameterMap('groupwise')
-    groupwiseParameterMap2['FixedInternalImagePixelType'] = ['float']
-    groupwiseParameterMap2['MovingInternalImagePixelType'] = ['float']
+    groupwiseParameterMap2['FixedInternalImagePixelType'] = ['short']
+    groupwiseParameterMap2['MovingInternalImagePixelType'] = ['short']
     groupwiseParameterMap2['NumberOfResolutions'] = ['3']  # default is 4
     groupwiseParameterMap2['MaximumNumberOfIterations'] = ['500']  # default is 250
     groupwiseParameterMap2['NumberOfSpatialSamples'] = ['16384']  # default is 2048
@@ -6793,6 +6799,10 @@ def get_t0(fixed,moving):
     return t0
 
 params_translation = """
+//(FixedInternalImagePixelType "float")
+//(MovingInternalImagePixelType "float")
+(ResultImagePixelType "float")
+
 (SubtractMean "false")
 (AutomaticParameterEstimation "false")
 (AutomaticScalesEstimation "true")
@@ -6832,6 +6842,10 @@ params_translation = """
 """
 
 params_rotation = """
+//(FixedInternalImagePixelType "float")
+//(MovingInternalImagePixelType "float")
+(ResultImagePixelType "float")
+
 (SubtractMean "false")
 (AutomaticParameterEstimation "false")
 (AutomaticScalesEstimation "true")
@@ -6869,6 +6883,10 @@ params_rotation = """
 """
 
 params_similarity = """
+//(FixedInternalImagePixelType "float")
+//(MovingInternalImagePixelType "float")
+(ResultImagePixelType "float")
+
 (SubtractMean "false")
 (AutomaticParameterEstimation "false")
 (AutomaticScalesEstimation "true")
@@ -6906,6 +6924,10 @@ params_similarity = """
 """
 
 params_affine = """
+//(FixedInternalImagePixelType "float")
+//(MovingInternalImagePixelType "float")
+(ResultImagePixelType "float")
+
 (SubtractMean "false")
 (AutomaticParameterEstimation "false")
 (AutomaticScalesEstimation "true")
@@ -6944,6 +6966,10 @@ params_affine = """
 """
 
 params_bspline = """
+//(FixedInternalImagePixelType "float")
+//(MovingInternalImagePixelType "float")
+(ResultImagePixelType "float")
+
 (SubtractMean "false")
 (AutomaticParameterEstimation "false")
 (AutomaticScalesEstimation "true")
