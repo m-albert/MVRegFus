@@ -21,7 +21,8 @@ elif sys.platform.startswith("lin") or sys.platform.startswith("dar"):
     print('\33]0;multi-view fusion: %s\a' %dashboard_link, end='', flush=True)
 
 
-multiview_fused_label               = 'mv_%03d_%03d_c%02d.imagear.h5'
+# multiview_fused_label               = 'mv_%03d_%03d_c%02d.imagear.h5'
+multiview_fused_label               = 'mv_%03d_%03d_c%02d.mhd'
 multiview_fusion_seg_label          = 'mv_fusion_seg_%03d_%03d_c%02d.imagear.h5'
 multiview_view_reg_label            = 'view_reg_%03d_%03d_v%03d_c%02d'
 multiview_view_fullres_label        = 'view_fullres_%03d_%03d_v%03d_c%02d'

@@ -3850,11 +3850,6 @@ def fuse_blockwise(fn,
                    fusion_kwargs=None,
                    ):
 
-    # from distributed import Client
-    # client = Client(processes=False)
-    # dashboard_link = 'http://localhost:%s' % int(client.cluster.scheduler.service_ports['dashboard'])
-    # print(dashboard_link)
-
     print('fusion block overlap: ', fusion_block_overlap)
 
     stack_properties = io_utils.process_input_element(stack_properties)
@@ -3934,62 +3929,6 @@ def fuse_blockwise(fn,
 
     tviews_stack = array_template.map_blocks(overlap_from_sources, dtype=np.uint16, sources=tviews_dsets, depth=0, chunks=block_chunk_size)
 
-    # tviews_stack = da.stack(tviews,axis=0)
-
-    # import dask
-    #
-    # tviews = []
-    # for fn_tview in fns_tview:
-    #     tmpdset = h5py.File(fn_tview)['array']
-    #     tmpda = da.from_array(tmpdset,chunks = tmpdset.chunks)
-    #     tviews.append(tmpda)
-    #
-    # # tviews_stack = da.from_array(tviews, chunks = ((nviews,),)+tviews[0].chunks)
-    # # tviews_stack = da.from_array(tviews, chunks = (nviews,50,50,50))
-    # # tviews_stack = da.concatenate(tviews,axis=0)
-    # # tviews_stack = da.vstack(tviews)
-    # tviews_stack = da.stack(tviews)
-    #
-    #
-    #
-    # # rechunk here to adapt to parameters
-    #
-    # # cross platform way of getting available memory
-    # # from psutil import virtual_memory
-    # # mem = virtual_memory()
-    # chunksize = 128
-    # proc_chunk_size = (nviews,chunksize,chunksize,chunksize)
-    #
-    # # resize (pad) array because small chunk sizes on the borders
-    # # are incompatible with overlaps larger than this chunk size
-    # orig_shape = tviews_stack.shape
-    # proc_shape = [orig_shape[0]]
-    #
-    # for i in range(1,4):
-    #     # modulus = orig_shape[i] % proc_chunk_size[i]
-    #
-    #     # if modulus == 0 or modulus > depth:
-    #     #     new_size = orig_shape[i]
-    #     #
-    #     # else:
-    #     #     new_size = orig_shape[i] + depth - modulus
-    #
-    #     new_size = np.ceil(orig_shape[i]/float(proc_chunk_size[i])) * proc_chunk_size[i]
-    #     # if modulus: new_size += proc_chunk_size[i]
-    #     # + modulus
-    #
-    #     proc_shape.append(new_size)
-    #
-    # # print('hello',proc_shape,orig_shape,fusion_block_overlap)
-    # if not np.all(np.array(proc_shape)==np.array(orig_shape)):
-    #     pad_widths = [[0,0]]+[[0,proc_shape[i]-orig_shape[i]] for i in range(1,4)]
-    #     print('padding',pad_widths)
-    #     tviews_stack = da.pad(tviews_stack,pad_widths,mode='constant')
-    #
-    # tviews_stack_rechunked = tviews_stack.rechunk(proc_chunk_size)
-    #
-    # # tviews_stack_rechunked = tviews_stack
-
     if weights_func == get_weights_dct:
         weights_kwargs['size'],weights_kwargs['max_kernel'],weights_kwargs['gaussian_kernel'] = get_dct_options(stack_properties['spacing'][0],
                                                             weights_kwargs['size'],
@@ -4036,60 +3975,18 @@ def fuse_blockwise(fn,
                                                    'fusion_kwargs': fusion_kwargs,
                                                   })
 
-    # dummy
-    # result_overlap = da.map_blocks(lambda x,y: x[0], tviews_overlap, weights_overlap, drop_axis=[0], dtype=tviews[0].dtype)
-    # print('result overlap shape', result_overlap.shape)
-
     if depth > 0:
         trim_dict = {i:depth for i in range(3)}
         result = da.overlap.trim_internal(result, trim_dict)
 
     result = result[:orig_shape[0],:orig_shape[1],:orig_shape[2]]
 
-    from dask.diagnostics import ProgressBar
-
-    # from distributed import Client
-    # client = Client(processes=False)
-    # dashboard_link = 'http://localhost:%s' % int(client.cluster.scheduler.service_ports['dashboard'])
-    # print(dashboard_link)
-    # with dask.config.set(get=client):
-
-    # lc = LocalCluster(n_workers=1,processes=False)
-    # lc = LocalCluster(processes=False)
-    # client = Client(lc)
-    # print(lc.dashboard_link)
-
-    # with dask.config.set(scheduler='single-threaded'):
+    # from dask.diagnostics import ProgressBar
 
     # with dask.config.set(scheduler='processes'), ProgressBar():
     # with dask.config.set(scheduler='threads'), ProgressBar():
     # with dask.config.set(scheduler='single-threaded'), ProgressBar():
-    # with dask.config.set(scheduler='single-threaded'):#, ProgressBar():
-    #
-    #
-    #     # t = result[50:51,50:51,50:51]
-    #     # import dask
-    #     # dask.visualize(dask.optimize(t), '/Users/marvin/la2.svg')
-    # # result = result[:,-300:-250,:]
-    # # result = result[50:51,50:51,50:51]
-    # #     result = result[400:401,-300:-299,400:401].compute()
-    # #     result = result[50:51,50:51,50:51].compute()
-    #     result = result[:,-300:-250,:]#.compute()
-    #
-    #     # result = result[:128,:128,:128].compute()
-    #
-    #
-    #
-    #     def execute(key):
-    #         return io_utils.get(graph,key,local=True)
-    #
-    #     import multiprocessing
-    #     # p = multiprocessing.Pool(processes = multiprocessing.cpu_count()-1)
-    #     # p = multiprocessing.Pool(processes = 7)
-    #     p = multiprocessing.Pool(processes = 8)
-    #     p.map(execute, result_keys)
-    #
-    #
+
     result = result.compute()
 
     # starts, sizes = [], []
@@ -4102,18 +3999,6 @@ def fuse_blockwise(fn,
     #             starts.append(start)
     #             sizes.append(size)
     #
-    # def process(arg):
-    #     result, start, size = arg
-    #     slices = tuple([slice(start[dim],start[dim]+size[dim]) for dim in range(3)])
-    #     return result[slices].compute()
-
-    # client.submit(process,zip([result]*len(sizes),starts,sizes))
-    # client.map(process,[[result,starts[i],sizes[i]] for i in range(len(starts))][:2])
-    # # import multiprocessing
-    # from multiprocessing.pool import ThreadPool
-    # p = ThreadPool(processes = 8)
-    # # p = multiprocessing.Pool(processes = 8)
-    # res = p.map(process, zip([result]*len(sizes),starts,sizes))
 
     result = ImageArray(result,
                         spacing=stack_properties['spacing'],
@@ -5381,25 +5266,6 @@ def transform_view_and_save_chunked(fn,view,params,iview,stack_properties,chunks
     # f.close()
 
     return fn
-
-# # transform_view_with_decorator = io_decorator(transform_stack_sitk)
-# @io_decorator
-# def transform_view_with_decorator(view,params,iview,stack_properties):
-#
-#     res = transform_stack_sitk(view,params[iview],stack_properties=stack_properties)
-#
-#     return res
-    #
-    # sview = sitk.GetImageFromArray(view)
-    # sview.SetSpacing(view.spacing[::-1])
-    # sview.SetOrigin(view.origin[::-1])
-    # sview = transformStack(params_invert_coordinates(params[iview]),
-    #                        sview,
-    #                        outOrigin=stack_properties['origin'][::-1],
-    #                        outShape=stack_properties['size'][::-1],
-    #                        outSpacing=stack_properties['spacing'][::-1])
-    #
-    # return ImageArray(sitk.GetArrayFromImage(sview),spacing=stack_properties['spacing'])
 
 @io_decorator
 def fuse_dct(views,params,stack_properties):
