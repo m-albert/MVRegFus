@@ -4151,6 +4151,9 @@ def fuse_blockwise(fn,
     io_utils.process_output_element(weights, fn[:-4]+'_w.image.h5')
 
     result = result.compute()
+
+    manual_fusion = np.sum([weights[i]*np.array(tviews_dsets[i]) for i in range(4)],0)
+    io_utils.process_output_element(manual_fusion, fn[:-4] + '_manual_fusion.image.h5')
     # result = result[:,128:256].compute()
 
     # result = result.compute(scheduler='single-threaded')
