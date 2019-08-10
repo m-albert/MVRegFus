@@ -4141,19 +4141,20 @@ def fuse_blockwise(fn,
     # with dask.config.set(scheduler='threads'), ProgressBar():
     # with dask.config.set(scheduler='single-threaded'), ProgressBar():
 
-    print('diagnostics: calculating weights and saving them to results folder')
-    if depth > 0:
-        trim_dict = {i:[0,depth][i>0] for i in range(4)}
-        weights = da.overlap.trim_internal(weights, trim_dict)
-
-    weights = weights[:,:orig_shape[0], :orig_shape[1], :orig_shape[2]]
-    weights = weights.compute()
-    io_utils.process_output_element(weights, fn[:-4]+'_w.image.h5')
+    # print('diagnostics: calculating weights and saving them to results folder')
+    # if depth > 0:
+    #     trim_dict = {i:[0,depth][i>0] for i in range(4)}
+    #     weights = da.overlap.trim_internal(weights, trim_dict)
+    #
+    # weights = weights[:,:orig_shape[0], :orig_shape[1], :orig_shape[2]]
+    # weights = weights.compute()
+    # io_utils.process_output_element(weights, fn[:-4]+'_w.image.h5')
 
     result = result.compute()
 
-    manual_fusion = np.sum([weights[i]*np.array(tviews_dsets[i]) for i in range(4)],0)
-    io_utils.process_output_element(manual_fusion, fn[:-4] + '_manual_fusion.image.h5')
+    # manual_fusion = np.sum([weights[i]*np.array(tviews_dsets[i]) for i in range(4)],0)
+    # io_utils.process_output_element(manual_fusion, fn[:-4] + '_manual_fusion.image.h5')
+
     # result = result[:,128:256].compute()
 
     # result = result.compute(scheduler='single-threaded')
@@ -4712,6 +4713,7 @@ def determine_chunk_quality(vrs,how_many_best_views,cumulative_weight_best_views
         return res
 
     ws = np.array([-np.sum(np.abs(d)*abslog(d/dsl2[id])) for id,d in enumerate(ds)])
+    # ws = np.array([np.sum(np.abs(d)) for d in ds])
 
     # simple weights in case everything is zero
     if not ws.max():
