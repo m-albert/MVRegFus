@@ -1,5 +1,8 @@
 __author__ = 'malbert'
 
+import logging
+logger = logging.getLogger(__name__)
+
 import os,tempfile,pdb,sys,copy
 import numpy as np
 import czifile
@@ -3552,11 +3555,11 @@ def get_weights_simple(
         border_points.append(phys_point)
 
     # for iview,view in enumerate(views):
-    import time
-    times = []
+    # import time
+    # times = []
     for iview in range(len(params)):
 
-        start = time.time()
+        # start = time.time()
 
         # quick check if stack_properties inside orig volume
         osp = orig_stack_propertiess[iview]
@@ -3576,16 +3579,16 @@ def get_weights_simple(
 
         if np.all(t_border_points_inside):
             ws.append(np.ones(stack_properties['size'],dtype=np.float32))
-            print('all borders inside')
+            # print('all borders inside')
             continue
 
         elif not np.any(t_border_points_inside):
             ws.append(np.zeros(stack_properties['size'], dtype=np.float32))
-            print('all borders outside')
+            # print('all borders outside')
             continue
 
-        else:
-            print('block lies partially inside')
+        # else:
+            # print('block lies partially inside')
 
 
         # tmporigin = views[iview].origin+views[iview].spacing/2.
@@ -3620,7 +3623,7 @@ def get_weights_simple(
 
         b_in_um = 40.
         b_in_pixels = int(b_in_um / sigspacing[0])
-        print('blending weights: border width: %s um, %s pixels' %(b_in_um,b_in_pixels))
+        # print('blending weights: border width: %s um, %s pixels' %(b_in_um,b_in_pixels))
 
         # r = 0.05 # relative border width
         # sig = np.ones(reducedview.shape,dtype=np.float32)
@@ -3660,14 +3663,14 @@ def get_weights_simple(
         #                          stack_properties,
         #                          params[iview]
         #                          )
-        times.append(time.time()-start)
+        # times.append(time.time()-start)
         # mask = mask > 0
         # print('WARNING; 1 ITERATIONS FOR MASK DILATION (DCT WEIGHTS')
         # mask = ndimage.binary_dilation(mask == 0,iterations=1)
         ws.append(tmpvs)
         # ws.append(tmpvs)
 
-    print('times',times)
+    # print('times',times)
 
     wsum = np.sum(ws,0)
     wsum[wsum==0] = 1
@@ -4374,15 +4377,18 @@ def fuse_blockwise(fn,
     # with dask.config.set(scheduler='threads'), ProgressBar():
     # with dask.config.set(scheduler='single-threaded'), ProgressBar():
 
-    # print('diagnostics: calculating weights and saving them to results folder')
-    # if depth > 0:
-    #     trim_dict = {i:[0,depth][i>0] for i in range(4)}
-    #     weights = da.overlap.trim_internal(weights, trim_dict)
-    #
-    # weights = weights[:,:orig_shape[0], :orig_shape[1], :orig_shape[2]]
-    # weights = weights.compute()
-    # io_utils.process_output_element(weights, fn[:-4]+'_w.image.h5')
+    print('logger level: %s' %logging.getLevelName(logger.getEffectiveLevel()))
+    if logger.getEffectiveLevel() >= logging.DEBUG:
+        print('diagnostics: calculating weights and saving them to results folder')
+        if depth > 0:
+            trim_dict = {i:[0,depth][i>0] for i in range(4)}
+            weights = da.overlap.trim_internal(weights, trim_dict)
 
+        weights = weights[:,:orig_shape[0], :orig_shape[1], :orig_shape[2]]
+        weights = weights.compute()
+        io_utils.process_output_element(weights, fn[:-4]+'_w.image.h5')
+
+    # logger.info('compute')
     result = result.compute()
     # result = result.compute(scheduler='single-threaded')
 
@@ -4411,7 +4417,7 @@ def fuse_blockwise(fn,
 
 
     if os.path.exists(fn):
-        print('WARNING: OVERWRITING %s' %fn)
+        logger.warning('WARNING: OVERWRITING %s' %fn)
         os.remove(fn)
 
         # result.to_hdf5(fn, 'array', compression='gzip')  # ,scheduler = "single-threaded")
@@ -4457,14 +4463,12 @@ def fuse_block(tviews_block,weights,params,stack_properties,orig_stack_propertie
     params = np.array(params)[inds]
     orig_stack_propertiess = [orig_stack_propertiess[i] for i in inds]
 
-    print('performing fusion on %s blocks' %len(params))
+    logger.info('performing fusion on %s blocks' %len(params))
 
     curr_origin = []
     for i in range(3):
         pixel_offset = block_info[0]['chunk-location'][i+1]*array_info['chunksize'] - array_info['depth']
         curr_origin.append(stack_properties['origin'][i]+pixel_offset*stack_properties['spacing'][i])
-
-    print('curr_origin',curr_origin)
 
     block_stack_properties = stack_properties.copy()
     block_stack_properties['size'] = np.array(tviews_block[0].shape)
@@ -4518,7 +4522,6 @@ def fuse_block(tviews_block,weights,params,stack_properties,orig_stack_propertie
 
     # weights could be all zero despite tviews nonzero (border effects?)
     max_vals = np.array([w.max() for w in weights])
-    print('max_vals')
 
     inds = np.where(max_vals>0)[0]
 
@@ -4564,14 +4567,14 @@ def get_dct_options(spacing,size=None,max_kernel=None,gaussian_kernel=None):
     spacing = np.max([3,spacing])
 
     if size is None:
-        size = np.max([4,int(100 / spacing)]) # 50um
-        print('dct: choosing size %s' %size)
+        size = np.max([4,int(50 / spacing)]) # 50um
+        # print('dct: choosing size %s' %size)
     if max_kernel is None:
         max_kernel = int(size/2.)
-        print('dct: choosing max_kernel %s' %max_kernel)
+        # print('dct: choosing max_kernel %s' %max_kernel)
     if gaussian_kernel is None:
         gaussian_kernel = int(max_kernel)
-        print('dct: choosing gaussian_kernel %s' %gaussian_kernel)
+        # print('dct: choosing gaussian_kernel %s' %gaussian_kernel)
 
     return size,max_kernel,gaussian_kernel
 
@@ -4660,8 +4663,6 @@ def get_weights_dct_dask(tviews,
                          cumulative_weight_best_views=0.9,
                          ):
 
-    print(orig_stack_propertiess)
-
     # assumes dask array with chunks 128 and a shape which is a multiple
 
     bin_factor = 1
@@ -4676,7 +4677,7 @@ def get_weights_dct_dask(tviews,
         # # have resulting image not smaller than 15 pixels
         # bin_factor = np.min([bin_factor,np.min(np.array(stack_properties['size'])/15,0)],0)
 
-    print('using bin_factor %s for calculating dct weights' %bin_factor)
+    logger.info('using bin_factor %s for calculating dct weights' %bin_factor)
     binned_stack_properties = copy.deepcopy(stack_properties)
     binned_stack_properties['spacing'] = np.array(stack_properties['spacing'])*bin_factor
     # binned_stack_properties['size'] = np.array(tviews[0].shape)
@@ -4690,12 +4691,12 @@ def get_weights_dct_dask(tviews,
     while size * binned_stack_properties['spacing'][0] > 100 and size >= 4: #um
         size = size / 2
 
-    print('DCT: choosing pixel size %s (in um: %s)' %(size,size * binned_stack_properties['spacing'][0]) )
+    logger.info('DCT: choosing pixel size %s (in um: %s)' %(size,size * binned_stack_properties['spacing'][0]) )
 
     # optimise here?
     tviews_binned_rechunked = tviews_binned.rechunk((tviews_binned.chunksize[0],)+(size,)*3)
 
-    print('calculating dct weights...')
+    logger.info('calculating dct weights...')
 
     quality_stack_properties = dict()
     quality_stack_properties['spacing'] = np.array(stack_properties['spacing']*size*bin_factor)
@@ -4722,14 +4723,14 @@ def get_weights_dct_dask(tviews,
     # ws = np.array([ndimage.maximum_filter(ws[i],3) for i in range(len(ws))])
 
     if max_kernel is None:
-        max_kernel = 150 # in um
+        max_kernel = 100 # in um
 
     filter_size = np.max([3, int(max_kernel / (stack_properties['spacing'][0]*size*bin_factor))]) # 100um
     # size = np.max([4, int(100 / spacing)])
     print('weight filter size: %s' %filter_size)
 
     # ws = np.array([ndimage.generic_filter(ws[i],function=np.nanmax,size=3) for i in range(len(ws))])
-    ws = np.array([ndimage.generic_filter(ws[i],function=np.nanmax,size=filter_size) for i in range(len(ws))])
+    ws = np.array([ndimage.generic_filter(ws[i],function=np.nanmax,size=int(filter_size)) for i in range(len(ws))])
 
     # wsmin = ws.min(0)
     wsmin = np.nanmin(ws,0)
@@ -4816,7 +4817,7 @@ def get_weights_dct_dask(tviews,
             if tmpws[iw].max():
                 res.append(transform_stack_sitk(w, stack_properties=block_stack_properties, interp='linear'))
             else:
-                print('skipping construction')
+                # print('skipping construction')
                 res.append(np.zeros(block_stack_properties['size']).astype(np.float32))
 
         res = np.array(res)

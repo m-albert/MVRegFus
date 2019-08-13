@@ -1,3 +1,6 @@
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
 import sys
 import numpy as np
 import pdb,os,sys
