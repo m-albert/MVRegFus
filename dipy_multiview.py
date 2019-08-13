@@ -4200,8 +4200,8 @@ def fuse_blockwise(fn,
     weights = weights.compute()
     io_utils.process_output_element(weights, fn[:-4]+'_w.image.h5')
 
-    # result = result.compute()
-    result = result.compute(scheduler='single-threaded')
+    result = result.compute()
+    # result = result.compute(scheduler='single-threaded')
 
     manual_fusion = np.sum([weights[i]*np.array(tviews_dsets[i]) for i in range(4)],0)
     io_utils.process_output_element(manual_fusion, fn[:-4] + '_manual_fusion.mhd')
@@ -4614,8 +4614,23 @@ def get_weights_dct_dask(tviews,
         block_stack_properties['spacing'] = np.array([out_spacing] * 3)
         block_stack_properties['origin'] = np.array(curr_origin) - depth * block_stack_properties['spacing']
 
+        # optimization possible: only transform non nan weights here
 
-        res = np.array([transform_stack_sitk(w,stack_properties=block_stack_properties,interp='linear') for w in ws]).astype(np.float32)
+        tmpws = get_weights_simple(orig_stack_propertiess, params, block_stack_properties)
+
+        # print('ws max: %s' %([w.max() for w in tmpws]))
+        res = []
+        for iw,w in enumerate(ws):
+            if tmpws[iw].max():
+                res.append(transform_stack_sitk(w, stack_properties=block_stack_properties, interp='linear'))
+            else:
+                print('skipping construction')
+                res.append(np.zeros(block_stack_properties['size']).astype(np.float32))
+
+        res = np.array(res)
+
+        # res = np.array([transform_stack_sitk(w,stack_properties=block_stack_properties,interp='linear') for w in ws]).astype(np.float32)
+
         # res = np.array([transform_stack_dipy(w,stack_properties=block_stack_properties,interp='linear') for w in ws]).astype(np.float32)
 
         # curr_origin = []
@@ -4624,8 +4639,7 @@ def get_weights_dct_dask(tviews,
         #     pixel_offset = block_info[0]['chunk-location'][i + 1] * block_info[None]['chunk-shape'][i+1]# - array_info['depth']
         #     curr_origin.append(stack_properties['origin'][i] + pixel_offset * stack_properties['spacing'][i])
 
-        print('curr_origin', curr_origin)
-        tmpws = get_weights_simple(orig_stack_propertiess,params,block_stack_properties)
+
 
         return res*tmpws
 
