@@ -4721,7 +4721,10 @@ def get_weights_dct_dask(tviews,
 
     # ws = np.array([ndimage.maximum_filter(ws[i],3) for i in range(len(ws))])
 
-    filter_size = np.max([3, int(50 / (stack_properties['spacing'][0]*size*bin_factor))]) # 100um
+    if max_kernel is None:
+        max_kernel = 150 # in um
+
+    filter_size = np.max([3, int(max_kernel / (stack_properties['spacing'][0]*size*bin_factor))]) # 100um
     # size = np.max([4, int(100 / spacing)])
     print('weight filter size: %s' %filter_size)
 
