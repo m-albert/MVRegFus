@@ -4721,7 +4721,12 @@ def get_weights_dct_dask(tviews,
 
     # ws = np.array([ndimage.maximum_filter(ws[i],3) for i in range(len(ws))])
 
-    ws = np.array([ndimage.generic_filter(ws[i],function=np.nanmax,size=3) for i in range(len(ws))])
+    filter_size = np.max([3, int(50 / (stack_properties['spacing'][0]*size*bin_factor))]) # 100um
+    # size = np.max([4, int(100 / spacing)])
+    print('weight filter size: %s' %filter_size)
+
+    # ws = np.array([ndimage.generic_filter(ws[i],function=np.nanmax,size=3) for i in range(len(ws))])
+    ws = np.array([ndimage.generic_filter(ws[i],function=np.nanmax,size=filter_size) for i in range(len(ws))])
 
     # wsmin = ws.min(0)
     wsmin = np.nanmin(ws,0)
@@ -4756,7 +4761,8 @@ def get_weights_dct_dask(tviews,
 
         return Z
     # ws = np.array([ndimage.gaussian_filter(ws[i],1) for i in range(len(ws))])
-    ws = np.array([nan_gaussian_filter(ws[i],1) for i in range(len(ws))])
+    # ws = np.array([nan_gaussian_filter(ws[i],1) for i in range(len(ws))])
+    ws = np.array([nan_gaussian_filter(ws[i],filter_size) for i in range(len(ws))])
 
     ws[np.isnan(ws)] = 0
 
