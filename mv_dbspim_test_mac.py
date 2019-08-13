@@ -5,6 +5,9 @@ import io_utils
 import sys
 import graph_multiview
 
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
 
 ##########################
 #### parameters to modify
@@ -87,7 +90,7 @@ dct_gaussian_kernel = None
 # weight normalisation parameters
 # normalise such that approx. <dct_cumulative_weight_best_views> weight is
 # contained in the <dct_how_many_best_views> best views
-dct_how_many_best_views = 1
+dct_how_many_best_views = 2
 dct_cumulative_weight_best_views = 0.9
 
 # options for weighted Lucy Richardson multi-view deconvolution

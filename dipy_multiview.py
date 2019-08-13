@@ -3576,19 +3576,23 @@ def get_weights_simple(
                     break
             t_border_points_inside.append(inside)
 
+        # if all borders inside it could be that the border is close to the edge,
+        # meaning it has to be considered
 
-        if np.all(t_border_points_inside):
-            ws.append(np.ones(stack_properties['size'],dtype=np.float32))
-            # print('all borders inside')
-            continue
+        # if np.all(t_border_points_inside):
+        #     ws.append(np.ones(stack_properties['size'],dtype=np.float32))
+        #     # print('all borders inside')
+        #     continue
+        #
 
-        elif not np.any(t_border_points_inside):
+        if not np.any(t_border_points_inside):
+            # print(print(t_border_points_inside))
             ws.append(np.zeros(stack_properties['size'], dtype=np.float32))
             # print('all borders outside')
             continue
 
         # else:
-            # print('block lies partially inside')
+        # print('block lies partially inside')
 
 
         # tmporigin = views[iview].origin+views[iview].spacing/2.
@@ -3618,8 +3622,10 @@ def get_weights_simple(
 
         # determine boundary using the psf? alternatively, um
 
+        # sigN = 200
         sigN = 200
         sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-2)/(sigN-1)*orig_stack_propertiess[iview]['spacing']
+        # sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-1)/(sigN-1)*orig_stack_propertiess[iview]['spacing']
 
         b_in_um = 40.
         b_in_pixels = int(b_in_um / sigspacing[0])
@@ -3632,7 +3638,9 @@ def get_weights_simple(
 
         for d in range(3):
             # borderwidth = int(r * sig.shape[d])
+            # blend bad part of stack more:
             borderwidth = b_in_pixels
+            if d == 0: borderwidth = b_in_pixels*4
             # print(borderwidth)
             slices = [slice(0, sig.shape[i]) for i in range(3)]
             for bx in range(borderwidth):
@@ -3642,6 +3650,7 @@ def get_weights_simple(
             # don't blend best part of the image (assuming that is true for high zs)
             # if d == 0: borderwidth = int(0.02 * sig.shape[d])
             # if d == 0: borderwidth = int(0.05 * sig.shape[d])
+            borderwidth = b_in_pixels
             for bx in range(borderwidth):
                 slices[d] = slice(sig.shape[d] - bx - 1, sig.shape[d] - bx)
                 sig[tuple(slices)] = np.min([sig[tuple(slices)] * 0 + sigmoid(bx, borderwidth), sig[tuple(slices)]], 0)
@@ -3667,8 +3676,9 @@ def get_weights_simple(
         # mask = mask > 0
         # print('WARNING; 1 ITERATIONS FOR MASK DILATION (DCT WEIGHTS')
         # mask = ndimage.binary_dilation(mask == 0,iterations=1)
+        # ws.append(tmpvs*mask)
+        # ws.append(mask)
         ws.append(tmpvs)
-        # ws.append(tmpvs)
 
     # print('times',times)
 
@@ -4707,8 +4717,9 @@ def get_weights_dct_dask(tviews,
     ws = tviews_binned_rechunked.map_blocks(determine_chunk_quality,chunks = (tviews_binned.chunksize[0],1,1,1),dtype=np.float32,**{'orig_stack_propertiess': orig_stack_propertiess,
                                                                                                                                     'params': params,
                                                                                                                                     'stack_properties': quality_stack_properties,
-                                                                                                                                    'how_many_best_views': how_many_best_views,
-                                                                                                                                    'cumulative_weight_best_views':cumulative_weight_best_views})#,chunks=(tviews_binned.chunksize[0],1,1,1))
+                                                                                                                                    # 'how_many_best_views': how_many_best_views,
+                                                                                                                                    # 'cumulative_weight_best_views':cumulative_weight_best_views
+                                                                                                                                    })
 
     ws = ws.compute()#scheduler='single-threaded')
 
@@ -4725,26 +4736,96 @@ def get_weights_dct_dask(tviews,
     if max_kernel is None:
         max_kernel = 100 # in um
 
-    filter_size = np.max([3, int(max_kernel / (stack_properties['spacing'][0]*size*bin_factor))]) # 100um
+    filter_size = np.max([1, int(max_kernel / (stack_properties['spacing'][0]*size*bin_factor))]) # 100um
     # size = np.max([4, int(100 / spacing)])
     print('weight filter size: %s' %filter_size)
 
+    if logger.getEffectiveLevel() >= logging.DEBUG:
+        logging.debug('saving ws blocks')
+        io_utils.process_output_element(ws,'/Users/marvin/data/dbspim/20140911_cxcr7_wt/ws_blocks_1.image.h5')
+
     # ws = np.array([ndimage.generic_filter(ws[i],function=np.nanmax,size=3) for i in range(len(ws))])
+
+    nanmask = np.isnan(ws)
     ws = np.array([ndimage.generic_filter(ws[i],function=np.nanmax,size=int(filter_size)) for i in range(len(ws))])
 
-    # wsmin = ws.min(0)
-    wsmin = np.nanmin(ws,0)
-    wsmax = np.nanmax(ws,0)
-    ws = np.array([(w - wsmin)/(wsmax - wsmin + 0.01) for w in ws])
+    # # wsmin = ws.min(0)
+    # wsmin = np.nanmin(ws,0)
+    # wsmax = np.nanmax(ws,0)
+    # ws = np.array([(w - wsmin)/(wsmax - wsmin + 0.01) for w in ws])
+    #
+    # single_view_mask = wsmin==wsmax
+    # ws[:,single_view_mask] += 1
+    # ws[:,single_view_mask] = ws[:,single_view_mask] / 1
 
-    single_view_mask = wsmin==wsmax
-    ws[:,single_view_mask] += 1
-    ws[:,single_view_mask] = ws[:,single_view_mask] / 1
+    # wsum = np.nansum(ws,0)
+    # wsum[wsum==0] = 1
+    # for iw,w in enumerate(ws):
+    #     ws[iw] /= wsum
 
-    wsum = np.nansum(ws,0)
-    wsum[wsum==0] = 1
-    for iw,w in enumerate(ws):
-        ws[iw] /= wsum
+    # ws[np.isnan(ws)] = 0
+    ws[nanmask] = 0
+
+    def adapt_weights(ws,how_many_best_views,cumulative_weight_best_views):
+
+        # HEURISTIC to adapt weights to number of views
+        # idea: typically, 2-3 views carry good information at a given location
+        # and the rest should not contribute
+        # w**exp with exp>1 polarises the weights
+        # we want to find exp such that 90% of the quality contribution
+        # is given by the two best views
+        # this is overall and the analysis is limited to regions where the best view
+        # has at least double its baseline value 1/len(views)
+        # alternatively: best view should have 0.5
+
+        ws = ws[:,0,0,0]
+
+        wsum = np.sum(ws, 0)
+        # wsum[wsum == 0] = 1
+        if wsum > 0:
+            ws = ws / wsum
+
+        # if not (len(ws) > 2): return ws[:,None,None,None]
+        if not (np.sum(ws>0) >= 2): return ws[:,None,None,None]
+        else:
+
+            wf = ws.astype(np.float64) # important for optimization!
+            wfs = np.sort(wf, axis=0)
+
+
+            def energy(exp):
+                exp = exp[0]
+                tmpw = wfs ** exp
+                tmpsum = np.nansum(tmpw, 0)
+                tmpw = tmpw / tmpsum
+
+                nsum = np.nansum(tmpw[-int(how_many_best_views):], (-1))# / wfs.shape[-1]
+                energy = np.abs(np.nansum(nsum) - cumulative_weight_best_views)
+
+                return energy
+
+            from scipy import optimize
+            # res = optimize.minimize(energy, [0.5], bounds=[[0.1, 10]], method='L-BFGS-B', options={'maxiter': 10})
+            res = optimize.minimize(energy, [0.5], bounds=[[0.01, 100]], method='L-BFGS-B', options={'maxiter': 10})
+
+            exp = res.x[0]
+            # logging.debug('exponentiating weights')
+            ws = [ws[i] ** exp for i in range(len(ws))]
+
+            wsum = np.sum(ws, 0)
+            # wsum[wsum == 0] = 1
+            if wsum > 0:
+                ws = ws / wsum
+
+            logging.debug('aa: %s %s %s %s' % (exp, how_many_best_views, cumulative_weight_best_views, ws))
+
+            ws = np.array(ws)[:,None,None,None]
+
+            return ws
+
+    ws = da.map_blocks(adapt_weights, da.from_array(ws,chunks=(len(ws),1,1,1)), dtype=np.float32, how_many_best_views=how_many_best_views, cumulative_weight_best_views=cumulative_weight_best_views)
+    ws = ws.compute()#scheduler='single-threaded')
+    # ws = np.array(ws)
 
     def nan_gaussian_filter(U, sigma):
 
@@ -4766,11 +4847,19 @@ def get_weights_dct_dask(tviews,
         return Z
     # ws = np.array([ndimage.gaussian_filter(ws[i],1) for i in range(len(ws))])
     # ws = np.array([nan_gaussian_filter(ws[i],1) for i in range(len(ws))])
-    ws = np.array([nan_gaussian_filter(ws[i],filter_size) for i in range(len(ws))])
+    # ws[nanmask] = np.nan
+    ws = np.array([nan_gaussian_filter(ws[i],filter_size/2.) for i in range(len(ws))])
+    ws[nanmask] = 0
 
-    ws[np.isnan(ws)] = 0
+    if logger.getEffectiveLevel() >= logging.DEBUG:
+        logging.debug('saving ws blocks')
+        io_utils.process_output_element(ws,'/Users/marvin/data/dbspim/20140911_cxcr7_wt/ws_blocks_2.image.h5')
 
+    # binned_origin = stack_properties['origin'] + (stack_properties['spacing']*(size*bin_factor - 1)) / 2.
     binned_origin = stack_properties['origin'] + (stack_properties['spacing']*(size*bin_factor - 1)) / 2.
+
+    # binned_origin = origin + (binned_spacing - spacing) / 2.
+
     weight_im = [ImageArray(w,origin=binned_origin,spacing=stack_properties['spacing']*size*bin_factor) for w in ws]
     # weight_im = [ImageArray(w,origin=stack_properties['origin'],spacing=stack_properties['spacing']*size*bin_factor) for w in ws]
 
@@ -4832,8 +4921,9 @@ def get_weights_dct_dask(tviews,
         #     pixel_offset = block_info[0]['chunk-location'][i + 1] * block_info[None]['chunk-shape'][i+1]# - array_info['depth']
         #     curr_origin.append(stack_properties['origin'][i] + pixel_offset * stack_properties['spacing'][i])
 
-
-
+        # return res*tmpws
+        # logging.warning('ignoring dct weights')
+        # return tmpws
         return res*tmpws
 
     # ws = da.ones(tviews.numblocks,chunks=(tviews_binned.chunksize[0],)+tuple([1]*3))
@@ -4978,8 +5068,8 @@ def get_weights_dct_dask(tviews,
     return ws#,ws_small
 
 def determine_chunk_quality(vrs,
-                            how_many_best_views,
-                            cumulative_weight_best_views,
+                            # how_many_best_views,
+                            # cumulative_weight_best_views,
                             orig_stack_propertiess,
                             params,
                             stack_properties,
@@ -5061,79 +5151,17 @@ def determine_chunk_quality(vrs,
         return res
 
     ws = np.array([-np.sum(np.abs(d)*abslog(d/dsl2[id])) for id,d in enumerate(ds)])
+    logging.debug('ws: %s' %ws)
     # ws = np.array([np.sum(np.abs(d)) for d in ds])
 
     # simple weights in case everything is zero
-    if not ws.max():
-        ws = np.ones(len(ws))/float(len(ws))
+    # if not ws.max():
+    #     ws = np.ones(len(ws))/float(len(ws))
 
-
-    # HEURISTIC to adapt weights to number of views
-    # idea: typically, 2-3 views carry good information at a given location
-    # and the rest should not contribute
-    # w**exp with exp>1 polarises the weights
-    # we want to find exp such that 90% of the quality contribution
-    # is given by the two best views
-    # this is overall and the analysis is limited to regions where the best view
-    # has at least double its baseline value 1/len(views)
-    # alternatively: best view should have 0.5
-
-    if len(ws) > 2 and ws.min() < ws.max():
-
-        # print('applying heuristic to adapt weights to N=%s views' % len(ws))
-        # print('criterion: weights**exp such that best two views > 0.9')
-
-        wsum = np.sum(ws, 0)
-        # wsum[wsum == 0] = 1
-        for iw, w in enumerate(ws):
-            ws[iw] /= wsum
-
-
-
-        # wf = ws[:, np.max(ws, 0) > (2 * (1 / len(ws)))]
-        wf = ws
-        # wf = wf[:,np.sum(wf,0)>0]
-        wfs = np.sort(wf, axis=0)
-
-        # def energy(exp):
-        #     exp = exp[0]
-        #     tmpw = wfs ** exp
-        #     tmpsum = np.sum(tmpw, 0)
-        #     tmpw = tmpw / tmpsum
-        #
-        #     nsum = np.sum(tmpw[-int(how_many_best_views):], (-1))# / wfs.shape[-1]
-        #     energy = np.abs(np.sum(nsum) - cumulative_weight_best_views)
-        #
-        #     # nsum = np.sum(tmpw[-1:], (-1))# / wfs.shape[-1]
-        #     # energy = np.abs(np.sum(nsum) - 0.5)
-        #
-        #     return energy
-
-        def energy(exp):
-            exp = exp[0]
-            tmpw = wfs ** exp
-            tmpsum = np.nansum(tmpw, 0)
-            tmpw = tmpw / tmpsum
-
-            nsum = np.nansum(tmpw[-int(how_many_best_views):], (-1))# / wfs.shape[-1]
-            energy = np.abs(np.nansum(nsum) - cumulative_weight_best_views)
-
-            # nsum = np.sum(tmpw[-1:], (-1))# / wfs.shape[-1]
-            # energy = np.abs(np.sum(nsum) - 0.5)
-
-            return energy
-
-        from scipy import optimize
-        res = optimize.minimize(energy, [0.5], bounds=[[0.1, 10]], method='L-BFGS-B', options={'maxiter': 10})
-
-        exp = res.x[0]
-
-        # print('found exp=%s' % exp)
-
-        ws = [ws[i] ** exp for i in range(len(ws))]
-
-        ws = np.array(ws)
-
+    # ws = np.array(ws)
+    wssum = np.sum(ws)
+    if wssum>0:
+        ws = ws/wssum
     # res = np.zeros(orig_shape,dtype=np.float32)
     # for iw in range(len(ws)):
     #     res[iw] = ws[iw]
