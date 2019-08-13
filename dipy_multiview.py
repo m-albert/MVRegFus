@@ -4191,20 +4191,20 @@ def fuse_blockwise(fn,
     # with dask.config.set(scheduler='threads'), ProgressBar():
     # with dask.config.set(scheduler='single-threaded'), ProgressBar():
 
-    print('diagnostics: calculating weights and saving them to results folder')
-    if depth > 0:
-        trim_dict = {i:[0,depth][i>0] for i in range(4)}
-        weights = da.overlap.trim_internal(weights, trim_dict)
-
-    weights = weights[:,:orig_shape[0], :orig_shape[1], :orig_shape[2]]
-    weights = weights.compute()
-    io_utils.process_output_element(weights, fn[:-4]+'_w.image.h5')
+    # print('diagnostics: calculating weights and saving them to results folder')
+    # if depth > 0:
+    #     trim_dict = {i:[0,depth][i>0] for i in range(4)}
+    #     weights = da.overlap.trim_internal(weights, trim_dict)
+    #
+    # weights = weights[:,:orig_shape[0], :orig_shape[1], :orig_shape[2]]
+    # weights = weights.compute()
+    # io_utils.process_output_element(weights, fn[:-4]+'_w.image.h5')
 
     result = result.compute()
     # result = result.compute(scheduler='single-threaded')
 
-    manual_fusion = np.sum([weights[i]*np.array(tviews_dsets[i]) for i in range(4)],0)
-    io_utils.process_output_element(manual_fusion, fn[:-4] + '_manual_fusion.mhd')
+    # manual_fusion = np.sum([weights[i]*np.array(tviews_dsets[i]) for i in range(4)],0)
+    # io_utils.process_output_element(manual_fusion, fn[:-4] + '_manual_fusion.mhd')
 
     # result = result[:,128:256].compute()
 
