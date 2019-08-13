@@ -3444,6 +3444,56 @@ def get_stack_properties_from_view_dict(view_dict,raw_input_binning=[1,1,1]):
 
     return stack_props
 
+def blocks_inside(
+        orig_stack_propertiess,
+        params,
+        stack_properties,
+        n_points_per_dim = 5,
+        ):
+
+    border_points = []
+    rel_coords = np.linspace(0,1,n_points_per_dim)
+    for point in [[i,j,k] for i in rel_coords for j in rel_coords for k in rel_coords]:
+        phys_point = stack_properties['origin'] + np.array(point)*stack_properties['size']*stack_properties['spacing']
+        border_points.append(phys_point)
+
+    # for iview,view in enumerate(views):
+
+    ws = []
+    for iview in range(len(params)):
+
+        # quick check if stack_properties inside orig volume
+        osp = orig_stack_propertiess[iview]
+
+        # transform border points into orig view space (pixel coords)
+        t_border_points_inside = []
+        for point in border_points:
+            t_point = np.dot(params[iview][:9].reshape((3,3)),point) + params[iview][9:]
+            t_point_pix = (t_point - osp['origin']) / osp['spacing']
+            inside = True
+            for icoord,coord in enumerate(t_point_pix):
+                if coord < 0 or coord >= osp['size'][icoord]:
+                    inside = False
+                    break
+            t_border_points_inside.append(inside)
+
+
+        if np.all(t_border_points_inside):
+            ws.append(1)
+            # print('all borders inside')
+            continue
+
+        elif not np.any(t_border_points_inside):
+            ws.append(0)
+            # print('all borders outside')
+            continue
+
+        else:
+            ws.append(2)
+            # print('block lies partially inside')
+
+    return np.array(ws)
+
 # @io_decorator
 def get_weights_simple(
                     orig_stack_propertiess,
@@ -4141,23 +4191,23 @@ def fuse_blockwise(fn,
     # with dask.config.set(scheduler='threads'), ProgressBar():
     # with dask.config.set(scheduler='single-threaded'), ProgressBar():
 
-    # print('diagnostics: calculating weights and saving them to results folder')
-    # if depth > 0:
-    #     trim_dict = {i:[0,depth][i>0] for i in range(4)}
-    #     weights = da.overlap.trim_internal(weights, trim_dict)
-    #
-    # weights = weights[:,:orig_shape[0], :orig_shape[1], :orig_shape[2]]
-    # weights = weights.compute()
-    # io_utils.process_output_element(weights, fn[:-4]+'_w.image.h5')
+    print('diagnostics: calculating weights and saving them to results folder')
+    if depth > 0:
+        trim_dict = {i:[0,depth][i>0] for i in range(4)}
+        weights = da.overlap.trim_internal(weights, trim_dict)
 
-    result = result.compute()
+    weights = weights[:,:orig_shape[0], :orig_shape[1], :orig_shape[2]]
+    weights = weights.compute()
+    io_utils.process_output_element(weights, fn[:-4]+'_w.image.h5')
 
-    # manual_fusion = np.sum([weights[i]*np.array(tviews_dsets[i]) for i in range(4)],0)
-    # io_utils.process_output_element(manual_fusion, fn[:-4] + '_manual_fusion.image.h5')
+    # result = result.compute()
+    result = result.compute(scheduler='single-threaded')
+
+    manual_fusion = np.sum([weights[i]*np.array(tviews_dsets[i]) for i in range(4)],0)
+    io_utils.process_output_element(manual_fusion, fn[:-4] + '_manual_fusion.mhd')
 
     # result = result[:,128:256].compute()
 
-    # result = result.compute(scheduler='single-threaded')
 
     # starts, sizes = [], []
     # chunks = result.chunks
@@ -4448,12 +4498,6 @@ def get_weights_dct_dask(tviews,
     binned_stack_properties['spacing'] = np.array(stack_properties['spacing'])*bin_factor
     # binned_stack_properties['size'] = np.array(tviews[0].shape)
 
-    size,max_kernel,gaussian_kernel = get_dct_options(binned_stack_properties['spacing'][0],
-                                                      size,
-                                                      max_kernel,
-                                                      gaussian_kernel,
-                                                      )
-
     tviews_binned = scale_down_dask_array(tviews,b=bin_factor)
 
     size = tviews_binned.chunksize[1]
@@ -4470,17 +4514,70 @@ def get_weights_dct_dask(tviews,
 
     print('calculating dct weights...')
 
+    quality_stack_properties = dict()
+    quality_stack_properties['spacing'] = np.array(stack_properties['spacing']*size*bin_factor)
+    quality_stack_properties['size'] = np.array([int(size)]*3)
+    quality_stack_properties['origin'] = stack_properties['origin']
     # ws = tviews_binned_rechunked.map_blocks(determine_chunk_quality,dtype=np.float32,**{'how_many_best_views':how_many_best_views,'cumulative_weight_best_views':cumulative_weight_best_views})#,chunks=(tviews_binned.chunksize[0],1,1,1))
-    ws = tviews_binned_rechunked.map_blocks(determine_chunk_quality,chunks = (tviews_binned.chunksize[0],1,1,1),dtype=np.float32,**{'how_many_best_views':how_many_best_views,'cumulative_weight_best_views':cumulative_weight_best_views})#,chunks=(tviews_binned.chunksize[0],1,1,1))
+    # ws = tviews_binned_rechunked.map_blocks(determine_chunk_quality,chunks = (tviews_binned.chunksize[0],1,1,1),dtype=np.float32,**{'how_many_best_views':how_many_best_views,'cumulative_weight_best_views':cumulative_weight_best_views})#,chunks=(tviews_binned.chunksize[0],1,1,1))
+    ws = tviews_binned_rechunked.map_blocks(determine_chunk_quality,chunks = (tviews_binned.chunksize[0],1,1,1),dtype=np.float32,**{'orig_stack_propertiess': orig_stack_propertiess,
+                                                                                                                                    'params': params,
+                                                                                                                                    'stack_properties': quality_stack_properties,
+                                                                                                                                    'how_many_best_views': how_many_best_views,
+                                                                                                                                    'cumulative_weight_best_views':cumulative_weight_best_views})#,chunks=(tviews_binned.chunksize[0],1,1,1))
 
     ws = ws.compute()#scheduler='single-threaded')
 
+    # size,max_kernel,gaussian_kernel = get_dct_options(
+    #                                                   # binned_stack_properties['spacing'][0],
+    #                                                   stack_properties['spacing'][0]*size*bin_factor,
+    #                                                   size,
+    #                                                   max_kernel,
+    #                                                   gaussian_kernel,
+    #                                                   )
 
-    ws = np.array([ndimage.maximum_filter(ws[i],3) for i in range(len(ws))])
-    ws = np.array([ndimage.gaussian_filter(ws[i],1) for i in range(len(ws))])
+    # ws = np.array([ndimage.maximum_filter(ws[i],3) for i in range(len(ws))])
 
-    # ws_small = np.copy(ws)
-    # dct_chunks = 2
+    ws = np.array([ndimage.generic_filter(ws[i],function=np.nanmax,size=3) for i in range(len(ws))])
+
+    # wsmin = ws.min(0)
+    wsmin = np.nanmin(ws,0)
+    wsmax = np.nanmax(ws,0)
+    ws = np.array([(w - wsmin)/(wsmax - wsmin + 0.01) for w in ws])
+
+    single_view_mask = wsmin==wsmax
+    ws[:,single_view_mask] += 1
+    ws[:,single_view_mask] = ws[:,single_view_mask] / 1
+
+    wsum = np.nansum(ws,0)
+    wsum[wsum==0] = 1
+    for iw,w in enumerate(ws):
+        ws[iw] /= wsum
+
+    def nan_gaussian_filter(U, sigma):
+
+        import scipy as sp
+        import scipy.ndimage
+
+        V = U.copy()
+        V[U != U] = 0
+        VV = sp.ndimage.gaussian_filter(V, sigma=sigma, mode='nearest')
+
+        W = 0 * U.copy() + 1
+        W[U != U] = 0
+        WW = sp.ndimage.gaussian_filter(W, sigma=sigma, mode='nearest')
+
+        Z = VV / WW
+
+        Z[U != U] = np.nan
+
+        return Z
+    # ws = np.array([ndimage.gaussian_filter(ws[i],1) for i in range(len(ws))])
+    ws = np.array([nan_gaussian_filter(ws[i],1) for i in range(len(ws))])
+
+    ws[np.isnan(ws)] = 0
+
+    io_utils.process_output_element(ws, '/Users/marvin/data/dbspim/20140911_cxcr7_wt'+'/w_block.image.h5')
 
     binned_origin = stack_properties['origin'] + (stack_properties['spacing']*(size*bin_factor - 1)) / 2.
     weight_im = [ImageArray(w,origin=binned_origin,spacing=stack_properties['spacing']*size*bin_factor) for w in ws]
@@ -4657,6 +4754,13 @@ def get_weights_dct_dask(tviews,
         res[:,wssum==0] = 0
         return res
 
+    # def normalise(ws):
+    #     wssum = np.nansum(ws,0)
+    #     wssum[wssum==0] = 1
+    #     res = ws/wssum
+    #     res[:,wssum==0] = 0
+    #     return res
+
     ws = da.map_blocks(normalise, ws,dtype=np.float32)
 
     # ws = ws.rechunk(tviews.chunksize)
@@ -4668,7 +4772,14 @@ def get_weights_dct_dask(tviews,
 
     return ws#,ws_small
 
-def determine_chunk_quality(vrs,how_many_best_views,cumulative_weight_best_views):
+def determine_chunk_quality(vrs,
+                            how_many_best_views,
+                            cumulative_weight_best_views,
+                            orig_stack_propertiess,
+                            params,
+                            stack_properties,
+                            block_info=None,
+                            ):
 
     """
     DCT Shannon Entropy, as in:
@@ -4680,9 +4791,41 @@ def determine_chunk_quality(vrs,how_many_best_views,cumulative_weight_best_views
     """
     # print('dw...')
 
+    curr_origin = []
+    # target_origin = []
+    for i in range(3):
+        # pixel_offset = block_info[0]['chunk-location'][i + 1] * array_info['chunksize'] - array_info['depth']
+        pixel_offset = block_info[0]['chunk-location'][
+            i + 1]  # * block_info[None]['chunk-shape'][i+1]# - array_info['depth']
+        # curr_origin.append(ws[0].origin[i] + pixel_offset * ws[0].spacing[i])
+        curr_origin.append(stack_properties['origin'][i] + pixel_offset * stack_properties['spacing'][i])
+
+    # print('curr_origin', curr_origin)
+
+    block_stack_properties = dict()
+    # block_stack_properties['size'] = np.array([in_spacing/out_spacing]*3).astype(np.int64)#+2*array_info['depth'])
+    # block_stack_properties['size'] = np.array([in_spacing/out_spacing]*3).astype(np.int64)#+2*array_info['depth'])
+    block_stack_properties['size'] = np.array(vrs[0].shape).astype(np.int64)  # +2*array_info['depth'])
+    block_stack_properties['spacing'] = np.array(stack_properties['spacing'])
+    block_stack_properties['origin'] = np.array(curr_origin)# - depth * block_stack_properties['spacing']
+
+    view_inside_mask = blocks_inside(orig_stack_propertiess,params,block_stack_properties,n_points_per_dim=2)
+    # print(view_inside_mask)
+
+    # no view inside
+    if not np.max(view_inside_mask):
+        ws = np.ones(len(view_inside_mask)).astype(np.float32)*np.nan
+        return ws[:,None,None,None]
+
+    # only one view at least partially inside
+    elif np.sum(view_inside_mask>0) == 1:
+        ws = np.ones(len(view_inside_mask)).astype(np.float32)*np.nan
+        ws[view_inside_mask>0] = 1.
+        return ws[:,None,None,None]
+
     vrs = np.copy(vrs)
 
-    orig_shape = vrs.shape
+    vrs = vrs[view_inside_mask>0]
 
     axes = [0,1,2]
     ds = []
@@ -4747,14 +4890,28 @@ def determine_chunk_quality(vrs,how_many_best_views,cumulative_weight_best_views
         # wf = wf[:,np.sum(wf,0)>0]
         wfs = np.sort(wf, axis=0)
 
+        # def energy(exp):
+        #     exp = exp[0]
+        #     tmpw = wfs ** exp
+        #     tmpsum = np.sum(tmpw, 0)
+        #     tmpw = tmpw / tmpsum
+        #
+        #     nsum = np.sum(tmpw[-int(how_many_best_views):], (-1))# / wfs.shape[-1]
+        #     energy = np.abs(np.sum(nsum) - cumulative_weight_best_views)
+        #
+        #     # nsum = np.sum(tmpw[-1:], (-1))# / wfs.shape[-1]
+        #     # energy = np.abs(np.sum(nsum) - 0.5)
+        #
+        #     return energy
+
         def energy(exp):
             exp = exp[0]
             tmpw = wfs ** exp
-            tmpsum = np.sum(tmpw, 0)
+            tmpsum = np.nansum(tmpw, 0)
             tmpw = tmpw / tmpsum
 
-            nsum = np.sum(tmpw[-int(how_many_best_views):], (-1))# / wfs.shape[-1]
-            energy = np.abs(np.sum(nsum) - cumulative_weight_best_views)
+            nsum = np.nansum(tmpw[-int(how_many_best_views):], (-1))# / wfs.shape[-1]
+            energy = np.abs(np.nansum(nsum) - cumulative_weight_best_views)
 
             # nsum = np.sum(tmpw[-1:], (-1))# / wfs.shape[-1]
             # energy = np.abs(np.sum(nsum) - 0.5)
@@ -4776,7 +4933,10 @@ def determine_chunk_quality(vrs,how_many_best_views,cumulative_weight_best_views
     # for iw in range(len(ws)):
     #     res[iw] = ws[iw]
     #
-    return ws[:,None,None,None]
+    full_ws = np.ones(len(view_inside_mask))*np.nan
+    full_ws[view_inside_mask>0] = ws
+
+    return full_ws[:,None,None,None]
     # return res.astype(np.float32)
     # return ws
 
