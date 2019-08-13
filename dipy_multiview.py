@@ -2,6 +2,7 @@ __author__ = 'malbert'
 
 import logging
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
 
 import os,tempfile,pdb,sys,copy
 import numpy as np
