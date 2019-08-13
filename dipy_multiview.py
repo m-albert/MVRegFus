@@ -3402,23 +3402,53 @@ def calc_stack_properties_from_volume(volume,spacing):
 #
 #     return ws
 
+# def get_mask_in_target_space(orig_stack_props,
+#                                target_stack_props,
+#                                param,
+#                                ):
+#
+#     # tmporigin = views[iview].origin + views[iview].spacing / 2.
+#     tmporigin = orig_stack_props['origin'] + orig_stack_props['spacing'] / 2.
+#     badplanes = int(0 / orig_stack_props['spacing'][0])  # in microns
+#     tmporigin[0] += orig_stack_props['spacing'][0] * badplanes
+#     # print('WATCH OUT! simple_weights: disregarding %s bad planes at the end of the stack' % badplanes)
+#
+#     # reducedview = view[badplanes:-1, :-1, :-1]
+#     # reducedview_shape = np.array(orig_stack_props['size'])-1
+#     reducedview_shape = np.array(orig_stack_props['size'])-1
+#     reducedview_shape[0] -= badplanes
+#     reducedview = np.ones(reducedview_shape,dtype=np.uint16)
+#     reducedview = ImageArray(reducedview + 1, spacing=orig_stack_props['spacing'], origin=tmporigin)
+#     mask = transform_stack_sitk(reducedview, param,
+#                                 out_origin=target_stack_props['origin'],
+#                                 out_shape=target_stack_props['size'],
+#                                 out_spacing=target_stack_props['spacing'],
+#                                 interp='nearest')
+#     mask = mask > 0
+#     return mask
+
 def get_mask_in_target_space(orig_stack_props,
                                target_stack_props,
                                param,
                                ):
 
     # tmporigin = views[iview].origin + views[iview].spacing / 2.
-    tmporigin = orig_stack_props['origin'] + orig_stack_props['spacing'] / 2.
+#     tmporigin = orig_stack_props['origin'] + orig_stack_props['spacing'] / 2.#+0.0001
+    tmporigin = orig_stack_props['origin'] + 1.5*orig_stack_props['spacing'] / 2.#+0.0001
+
     badplanes = int(0 / orig_stack_props['spacing'][0])  # in microns
     tmporigin[0] += orig_stack_props['spacing'][0] * badplanes
     # print('WATCH OUT! simple_weights: disregarding %s bad planes at the end of the stack' % badplanes)
 
     # reducedview = view[badplanes:-1, :-1, :-1]
     # reducedview_shape = np.array(orig_stack_props['size'])-1
-    reducedview_shape = np.array(orig_stack_props['size'])-1
-    reducedview_shape[0] -= badplanes
-    reducedview = np.ones(reducedview_shape,dtype=np.uint16)
-    reducedview = ImageArray(reducedview + 1, spacing=orig_stack_props['spacing'], origin=tmporigin)
+    reducedview_shape = np.array(orig_stack_props['size'])-2
+    tmporigin = orig_stack_props['origin'] + orig_stack_props['size']/2.
+    tmpspacing = (orig_stack_props['size']-2)*orig_stack_props['spacing']
+#     reducedview_shape[0] -= badplanes
+#     reducedview = np.ones(reducedview_shape,dtype=np.uint16)
+    reducedview = np.ones((1,1,1),dtype=np.uint16)
+    reducedview = ImageArray(reducedview + 1, spacing=tmpspacing, origin=tmporigin)
     mask = transform_stack_sitk(reducedview, param,
                                 out_origin=target_stack_props['origin'],
                                 out_shape=target_stack_props['size'],
@@ -3586,7 +3616,7 @@ def get_weights_simple(
         # determine boundary using the psf? alternatively, um
 
         sigN = 200
-        sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-1)/(sigN-1)*orig_stack_propertiess[iview]['spacing']
+        sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-2)/(sigN-1)*orig_stack_propertiess[iview]['spacing']
 
         b_in_um = 40.
         b_in_pixels = int(b_in_um / sigspacing[0])
@@ -3626,15 +3656,15 @@ def get_weights_simple(
                                interp='linear',
                                      )
 
-        mask = get_mask_in_target_space(orig_stack_propertiess[iview],
-                                 stack_properties,
-                                 params[iview]
-                                 )
+        # mask = get_mask_in_target_space(orig_stack_propertiess[iview],
+        #                          stack_properties,
+        #                          params[iview]
+        #                          )
         times.append(time.time()-start)
         # mask = mask > 0
         # print('WARNING; 1 ITERATIONS FOR MASK DILATION (DCT WEIGHTS')
         # mask = ndimage.binary_dilation(mask == 0,iterations=1)
-        ws.append(tmpvs*(mask))
+        ws.append(tmpvs)
         # ws.append(tmpvs)
 
     print('times',times)
@@ -3646,6 +3676,159 @@ def get_weights_simple(
         ws[iw] = ws[iw] / wsum
 
     return ws
+
+# # @io_decorator
+# def get_weights_simple(
+#                     orig_stack_propertiess,
+#                     params,
+#                     stack_properties,
+#                     ):
+#     """
+#     sigmoid on borders
+#     """
+#
+#     # w_stack_properties = stack_properties.copy()
+#     # minspacing = 3.
+#     # changed_stack_properties = False
+#     # if w_stack_properties['spacing'][0] < minspacing:
+#     #     changed_stack_properties = True
+#     #     print('using downsampled images for calculating simple weights..')
+#     #     w_stack_properties['spacing'] = np.array([minspacing]*3)
+#     #     w_stack_properties['size'] = (stack_properties['spacing'][0]/w_stack_properties['spacing'][0])*stack_properties['size']
+#
+#     ws = []
+#
+#     border_points = []
+#     rel_coords = np.linspace(0,1,5)
+#     for point in [[i,j,k] for i in rel_coords for j in rel_coords for k in rel_coords]:
+#         phys_point = stack_properties['origin'] + np.array(point)*stack_properties['size']*stack_properties['spacing']
+#         border_points.append(phys_point)
+#
+#     # for iview,view in enumerate(views):
+#     import time
+#     times = []
+#     for iview in range(len(params)):
+#
+#         start = time.time()
+#
+#         # quick check if stack_properties inside orig volume
+#         osp = orig_stack_propertiess[iview]
+#
+#         # transform border points into orig view space (pixel coords)
+#         t_border_points_inside = []
+#         for point in border_points:
+#             t_point = np.dot(params[iview][:9].reshape((3,3)),point) + params[iview][9:]
+#             t_point_pix = (t_point - osp['origin']) / osp['spacing']
+#             inside = True
+#             for icoord,coord in enumerate(t_point_pix):
+#                 if coord < 0 or coord >= osp['size'][icoord]:
+#                     inside = False
+#                     break
+#             t_border_points_inside.append(inside)
+#
+#
+#         if np.all(t_border_points_inside):
+#             ws.append(np.ones(stack_properties['size'],dtype=np.float32))
+#             print('all borders inside')
+#             continue
+#
+#         elif not np.any(t_border_points_inside):
+#             ws.append(np.zeros(stack_properties['size'], dtype=np.float32))
+#             print('all borders outside')
+#             continue
+#
+#         else:
+#             print('block lies partially inside')
+#
+#
+#         # tmporigin = views[iview].origin+views[iview].spacing/2.
+#         # badplanes = int(0/views[iview].spacing[0]) # in microns
+#         # tmporigin[0]+= views[iview].spacing[0]*badplanes
+#         # # print('WATCH OUT! simple_weights: disregarding %s bad planes at the end of the stack' % badplanes)
+#         # # sig =
+#         #
+#         # # x,y,z = np.mgrid[:sig.shape[0],:sig.shape[1],:sig.shape[2]]
+#         # # dists = np.ones(sig.shape)*np.max(sig.shape)
+#         # # for d in range(3):
+#         # #     ddists =
+#         # #     dists = np.min([dists,ddists])
+#         # reducedview = view[badplanes:-1,:-1,:-1]
+#         # tmp_view = ImageArray(reducedview+1,spacing=views[iview].spacing,origin=tmporigin,rotation=views[iview].rotation)
+#         # # tmp_view = ImageArray(view[:-1,:-1,:-1]+1,spacing=views[iview].spacing,origin=views[iview].origin+views[iview].spacing/2.,rotation=views[iview].rotation)
+#         # mask = transform_stack_sitk(tmp_view,params[iview],
+#         #                        out_origin=w_stack_properties['origin'],
+#         #                        out_shape=w_stack_properties['size'],
+#         #                        out_spacing=w_stack_properties['spacing'],
+#         #                         interp='nearest')
+#
+#         def sigmoid(x,borderwidth):
+#             x0 = float(borderwidth)/2.
+#             a = 12./borderwidth
+#             return 1/(1+np.exp(-a*(x-x0)))
+#
+#         # determine boundary using the psf? alternatively, um
+#
+#         sigN = 200
+#         sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-1)/(sigN-1)*orig_stack_propertiess[iview]['spacing']
+#
+#         b_in_um = 40.
+#         b_in_pixels = int(b_in_um / sigspacing[0])
+#         print('blending weights: border width: %s um, %s pixels' %(b_in_um,b_in_pixels))
+#
+#         # r = 0.05 # relative border width
+#         # sig = np.ones(reducedview.shape,dtype=np.float32)
+#         # sigN = 200
+#         sig = np.ones([sigN]*3,dtype=np.float32)
+#
+#         for d in range(3):
+#             # borderwidth = int(r * sig.shape[d])
+#             borderwidth = b_in_pixels
+#             # print(borderwidth)
+#             slices = [slice(0, sig.shape[i]) for i in range(3)]
+#             for bx in range(borderwidth):
+#                 slices[d] = slice(bx, bx + 1)
+#                 sig[tuple(slices)] = np.min([sig[tuple(slices)] * 0 + sigmoid(bx, borderwidth), sig[tuple(slices)]], 0)
+#
+#             # don't blend best part of the image (assuming that is true for high zs)
+#             # if d == 0: borderwidth = int(0.02 * sig.shape[d])
+#             # if d == 0: borderwidth = int(0.05 * sig.shape[d])
+#             for bx in range(borderwidth):
+#                 slices[d] = slice(sig.shape[d] - bx - 1, sig.shape[d] - bx)
+#                 sig[tuple(slices)] = np.min([sig[tuple(slices)] * 0 + sigmoid(bx, borderwidth), sig[tuple(slices)]], 0)
+#
+#         # sig = ImageArray(sig,spacing=views[iview].spacing,origin=views[iview].origin)
+#
+#         # sigspacing = (np.array(views[iview].shape)-1)/(sigN-1)*views[iview].spacing
+#         # sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-3)/(sigN-1)*orig_stack_propertiess[iview]['spacing']
+#         sig = ImageArray(sig,spacing=sigspacing,origin=orig_stack_propertiess[iview]['origin']+1*orig_stack_propertiess[iview]['spacing'])
+#
+#         tmpvs = transform_stack_sitk(sig,params[iview],
+#                                out_origin=stack_properties['origin'],
+#                                out_shape=stack_properties['size'],
+#                                out_spacing=stack_properties['spacing'],
+#                                interp='linear',
+#                                      )
+#
+#         mask = get_mask_in_target_space(orig_stack_propertiess[iview],
+#                                  stack_properties,
+#                                  params[iview]
+#                                  )
+#         times.append(time.time()-start)
+#         # mask = mask > 0
+#         # print('WARNING; 1 ITERATIONS FOR MASK DILATION (DCT WEIGHTS')
+#         # mask = ndimage.binary_dilation(mask == 0,iterations=1)
+#         ws.append(tmpvs*(mask))
+#         # ws.append(tmpvs)
+#
+#     print('times',times)
+#
+#     wsum = np.sum(ws,0)
+#     wsum[wsum==0] = 1
+#     for iw,w in enumerate(ws):
+#         # ws[iw] /= wsum
+#         ws[iw] = ws[iw] / wsum
+#
+#     return ws
 
 # # @io_decorator
 # def get_weights_simple(
