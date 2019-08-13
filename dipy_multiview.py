@@ -4388,16 +4388,16 @@ def fuse_blockwise(fn,
     # with dask.config.set(scheduler='threads'), ProgressBar():
     # with dask.config.set(scheduler='single-threaded'), ProgressBar():
 
-    print('logger level: %s' %logging.getLevelName(logger.getEffectiveLevel()))
-    if logger.getEffectiveLevel() >= logging.DEBUG:
-        print('diagnostics: calculating weights and saving them to results folder')
-        if depth > 0:
-            trim_dict = {i:[0,depth][i>0] for i in range(4)}
-            weights = da.overlap.trim_internal(weights, trim_dict)
-
-        weights = weights[:,:orig_shape[0], :orig_shape[1], :orig_shape[2]]
-        weights = weights.compute()
-        io_utils.process_output_element(weights, fn[:-4]+'_w.image.h5')
+    # print('logger level: %s' %logging.getLevelName(logger.getEffectiveLevel()))
+    # if logger.getEffectiveLevel() >= logging.DEBUG:
+    #     print('diagnostics: calculating weights and saving them to results folder')
+    #     if depth > 0:
+    #         trim_dict = {i:[0,depth][i>0] for i in range(4)}
+    #         weights = da.overlap.trim_internal(weights, trim_dict)
+    #
+    #     weights = weights[:,:orig_shape[0], :orig_shape[1], :orig_shape[2]]
+    #     weights = weights.compute()
+    #     io_utils.process_output_element(weights, fn[:-4]+'_w.image.h5')
 
     # logger.info('compute')
     result = result.compute()
@@ -4741,9 +4741,9 @@ def get_weights_dct_dask(tviews,
     # size = np.max([4, int(100 / spacing)])
     print('weight filter size: %s' %filter_size)
 
-    if logger.getEffectiveLevel() >= logging.DEBUG:
-        logging.debug('saving ws blocks')
-        io_utils.process_output_element(ws,'/Users/marvin/data/dbspim/20140911_cxcr7_wt/ws_blocks_1.image.h5')
+    # if logger.getEffectiveLevel() >= logging.DEBUG:
+    #     logging.debug('saving ws blocks')
+    #     io_utils.process_output_element(ws,'/Users/marvin/data/dbspim/20140911_cxcr7_wt/ws_blocks_1.image.h5')
 
     # ws = np.array([ndimage.generic_filter(ws[i],function=np.nanmax,size=3) for i in range(len(ws))])
 
@@ -4852,9 +4852,9 @@ def get_weights_dct_dask(tviews,
     ws = np.array([nan_gaussian_filter(ws[i],filter_size/2.) for i in range(len(ws))])
     ws[nanmask] = 0
 
-    if logger.getEffectiveLevel() >= logging.DEBUG:
-        logging.debug('saving ws blocks')
-        io_utils.process_output_element(ws,'/Users/marvin/data/dbspim/20140911_cxcr7_wt/ws_blocks_2.image.h5')
+    # if logger.getEffectiveLevel() >= logging.DEBUG:
+    #     logging.debug('saving ws blocks')
+    #     io_utils.process_output_element(ws,'/Users/marvin/data/dbspim/20140911_cxcr7_wt/ws_blocks_2.image.h5')
 
     # binned_origin = stack_properties['origin'] + (stack_properties['spacing']*(size*bin_factor - 1)) / 2.
     binned_origin = stack_properties['origin'] + (stack_properties['spacing']*(size*bin_factor - 1)) / 2.
