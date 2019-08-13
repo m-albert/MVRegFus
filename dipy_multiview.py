@@ -4577,8 +4577,6 @@ def get_weights_dct_dask(tviews,
 
     ws[np.isnan(ws)] = 0
 
-    io_utils.process_output_element(ws, '/Users/marvin/data/dbspim/20140911_cxcr7_wt'+'/w_block.image.h5')
-
     binned_origin = stack_properties['origin'] + (stack_properties['spacing']*(size*bin_factor - 1)) / 2.
     weight_im = [ImageArray(w,origin=binned_origin,spacing=stack_properties['spacing']*size*bin_factor) for w in ws]
     # weight_im = [ImageArray(w,origin=stack_properties['origin'],spacing=stack_properties['spacing']*size*bin_factor) for w in ws]
