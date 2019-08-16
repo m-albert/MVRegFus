@@ -19,6 +19,8 @@ dependencies:
   - tifffile
   - dipy
   - pip
+  - pip:
+      - SimpleITK
 #  - pip:
 #    - simpleitk # replace by simpleelastix
 #    - czifile==2019.1.26

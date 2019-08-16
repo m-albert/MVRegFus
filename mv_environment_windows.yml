@@ -6,6 +6,7 @@ channels:
 dependencies:
   - ipython
   - h5py
+  - h5pickle
   - numpy
   - scipy
   - scikit-learn
@@ -16,6 +17,7 @@ dependencies:
   - bcolz
   - scikit-image
   - tifffile
+  - dipy
   - pip
 #  - pip:
 #    - simpleitk # replace by simpleelastix

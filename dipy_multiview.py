@@ -6122,50 +6122,50 @@ def get_lambda_weights(
 
     return weights
 
-def blur_view_in_view_space(view,
-              p,
-              orig_properties,
-              stack_properties,
-              sz,
-              sxy,
-              ):
-
-    # print('blur view..')
-    p = params_invert_coordinates(p)
-    inv_p = invert_params(p)
-    # print('transf md %s' %ip)
-    # o = transform_stack_sitk(density,
-    #                      p           = inv_p,
-    #                      out_shape   = orig_prop_list[ip]['size'],
-    #                      out_spacing = orig_prop_list[ip]['spacing'],
-    #                      out_origin  = orig_prop_list[ip]['origin'],
-    #                      interp      ='linear')
-    # print('transform to view..')
-    o = transformStack(
-                         p          = inv_p,
-                         stack      = view,
-                         outShape   = orig_properties['size'][::-1],
-                         outSpacing = orig_properties['spacing'][::-1],
-                         outOrigin  = orig_properties['origin'][::-1],
-                        # interp='bspline',
-                       )
-    # print('not blurring!')
-    # print('Warning: hard coded blur')
-    if sz:
-        # o = (sitk.SmoothingRecursiveGaussian(o,[0.2,0.2,2]) + 0.5*sitk.SmoothingRecursiveGaussian(o,[2,2,7]))/1.5
-        o = sitk.SmoothingRecursiveGaussian(o,[sxy,sxy,sz])
-    # else:
-        # print('not blurring! (not sz is True)')
-    # print('transform to fused..')
-    o = transformStack(
-                         p          = p,
-                         stack      = o,
-                         outShape   = stack_properties['size'][::-1],
-                         outSpacing = stack_properties['spacing'][::-1],
-                         outOrigin  = stack_properties['origin'][::-1],
-                        # interp='bspline',
-                       )
-    return o
+# def blur_view_in_view_space(view,
+#               p,
+#               orig_properties,
+#               stack_properties,
+#               sz,
+#               sxy,
+#               ):
+#
+#     # print('blur view..')
+#     p = params_invert_coordinates(p)
+#     inv_p = invert_params(p)
+#     # print('transf md %s' %ip)
+#     # o = transform_stack_sitk(density,
+#     #                      p           = inv_p,
+#     #                      out_shape   = orig_prop_list[ip]['size'],
+#     #                      out_spacing = orig_prop_list[ip]['spacing'],
+#     #                      out_origin  = orig_prop_list[ip]['origin'],
+#     #                      interp      ='linear')
+#     # print('transform to view..')
+#     o = transformStack(
+#                          p          = inv_p,
+#                          stack      = view,
+#                          outShape   = orig_properties['size'][::-1],
+#                          outSpacing = orig_properties['spacing'][::-1],
+#                          outOrigin  = orig_properties['origin'][::-1],
+#                         # interp='bspline',
+#                        )
+#     # print('not blurring!')
+#     # print('Warning: hard coded blur')
+#     if sz:
+#         # o = (sitk.SmoothingRecursiveGaussian(o,[0.2,0.2,2]) + 0.5*sitk.SmoothingRecursiveGaussian(o,[2,2,7]))/1.5
+#         o = sitk.SmoothingRecursiveGaussian(o,[sxy,sxy,sz])
+#     # else:
+#         # print('not blurring! (not sz is True)')
+#     # print('transform to fused..')
+#     o = transformStack(
+#                          p          = p,
+#                          stack      = o,
+#                          outShape   = stack_properties['size'][::-1],
+#                          outSpacing = stack_properties['spacing'][::-1],
+#                          outOrigin  = stack_properties['origin'][::-1],
+#                         # interp='bspline',
+#                        )
+#     return o
 
 
 # def blur_view_in_target_space(view,
@@ -6346,66 +6346,65 @@ def get_psf(p,
 #     density = sitk.Cast(density,sitk.sitkFloat32)
 #     return density
 
-from scipy.signal import fftconvolve
-def blur_with_psf(im,psf):
-    res = fftconvolve(im,psf, mode='same')
-    res[res<0] = 0 # for some reason the convolution can contain negative results
-    return res
+# from scipy.signal import fftconvolve
+# def blur_with_psf(im,psf):
+#     res = fftconvolve(im,psf, mode='same')
+#     res[res<0] = 0 # for some reason the convolution can contain negative results
+#     return res
+#
+# def density_to_multiview_data_np(
+#                               density,
+#                               psfs,
+#                               sz,
+#                               sxy,
+#                               # blur_func,
+#                               ):
+#     """
+#     Takes a 3D image input, returns a stack of multiview data
+#     adapted from https://code.google.com/archive/p/iterative-fusion/
+#     """
+#
+#     """
+#     Simulate the imaging process by applying multiple blurs
+#     """
+#     out = []
+#     for ip,p in enumerate(psfs):
+#         # o = blur_func(density,p,orig_prop_list[ip],stack_properties,sz,sxy)
+#         o = blur_with_psf(density, psfs[ip])
+#         out.append(o)
+#     return np.array(out)
 
-def density_to_multiview_data_np(
-                              density,
-                              psfs,
-                              sz,
-                              sxy,
-                              # blur_func,
-                              ):
-    """
-    Takes a 3D image input, returns a stack of multiview data
-    adapted from https://code.google.com/archive/p/iterative-fusion/
-    """
-
-    """
-    Simulate the imaging process by applying multiple blurs
-    """
-    out = []
-    for ip,p in enumerate(psfs):
-        # o = blur_func(density,p,orig_prop_list[ip],stack_properties,sz,sxy)
-        o = blur_with_psf(density, psfs[ip])
-        out.append(o)
-    return np.array(out)
-
-def multiview_data_to_density_np(
-                              multiview_data,
-                              psfs,
-                              sz,
-                              sxy,
-                              weights,
-                              # blur_func,
-                              ):
-    """
-    The transpose of the density_to_multiview_data operation we perform above.
-    adapted from https://code.google.com/archive/p/iterative-fusion/
-
-    - multiply with DCT weights here
-    """
-
-    density = multiview_data[0]*0.
-    for ip,p in enumerate(psfs):
-
-        # o = blur_func(multiview_data[ip],p,orig_prop_list[ip],stack_properties,sz,sxy)
-        o = blur_with_psf(multiview_data[ip],psfs[ip])
-
-        if weights is not None:
-            o = o*weights[ip]
-
-        density += o
-    return density
+# def multiview_data_to_density_np(
+#                               multiview_data,
+#                               psfs,
+#                               sz,
+#                               sxy,
+#                               weights,
+#                               # blur_func,
+#                               ):
+#     """
+#     The transpose of the density_to_multiview_data operation we perform above.
+#     adapted from https://code.google.com/archive/p/iterative-fusion/
+#
+#     - multiply with DCT weights here
+#     """
+#
+#     density = multiview_data[0]*0.
+#     for ip,p in enumerate(psfs):
+#
+#         # o = blur_func(multiview_data[ip],p,orig_prop_list[ip],stack_properties,sz,sxy)
+#         o = blur_with_psf(multiview_data[ip],psfs[ip])
+#
+#         if weights is not None:
+#             o = o*weights[ip]
+#
+#         density += o
+#     return density
 
 @io_decorator
 def get_image_from_list_of_images(ims,ind):
     return ims[ind]
 
-# @io_decorator
 def fuse_LR_with_weights_np(
         views,
         params,
@@ -6484,6 +6483,40 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
     # weights = np.array([ndimage.grey_erosion(w,size=pixels) for w in weights])
 
     # masks = np.array([ndimage.binary_erosion(mask,iterations=2) for mask in masks])
+
+    from numpy import fft
+    shape = estimate.shape
+
+    psfs_ft = []
+    for ip in range(len(psfs)):
+        kernel_pad = np.pad(psfs[ip], [[0, shape[i]+1] for i in range(3)], mode='constant')
+        psfs_ft.append(fft.rfftn(kernel_pad))
+
+    kshape = psfs[0].shape
+
+    def blur_with_ftpsfind(img,iview):
+
+        # manual convolution is faster and better than signal.fftconvolve
+        # - kernels can be computed before
+        # - image padding can be done using reflection
+        # - probably also: no additional checking involved
+        # https://dsp.stackexchange.com/questions/43953/looking-for-fastest-2d-convolution-in-python-on-a-cpu
+        # https://github.com/scipy/scipy/pull/10518
+
+        img_ft = np.pad(img, [[0, kshape[i]+1] for i in range(3)], mode='reflect')
+        out_shape = img_ft.shape
+        img_ft = fft.rfftn(img_ft)
+        img_ft = psfs_ft[iview] * img_ft
+        img_ft = fft.irfftn(img_ft,s=out_shape)
+        # img_ft = img_ft[kshape[0] // 2:-kshape[0] // 2, kshape[1] // 2:-kshape[1] // 2, kshape[2] // 2:-kshape[2] // 2]
+        img_ft = img_ft[kshape[0] // 2:-kshape[0] // 2 - 1, kshape[1] // 2:-kshape[1] // 2 - 1, kshape[2] // 2:-kshape[2] // 2 - 1]
+
+        img_ft[img_ft<0] = 0
+
+        return img_ft
+
+    expected_data = np.zeros(noisy_multiview_data.shape,dtype=np.float32)
+
     i = 0
     while 1:
         print("Iteration", i)
@@ -6492,12 +6525,10 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
         Construct the expected data from the estimate
         """
 
-        expected_data = density_to_multiview_data_np(
-              estimate,
-              psfs,
-              sz,
-              sxy,
-        )
+        # expected_data = []
+        for ip, p in enumerate(psfs):
+            expected_data[ip] = blur_with_ftpsfind(estimate, ip)
+
 
         "Done constructing."
         """
@@ -6505,10 +6536,6 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
         Store this ratio in 'expected_data'
         """
         expected_data = noisy_multiview_data / (expected_data + 1e-6)
-
-        # for ip in range(len(params)):
-        #     expected_data[ip] += 1e-6 #Don't want to divide by 0!
-        # expected_data = [sitk.Cast(noisy_multiview_data[ip] / expected_data[ip],sitk.sitkFloat32) for ip in range(len(params))]
 
         # multiply with mask to reduce border artifacts
 
@@ -6519,13 +6546,16 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
         """
         Apply the transpose of the expected data operation to the correction factor
         """
-        correction_factor = multiview_data_to_density_np(
-            expected_data,
-            psfs,
-            sz,
-            sxy,
-            weights,
-        )#, out=correction_factor)
+        correction_factor = expected_data[0] * 0.
+        for ip, p in enumerate(psfs):
+
+            # o = blur_func(multiview_data[ip],p,orig_prop_list[ip],stack_properties,sz,sxy)
+            o = blur_with_ftpsfind(expected_data[ip], ip)
+
+            if weights is not None:
+                o = o * weights[ip]
+
+            correction_factor += o
 
         """
         Multiply the old estimate by the correction factor to get the new estimate
@@ -6534,9 +6564,6 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
         estimate = estimate * correction_factor
 
         estimate = np.clip(estimate,0,2**16-1)
-
-        # estimate = estimate * sitk.Cast(estimate<2**16,sitk.sitkFloat32)
-        # estimate = estimate * sitk.Cast(estimate>0,    sitk.sitkFloat32)
 
         # if num_iterations < 1:
         new_imsum = np.sum(estimate)
@@ -6557,6 +6584,159 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
     estimate = ImageArray(estimate.astype(np.uint16),spacing=stack_properties['spacing'],origin=stack_properties['origin'])
 
     return estimate
+
+# @io_decorator
+# def fuse_LR_with_weights_np(
+#         views,
+#         params,
+#         stack_properties,
+#         num_iterations = 25,
+#         sz = 4,
+#         sxy = 0.5,
+#         tol = 5e-5,
+#         weights = None,
+#         # orig_prop_list = None,
+# ):
+#     """
+#     Combine
+#     - LR multiview fusion
+#       (adapted from python code given in https://code.google.com/archive/p/iterative-fusion/
+#        from publication https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3986040/)
+#     - DCT weights
+#
+#     This addresses the problems that
+#     1) multi-view deconvolution is highly dependent on high precision registration
+#     between views. However, an affine transformation is often not enough due to
+#     optical aberrations and results in poor overlap.
+#     2) due to scattering, the psf strongly varies within each view
+#
+#     In the case of highly scattering samples, FFT+elastix typically results in good
+#     registration accuracy in regions of good image quality (those with small psfs
+#     and short optical paths through the sample). These regions are found using a DCT
+#     quality measure and weighted accordingly. Therefore, to reduce the contribution
+#     to multi-view LR of unwanted regions in the individual views, the weights are
+#     applied in each iteration during convolution with the psf.
+#
+#     Adaptations and details:
+#     - convolve views in original space
+#      - recapitulates imaging process and trivially deals with view parameters
+#      - allows for iterative raw data reconstruction without deconvolution
+#      - disadvantage: slow in current implementation
+#     - apply DCT weights in each blurring iteration to account for strong scattering
+#     - simulate convolution by psf with gaussian blurring
+#     - TV regularisation not working yet, to be optimised (Multiview Deblurring for 3-D Images from
+# Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/6112225)
+#
+#     Interesting case: sz,sxy=0
+#     - formally no deconvolution but iterative multi-view raw data reconstruction
+#
+#     works well:
+#     - sz6 it 10, some rings
+#     - sz5 it 20, looks good (good compromise between sz and its)
+#     - sz4 it 30, good and no rings
+#
+#     :param views: original views
+#     :param params: parameters mapping views into target space
+#     :param stack_properties: properties of target space
+#     :param num_iterations: max number of deconvolution iterations
+#     :param sz: sigma z
+#     :param sxy: sigma xy
+#     :param tol: convergence threshold
+#     :return:
+#     """
+#
+#     psfs =  np.array([get_psf(params[ip], stack_properties, sz, sxy) for ip in range(len(params))])
+#
+#     noisy_multiview_data = np.array(views)
+#
+#     """
+#     Time for deconvolution!!!
+#     """
+#
+#     estimate = np.sum([weights[i]*views[i] for i in range(len(params))],0).astype(np.float32)
+#
+#     curr_imsum = np.sum(estimate)
+#
+#     masks = np.array([weights[ip]>1e-5 for ip in range(len(params))])
+#
+#     # # erode weights to produce final weights
+#     # pixels = int(sz*4/stack_properties['spacing'][0])
+#     # weights = np.array([ndimage.grey_erosion(w,size=pixels) for w in weights])
+#
+#     # masks = np.array([ndimage.binary_erosion(mask,iterations=2) for mask in masks])
+#     i = 0
+#     while 1:
+#         print("Iteration", i)
+#
+#         """
+#         Construct the expected data from the estimate
+#         """
+#
+#         expected_data = density_to_multiview_data_np(
+#               estimate,
+#               psfs,
+#               sz,
+#               sxy,
+#         )
+#
+#         "Done constructing."
+#         """
+#         Take the ratio between the measured data and the expected data.
+#         Store this ratio in 'expected_data'
+#         """
+#         expected_data = noisy_multiview_data / (expected_data + 1e-6)
+#
+#         # for ip in range(len(params)):
+#         #     expected_data[ip] += 1e-6 #Don't want to divide by 0!
+#         # expected_data = [sitk.Cast(noisy_multiview_data[ip] / expected_data[ip],sitk.sitkFloat32) for ip in range(len(params))]
+#
+#         # multiply with mask to reduce border artifacts
+#
+#         expected_data *= masks
+#
+#         # for ip in range(len(params)):
+#         #     expected_data[ip] = expected_data[ip] * sitk.Cast(weights[ip]>0,sitk.sitkFloat32)
+#         """
+#         Apply the transpose of the expected data operation to the correction factor
+#         """
+#         correction_factor = multiview_data_to_density_np(
+#             expected_data,
+#             psfs,
+#             sz,
+#             sxy,
+#             weights,
+#         )#, out=correction_factor)
+#
+#         """
+#         Multiply the old estimate by the correction factor to get the new estimate
+#         """
+#
+#         estimate = estimate * correction_factor
+#
+#         estimate = np.clip(estimate,0,2**16-1)
+#
+#         # estimate = estimate * sitk.Cast(estimate<2**16,sitk.sitkFloat32)
+#         # estimate = estimate * sitk.Cast(estimate>0,    sitk.sitkFloat32)
+#
+#         # if num_iterations < 1:
+#         new_imsum = np.sum(estimate)
+#         conv = np.abs(1-new_imsum/curr_imsum)
+#         print('convergence: %s' %conv)
+#
+#         if conv < tol and i>=10: break
+#         if i >= num_iterations-1: break
+#
+#         curr_imsum = new_imsum
+#         i += 1
+#
+#         """
+#         Update the history
+#         """
+#     print("Done deconvolving")
+#
+#     estimate = ImageArray(estimate.astype(np.uint16),spacing=stack_properties['spacing'],origin=stack_properties['origin'])
+#
+#     return estimate
 
 # # @io_decorator
 # def fuse_LR_with_weights(
