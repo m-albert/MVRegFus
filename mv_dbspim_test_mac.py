@@ -68,8 +68,8 @@ mv_final_spacing = np.array([1.]*3)
 # fusion_method
 # 'weighted_average': weighted average of views using the given weights
 # 'LR': Lucy-Richardson multi-view deconvolution
-# fusion_method = 'LR'
-fusion_method = 'weighted_average'
+fusion_method = 'LR'
+# fusion_method = 'weighted_average'
 
 # fusion weights
 # 'blending': uniform weights with blending at the stack borders
