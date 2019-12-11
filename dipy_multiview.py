@@ -6405,7 +6405,7 @@ def get_psf(p,
 def get_image_from_list_of_images(ims,ind):
     return ims[ind]
 
-def fuse_LR_with_weights_gpu(
+def fuse_LR_with_weights_np(
         views,
         params,
         stack_properties,
@@ -6464,7 +6464,12 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
     :return:
     """
 
-    import cupy as np
+    # try to use GPU
+    try:
+        import cupy as np
+    except:
+        print('no GPU acceleration for deconv')
+        pass
 
     psfs =  np.array([get_psf(params[ip], stack_properties, sz, sxy) for ip in range(len(params))])
     noisy_multiview_data = np.array(views)
@@ -6596,7 +6601,7 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
 
     return estimate
 
-def fuse_LR_with_weights_np(
+def fuse_LR_with_weights_np_old(
         views,
         params,
         stack_properties,

@@ -84,6 +84,10 @@ def build_multiview_graph(
     elastix_dir = '/scratch/malbert/dependencies_linux/elastix_linux64_v4.8',
     ):
 
+    # otherwise an inmutable dict is passed
+    if view_dict is not None:
+        view_dict = view_dict.copy()
+
     if not os.path.exists(out_dir):
         try:
             os.mkdir(out_dir)
