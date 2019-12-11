@@ -6,7 +6,7 @@ file taken and modified from https://github.com/tlambert03/imarispy/blob/master/
 import numpy as np
 import re
 import h5py
-from .util import h5str, make_thumbnail, subsample_data
+# from .util import h5str, make_thumbnail, subsample_data
 import logging
 logger = logging.getLogger(__name__)
 
