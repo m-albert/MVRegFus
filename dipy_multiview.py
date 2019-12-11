@@ -4400,8 +4400,8 @@ def fuse_blockwise(fn,
     #     io_utils.process_output_element(weights, fn[:-4]+'_w.image.h5')
 
     # logger.info('compute')
-    result = result.compute()
-    # result = result.compute(scheduler='single-threaded')
+    #result = result.compute()
+    result = result.compute(scheduler='single-threaded')
 
     # manual_fusion = np.sum([weights[i]*np.array(tviews_dsets[i]) for i in range(4)],0)
     # io_utils.process_output_element(manual_fusion, fn[:-4] + '_manual_fusion.mhd')
@@ -6404,6 +6404,197 @@ def get_psf(p,
 @io_decorator
 def get_image_from_list_of_images(ims,ind):
     return ims[ind]
+
+def fuse_LR_with_weights_gpu(
+        views,
+        params,
+        stack_properties,
+        num_iterations = 25,
+        sz = 4,
+        sxy = 0.5,
+        tol = 5e-5,
+        weights = None,
+        # orig_prop_list = None,
+):
+    """
+    Combine
+    - LR multiview fusion
+      (adapted from python code given in https://code.google.com/archive/p/iterative-fusion/
+       from publication https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3986040/)
+    - DCT weights
+
+    This addresses the problems that
+    1) multi-view deconvolution is highly dependent on high precision registration
+    between views. However, an affine transformation is often not enough due to
+    optical aberrations and results in poor overlap.
+    2) due to scattering, the psf strongly varies within each view
+
+    In the case of highly scattering samples, FFT+elastix typically results in good
+    registration accuracy in regions of good image quality (those with small psfs
+    and short optical paths through the sample). These regions are found using a DCT
+    quality measure and weighted accordingly. Therefore, to reduce the contribution
+    to multi-view LR of unwanted regions in the individual views, the weights are
+    applied in each iteration during convolution with the psf.
+
+    Adaptations and details:
+    - convolve views in original space
+     - recapitulates imaging process and trivially deals with view parameters
+     - allows for iterative raw data reconstruction without deconvolution
+     - disadvantage: slow in current implementation
+    - apply DCT weights in each blurring iteration to account for strong scattering
+    - simulate convolution by psf with gaussian blurring
+    - TV regularisation not working yet, to be optimised (Multiview Deblurring for 3-D Images from
+Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/6112225)
+
+    Interesting case: sz,sxy=0
+    - formally no deconvolution but iterative multi-view raw data reconstruction
+
+    works well:
+    - sz6 it 10, some rings
+    - sz5 it 20, looks good (good compromise between sz and its)
+    - sz4 it 30, good and no rings
+
+    :param views: original views
+    :param params: parameters mapping views into target space
+    :param stack_properties: properties of target space
+    :param num_iterations: max number of deconvolution iterations
+    :param sz: sigma z
+    :param sxy: sigma xy
+    :param tol: convergence threshold
+    :return:
+    """
+
+    import cupy as np
+
+    psfs =  np.array([get_psf(params[ip], stack_properties, sz, sxy) for ip in range(len(params))])
+    noisy_multiview_data = np.array(views)
+    
+    psfs = np.asarray(psfs)
+    noisy_multiview_data = np.asarray(noisy_multiview_data)
+    weights = np.asarray(weights)
+
+    """
+    Time for deconvolution!!!
+    """
+
+    estimate = np.zeros_like(weights[0])
+    for i in range(len(params)):
+        estimate += weights[i]*noisy_multiview_data[i]
+
+    #estimate = np.sum([weights[i]*noisy_multiview_data[i] for i in range(len(params))],0).astype(np.float32)
+    #estimate = np.sum(np.asarray([weights[i]*views[i] for i in range(len(params))],0).astype(np.float32)
+
+    curr_imsum = np.sum(estimate)
+
+    masks = np.array([weights[ip]>1e-5 for ip in range(len(params))])
+
+    # # erode weights to produce final weights
+    # pixels = int(sz*4/stack_properties['spacing'][0])
+    # weights = np.array([ndimage.grey_erosion(w,size=pixels) for w in weights])
+
+    # masks = np.array([ndimage.binary_erosion(mask,iterations=2) for mask in masks])
+
+    from cupy import fft
+    shape = estimate.shape
+
+    psfs_ft = []
+    for ip in range(len(psfs)):
+        kernel_pad = np.pad(psfs[ip], [[0, shape[i]+1] for i in range(3)], mode='constant')
+        psfs_ft.append(fft.rfftn(kernel_pad))
+
+    kshape = psfs[0].shape
+
+    def blur_with_ftpsfind(img,iview):
+
+        # manual convolution is faster and better than signal.fftconvolve
+        # - kernels can be computed before
+        # - image padding can be done using reflection
+        # - probably also: no additional checking involved
+        # https://dsp.stackexchange.com/questions/43953/looking-for-fastest-2d-convolution-in-python-on-a-cpu
+        # https://github.com/scipy/scipy/pull/10518
+
+        img_ft = np.pad(img, [[0, kshape[i]+1] for i in range(3)], mode='reflect')
+        out_shape = img_ft.shape
+        img_ft = fft.rfftn(img_ft)
+        img_ft = psfs_ft[iview] * img_ft
+        img_ft = fft.irfftn(img_ft,s=out_shape)
+        # img_ft = img_ft[kshape[0] // 2:-kshape[0] // 2, kshape[1] // 2:-kshape[1] // 2, kshape[2] // 2:-kshape[2] // 2]
+        img_ft = img_ft[kshape[0] // 2:-kshape[0] // 2 - 1, kshape[1] // 2:-kshape[1] // 2 - 1, kshape[2] // 2:-kshape[2] // 2 - 1]
+
+        img_ft[img_ft<0] = 0
+
+        return img_ft
+
+    expected_data = np.zeros(noisy_multiview_data.shape,dtype=np.float32)
+
+    i = 0
+    while 1:
+        print("Iteration", i)
+
+        """
+        Construct the expected data from the estimate
+        """
+
+        # expected_data = []
+        for ip, p in enumerate(psfs):
+            expected_data[ip] = blur_with_ftpsfind(estimate, ip)
+
+
+        "Done constructing."
+        """
+        Take the ratio between the measured data and the expected data.
+        Store this ratio in 'expected_data'
+        """
+        expected_data = noisy_multiview_data / (expected_data + 1e-6)
+
+        # multiply with mask to reduce border artifacts
+
+        expected_data *= masks
+
+        # for ip in range(len(params)):
+        #     expected_data[ip] = expected_data[ip] * sitk.Cast(weights[ip]>0,sitk.sitkFloat32)
+        """
+        Apply the transpose of the expected data operation to the correction factor
+        """
+        correction_factor = expected_data[0] * 0.
+        for ip, p in enumerate(psfs):
+
+            # o = blur_func(multiview_data[ip],p,orig_prop_list[ip],stack_properties,sz,sxy)
+            o = blur_with_ftpsfind(expected_data[ip], ip)
+
+            if weights is not None:
+                o = o * weights[ip]
+
+            correction_factor += o
+
+        """
+        Multiply the old estimate by the correction factor to get the new estimate
+        """
+
+        estimate = estimate * correction_factor
+
+        estimate = np.clip(estimate,0,2**16-1)
+
+        # if num_iterations < 1:
+        new_imsum = np.sum(estimate)
+        conv = np.abs(1-new_imsum/curr_imsum)
+        print('convergence: %s' %conv)
+
+        if conv < tol and i>=10: break
+        if i >= num_iterations-1: break
+
+        curr_imsum = new_imsum
+        i += 1
+
+        """
+        Update the history
+        """
+    print("Done deconvolving")
+
+    estimate = np.asnumpy(estimate)
+    estimate = ImageArray(estimate.astype(np.uint16),spacing=stack_properties['spacing'],origin=stack_properties['origin'])
+
+    return estimate
 
 def fuse_LR_with_weights_np(
         views,
