@@ -4825,7 +4825,7 @@ def get_weights_dct_dask(tviews,
             return ws
 
     ws = da.map_blocks(adapt_weights, da.from_array(ws,chunks=(len(ws),1,1,1)), dtype=np.float32, how_many_best_views=how_many_best_views, cumulative_weight_best_views=cumulative_weight_best_views)
-    ws = ws.compute()#scheduler='single-threaded')
+    ws = ws.compute(scheduler='single-threaded')
     # ws = np.array(ws)
 
     def nan_gaussian_filter(U, sigma):
