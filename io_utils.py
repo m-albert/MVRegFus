@@ -220,6 +220,9 @@ def process_output_element(element,path):
     # elif type(element) == DiffeomorphicMap:
     #     diffmap = diffmap_on_disk(path)
     #     diffmap.save(element)
+    if path.endswith('.ims'):
+        import imaris
+        imaris.np_to_ims(element,path,dx=1,dz=1)
     elif path.endswith('.image.h5') and type(element) == np.ndarray:
         tmpFile = h5py.File(path)
         tmpFile.clear()
