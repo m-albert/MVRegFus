@@ -2,8 +2,7 @@ __author__ = 'malbert'
 
 import dipy_multiview
 import numpy as np
-import os
-import sys
+import os,sys,copy
 # import pickle
 import io_utils
 
@@ -86,7 +85,7 @@ def build_multiview_graph(
 
     # otherwise an inmutable dict is passed
     if view_dict is not None:
-        view_dict = view_dict.copy()
+        view_dict = copy.deepcopy(view_dict)
 
     if not os.path.exists(out_dir):
         try:
