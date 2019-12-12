@@ -90,6 +90,8 @@ def process_input_element(path):
         ar.spacing = np.array(s.GetSpacing()[::-1])
         ar.origin = np.array(s.GetOrigin()[::-1])
         res = ar
+    elif path.endswith('ims'):
+        res =  h5py.File(path,mode='r')['DataSet/ResolutionLevel 0/TimePoint 0/Channel 0/Data'][()]
     elif path.startswith('prealignment') and path.endswith('.h5'):
         res =  h5py.File(path,mode='r')['prealignment'].value
     elif path.endswith('.mapping.h5'):
@@ -222,7 +224,12 @@ def process_output_element(element,path):
     #     diffmap.save(element)
     if path.endswith('.ims'):
         import imaris
-        imaris.np_to_ims(element,path,dx=1,dz=1)
+        imaris.np_to_ims(element,path,
+                         subsamp=((1, 1, 1), (2, 2, 2), (4, 4, 4), (8, 8, 8)),
+                         chunks=((16, 128, 128), (64, 64, 64), (32, 32, 32), (16, 16, 16)),
+                         compression='gzip',
+                         dx=1,dz=1,
+                         )
     elif path.endswith('.image.h5') and type(element) == np.ndarray:
         tmpFile = h5py.File(path)
         tmpFile.clear()
