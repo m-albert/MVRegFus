@@ -4401,7 +4401,14 @@ def fuse_blockwise(fn,
 
     # logger.info('compute')
     #result = result.compute()
-    result = result.compute(scheduler='single-threaded')
+
+    # if on gpu, use only one thread (why?)
+    try:
+        import cupy
+        result = result.compute(scheduler='single-threaded')
+        print('CuPy available, using single host thread for fusion')
+    except:
+        result = result.compute()
 
     # manual_fusion = np.sum([weights[i]*np.array(tviews_dsets[i]) for i in range(4)],0)
     # io_utils.process_output_element(manual_fusion, fn[:-4] + '_manual_fusion.mhd')
@@ -6467,7 +6474,10 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
     # try to use GPU
     try:
         import cupy as np
+        from cupy import fft
     except:
+        import numpy as np
+        from numpy import fft
         print('no GPU acceleration for deconv')
         pass
 
@@ -6499,7 +6509,7 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
 
     # masks = np.array([ndimage.binary_erosion(mask,iterations=2) for mask in masks])
 
-    from cupy import fft
+    # from cupy import fft
     shape = estimate.shape
 
     psfs_ft = []
@@ -6596,7 +6606,12 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
         """
     print("Done deconvolving")
 
-    estimate = np.asnumpy(estimate)
+    # in case of working on GPU, copy back to host
+    try:
+        estimate = np.asnumpy(estimate)
+    except:
+        pass
+
     estimate = ImageArray(estimate.astype(np.uint16),spacing=stack_properties['spacing'],origin=stack_properties['origin'])
 
     return estimate

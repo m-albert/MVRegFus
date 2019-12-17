@@ -9,6 +9,7 @@ import io_utils
 from distributed import Client
 # client = Client(processes=True)
 client = Client(processes=False)#,threads_per_worker=1)
+# client = Client(processes=False,threads_per_worker=1)
 dashboard_link = 'http://localhost:%s' % int(client.cluster.scheduler.service_ports['dashboard'])
 print(dashboard_link)
 
@@ -47,6 +48,7 @@ multiview_chrom_correction_channel_label = 'mv_chrom_corr_%03d_%03d_c%02d.imagea
 def build_multiview_graph(
     out_dir,
     filepath,
+    input_graph=None,
     channels = [0,1],
     reg_channel = 0,
     ref_view = 1,
@@ -84,6 +86,11 @@ def build_multiview_graph(
     elastix_dir = '/scratch/malbert/dependencies_linux/elastix_linux64_v4.8',
     ):
 
+    if input_graph is None:
+        graph = dict()
+    else:
+        graph = input_graph
+
     # otherwise an inmutable dict is passed
     if view_dict is not None:
         view_dict = copy.deepcopy(view_dict)
@@ -104,8 +111,8 @@ def build_multiview_graph(
         if view_dict is None:
             info_dict = dipy_multiview.getStackInfoFromCZI(filepath)
             n_views = len(info_dict['origins'])
-            # pairs = [(i,i+1) for i in range(n_views-1)] + [(n_views-1,0)]
-            pairs = [(i,i+1) for i in range(n_views-1)]# + [(n_views-1,0)]
+            pairs = [(i,i+1) for i in range(n_views-1)] + [(n_views-1,0)]
+            # pairs = [(i,i+1) for i in range(n_views-1)]# + [(n_views-1,0)]
             print('Assuming linear chain of overlap in views')
         if view_dict is not None:
             view_indices = [k for k in view_dict.keys()]
@@ -147,8 +154,6 @@ def build_multiview_graph(
     #     orig_stack_propss.append(orig_stack_props)
     #     print(orig_stack_props)
 
-    graph = dict()
-
     orig_stack_propss = []
     for view in all_views:
         graph[orig_stack_properties_label %(ds,sample,view)] = (dipy_multiview.get_stack_properties_from_view_dict,
@@ -157,10 +162,19 @@ def build_multiview_graph(
                                                                 )
         orig_stack_propss.append(orig_stack_properties_label %(ds,sample,view))
 
-    if time_alignment:
+    if time_alignment and sample:
+
+        # graph[time_alignment_pair_params_label %(ds,sample)] = (
+        #                                                            dipy_multiview.register_linear_elastix,
+        #                                                            multiview_view_reg_label %(ds,time_alignment_ref_sample,time_alignment_ref_view,reg_channel),
+        #                                                            multiview_view_reg_label %(ds,sample,time_alignment_ref_view,reg_channel),
+        #                                                            1, # degree = 1 (trans + rotation)
+        #                                                            elastix_dir,
+        #                                                            )
+
         graph[time_alignment_pair_params_label %(ds,sample)] = (
                                                                    dipy_multiview.register_linear_elastix,
-                                                                   multiview_view_reg_label %(ds,time_alignment_ref_sample,time_alignment_ref_view,reg_channel),
+                                                                   multiview_view_reg_label %(ds,sample-1,time_alignment_ref_view,reg_channel),
                                                                    multiview_view_reg_label %(ds,sample,time_alignment_ref_view,reg_channel),
                                                                    1, # degree = 1 (trans + rotation)
                                                                    elastix_dir,
@@ -251,7 +265,8 @@ def build_multiview_graph(
     stack_properties_label_file = os.path.join(out_dir,stack_properties_label %(ds,sample))
     if os.path.exists(stack_properties_label_file):
         graph[stack_properties_label %(ds,sample)] = stack_properties_label_file
-    else:
+
+    elif not time_alignment or not sample:
         graph[stack_properties_label %(ds,sample)] = (
                                                 dipy_multiview.calc_stack_properties_from_views_and_params,
                                                 os.path.join(out_dir,stack_properties_label %(ds,sample)),
@@ -260,6 +275,10 @@ def build_multiview_graph(
                                                 mv_final_spacing,
                                                 final_volume_mode,
                                                 )
+
+    else:
+        # graph[stack_properties_label % (ds, sample)] = graph[stack_properties_label %(ds,time_alignment_ref_sample)]
+        graph[stack_properties_label % (ds, sample)] = stack_properties_label %(ds,time_alignment_ref_sample)
 
     graph[multiview_metadata_label %(ds,sample)] = (dipy_multiview.getStackInfoFromCZI,
                                                    filepath,

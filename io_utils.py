@@ -223,6 +223,9 @@ def process_output_element(element,path):
     #     diffmap = diffmap_on_disk(path)
     #     diffmap.save(element)
     if path.endswith('.ims'):
+        if os.path.exists(path):
+            print('removing existing imaris file')
+            os.remove(path)
         import imaris
         imaris.np_to_ims(element,path,
                          subsamp=((1, 1, 1), (2, 2, 2), (4, 4, 4), (8, 8, 8)),

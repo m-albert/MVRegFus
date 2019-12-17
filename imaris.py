@@ -135,7 +135,7 @@ def np_to_ims(array, fname='myfile.ims',
 
     return fname
 
-def im_to_ims(filepattern, channels, tps, fname='myfile.ims', overwrite = False, copy_or_link = 'link'):
+def im_to_ims(filepattern, channels, tps, fname='myfile.ims', overwrite = True, copy_or_link = 'link'):
 
     """
     - take imaris files of individual timepoints and channels and create a
