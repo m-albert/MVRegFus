@@ -42,7 +42,7 @@ registration_pairss = [registration_pairs] *len(filepaths)
 final_volume_mode = 'sample'
 
 # where to save the output
-out_dir = os.path.dirname(filepaths[0])+'/small'
+out_dir = os.path.dirname(filepaths[0])+'/small_ims'
 
 # whether to perform an affine chromatic correction
 # and which channel to use as reference
@@ -67,8 +67,8 @@ mv_final_spacing = np.array([5.]*3)
 # fusion_method
 # 'weighted_average': weighted average of views using the given weights
 # 'LR': Lucy-Richardson multi-view deconvolution
-fusion_method = 'LR'
-# fusion_method = 'weighted_average'
+#fusion_method = 'LR'
+fusion_method = 'weighted_average'
 
 # fusion weights
 # 'blending': uniform weights with blending at the stack borders

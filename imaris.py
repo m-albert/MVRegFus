@@ -17,9 +17,13 @@ def np_to_ims(array, fname='myfile.ims',
               thumbsize=256,
               dx=1, dz=1,
               overwrite= False,
+              origin=[0.,0.,0.],
               ):
 
     """
+    modified by malbert:
+    - include nonzero origin
+
     """
 
     assert len(subsamp) == len(chunks)
@@ -67,12 +71,12 @@ def np_to_ims(array, fname='myfile.ims',
         ('DataSetInfo/Image', ('MicroscopeModality', '',)),
         ('DataSetInfo/Image', ('RecordingDate', '2018-05-24 20:36:07.000')),
         ('DataSetInfo/Image', ('Name', 'name not specified')),
-        ('DataSetInfo/Image', ('ExtMin0', '0')),
-        ('DataSetInfo/Image', ('ExtMin1', '0')),
-        ('DataSetInfo/Image', ('ExtMin2', '0')),
-        ('DataSetInfo/Image', ('ExtMax0', nx * dx)),
-        ('DataSetInfo/Image', ('ExtMax1', ny * dx)),
-        ('DataSetInfo/Image', ('ExtMax2', nz * dz)),
+        ('DataSetInfo/Image', ('ExtMin0', origin[0])),
+        ('DataSetInfo/Image', ('ExtMin1', origin[1])),
+        ('DataSetInfo/Image', ('ExtMin2', origin[2])),
+        ('DataSetInfo/Image', ('ExtMax0', origin[0] + nx * dx)),
+        ('DataSetInfo/Image', ('ExtMax1', origin[1] + ny * dx)),
+        ('DataSetInfo/Image', ('ExtMax2', origin[2] + nz * dz)),
         ('DataSetInfo/Image', ('LensPower', '63x')),
         ('DataSetInfo/TimeInfo', ('DatasetTimePoints', nt)),
         ('DataSetInfo/TimeInfo', ('FileTimePoints', nt)),
@@ -142,6 +146,7 @@ def im_to_ims(filepattern, channels, tps, fname='myfile.ims', overwrite = True, 
       master file which links to (or copies the data in) the individual files
     - don't recalculate any thumbnails or histograms
     - function added by malbert
+    - add rotation attribute
 
     PROBLEM:
     Fiji's hdf5 cannot load external links (https://forum.image.sc/t/does-hdf5-vibez-support-external-links-in-hdf5-files/10318)
@@ -385,6 +390,42 @@ def make_thumbnail(array, size=256):
 
 def h5str(s, coding='ASCII', dtype='S1'):
     return np.frombuffer(str(s).encode(coding), dtype=dtype)
+
+def get_meta_from_ims(filename):
+
+    """
+    read metadata from imaris file
+
+    :param filename:
+    :return:
+    """
+
+    f = h5py.File(filename)
+    meta_dict = dict()
+
+    def get_attr_string(file_obj,attr):
+        return float(''.join([i.decode('UTF-8') for i in file_obj['DataSetInfo/Image'].attrs[attr]]))
+
+    ns = np.zeros(3,dtype=np.float32)
+    ns[0] = get_attr_string(f,'X')#.astype(np.int64)
+    ns[1] = get_attr_string(f,'Y')#.astype(np.int64)
+    ns[2] = get_attr_string(f,'Z')#.astype(np.int64)
+
+    extmin = np.zeros(3,dtype=np.float32)
+    for i in range(3):
+        extmin[i] = get_attr_string(f,'ExtMin%s' %i)
+
+    extmax = np.zeros(3,dtype=np.float32)
+    for i in range(3):
+        extmax[i] = get_attr_string(f,'ExtMax%s' %i)
+
+    dx = (extmax[0]-extmin[0])/ns[0]
+    dz = (extmax[2]-extmin[2])/ns[2]
+
+    meta_dict['spacing']  = np.array([dx,dx,dz])
+    meta_dict['origin']   = extmin
+
+    return meta_dict
 
 
 def subsample_data(data, subsamp):

@@ -41,7 +41,8 @@ fusion_params_label                 = 'mv_params_gw_%03d_%03d.prealignment.h5' #
 chromatic_correction_params_label   = 'chromcorr_params_%03d_%03d_refch%02d_ch%02d.prealignment.h5'
 stack_properties_label              = 'mv_stack_props_%03d_%03d.dict.h5'
 orig_stack_properties_label         = 'mv_orig_stack_props_%03d_%03d_v%03d.dict.h5'
-transformed_view_label              = 'mv_transf_view_%03d_%03d_v%03d_c%02d.imagear.h5'
+# transformed_view_label              = 'mv_transf_view_%03d_%03d_v%03d_c%02d.imagear.h5'
+transformed_view_label              = 'mv_transf_view_%03d_%03d_v%03d_c%02d.image.ims'
 multiview_chrom_correction_channel_label = 'mv_chrom_corr_%03d_%03d_c%02d.imagear.h5'
 
 

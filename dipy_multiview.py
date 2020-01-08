@@ -4308,7 +4308,8 @@ def fuse_blockwise(fn,
         #         print(y.shape,pads,slices)
         return ys
 
-    tviews_dsets = [h5py.File(fn_tview)['array'] for fn_tview in fns_tview]
+    # tviews_dsets = [h5py.File(fn_tview)['array'] for fn_tview in fns_tview]
+    tviews_dsets = [h5py.File(fn_tview)['DataSet/ResolutionLevel 0/TimePoint 0/Channel 0/Data'] for fn_tview in fns_tview]
 
     depth = int(fusion_block_overlap)
     # depth = 0

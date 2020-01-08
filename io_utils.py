@@ -90,12 +90,25 @@ def process_input_element(path):
         ar.spacing = np.array(s.GetSpacing()[::-1])
         ar.origin = np.array(s.GetOrigin()[::-1])
         res = ar
+
     elif path.endswith('ims'):
-        res =  h5py.File(path,mode='r')['DataSet/ResolutionLevel 0/TimePoint 0/Channel 0/Data'][()]
+        res = h5py.File(path, mode='r')['DataSet/ResolutionLevel 0/TimePoint 0/Channel 0/Data'][()]
+
+        if path.endswith('image.ims'):
+            import imaris
+            meta = imaris.get_meta_from_ims(path)
+            res = ImageArray(res,
+                             spacing = meta['spacing'][::-1],
+                             origin = meta['origin'][::-1],
+                             rotation = 0,
+                             )
+
     elif path.startswith('prealignment') and path.endswith('.h5'):
         res =  h5py.File(path,mode='r')['prealignment'].value
+
     elif path.endswith('.mapping.h5'):
         res = diffmap_on_disk(path).get()
+
     elif path.endswith('dict.h5'):
         tmpFile = h5py.File(path,mode='r')
         tmpdict = dict()
@@ -104,8 +117,10 @@ def process_input_element(path):
             tmpdict[key] = tmpFile[key].value
         tmpFile.close()
         res = tmpdict
+
     elif path.endswith('.image.h5'):
         res = h5py.File(path,mode='r')['image'].value
+
     elif path.endswith('.imagear.h5'):
         tmpFile = h5py.File(path,mode='r')
         tmp = ImageArray(tmpFile['array'].value)
@@ -113,17 +128,22 @@ def process_input_element(path):
         tmp.spacing = np.array(tmpFile['spacing'].value)
         tmp.rotation = np.array(tmpFile['rotation'].value)
         res = tmp
+
     elif path.endswith('hdf'):
         res = pd.read_hdf(path)
+
     elif 'prealignment' in path and path.endswith('.h5'):
         res = h5py.File(path,mode='r')['prealignment'].value
+
     elif path.endswith('ilp'):
         res = path
+
     elif path.endswith('pmap'):
         tmpFile = open(path, 'w')
         import pickle
         res = pickle.load(tmpFile)
         tmpFile.close()
+
     else:
         raise(Exception('unrecognized string input to function'))
 
@@ -227,11 +247,20 @@ def process_output_element(element,path):
             print('removing existing imaris file')
             os.remove(path)
         import imaris
+        if type(element) == ImageArray:
+            dx = element.spacing[1]
+            dz = element.spacing[0] # is z the first or last coordinate in an imaris hdf5?
+            origin = element.origin[::-1]
+        elif type(element) == np.ndarray:
+            dx = 1.
+            dz = 1.
+            origin = np.zeros(3,dtype=np.float32)
         imaris.np_to_ims(element,path,
                          subsamp=((1, 1, 1), (2, 2, 2), (4, 4, 4), (8, 8, 8)),
                          chunks=((16, 128, 128), (64, 64, 64), (32, 32, 32), (16, 16, 16)),
                          compression='gzip',
-                         dx=1,dz=1,
+                         dx=float(dx),dz=float(dz),
+                         origin=origin,
                          )
     elif path.endswith('.image.h5') and type(element) == np.ndarray:
         tmpFile = h5py.File(path)
