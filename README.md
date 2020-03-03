@@ -1,10 +1,34 @@
-# z1regfus
+# MVRegFus
 
-Code to register and fuse multi-view light sheet data from Zeiss Z1
+Multi-View Registration and Fusion
+
+Cross platform python module to process multi-view light sheet data. This includes
+
+1) image registration
+    - view registration
+    - time registration (drift correction)
+    - channel registration (affine chromatic aberration correction)
+    
+2) view fusion
+    - weighted additive fusion
+    - multi-view deconvolution (Richardson Lucy)
+        - traditional
+        - weighted
+    - for both fusion methods, weights can be chosen from:
+        - blending weights
+        - image quality based weights
+        
+- Additional features:
+
+    - cross-platform
+    - fusion is performed in a blockwise manner, allowing large datasets to be fused on a laptop
+    - can be deployed on cluster using dask.distributed
+    - GPU accelerated multi-view deconvolution
+
+Notes:
+- currently, only czi files from Z1 microscopes are supported out of the box
 
 ## Dependencies
-
-(probably not complete)
 
 Python libraries:
 - numpy, scipy
@@ -12,37 +36,27 @@ Python libraries:
 - dask
 - distributed
 - dipy
-- redis
-- redis-lock
 - SimpleITK
 - scikit-image
 - bcolz
 - tifffile (included)
 - czifileczifile==2019.1.26 (included)
+- cupy (optional)
 
 External:
 - elastix (install binary and indicate path at the beginning of dipy_multiview.py)
 - SimpleElastix (optional)
 
-## installation instructions
+## Installation instructions
 
-- download anaconda, then:
+1) Use anaconda and install an environment from the provided .yml file:
+"conda env create --file mv_environment.yml"
 
-### option 1: install an environment from the .yml file:
-conda env create --file mv_environment.yml
+2) Download elastix (binary version suitable for your platform) and place files into a folder 'elastix' in the same folder as this project
 
-### option 2 (deprecated): create a new conda environment and type:
+## Usage
 
-# conda install ipython h5py numpy scipy scikit-learn pandas dask distributed bokeh bcolz
-# pip install SimpleITK
-# pip install SimpleITK redis redis_lock dipy scikit-image transformations czifile==2019.1.26 tifffile
-
-download elastix (binary version) and place files in a folder 'elastix' in the same folder as z1regfus (this one)
-
-## usage
-
-- open anaconda prompt
-- navigate to this directory "cd Z:\transfer\Z1_Multi_View_Fusion\z1regfus"
-- type "conda activate Z:\transfer\Z1_Multi_View_Fusion\z1regfus_conda_env"
-- use mv_dbspim.py as a template to create your own mv_dbspim_<project>.py in this folder
-- run fusion with ipython mv_dbspim_<project>.py
+- open terminal / anaconda prompt
+- activate the previously installed anaconda environment: "conda activate mvregfus" (Win,MacOS) or "source activate mvregfus" (Linux)
+- copy mvregfus/bin/mvregfus_bin.py to <your_mvregfus_bin.py> (can be placed next to data) and use as a template to indicate the location of your files, resolution, etc. (see comments in file). Soon configuration file handling will be added
+- run fusion with python <your_mvregfus_bin.py>
