@@ -28,7 +28,9 @@ Python module to process multi-view light sheet data. This includes
 Notes:
 - currently, only czi files from Z1 microscopes are supported out of the box
 
-<img src="images/multi_view_example1.png" alt="In toto multi-view reconstruction (ex)sample 1"/> <img src="images/multi_view_example2.png" alt="In toto multi-view reconstruction (ex)sample 2"/>
+<img src="images/multi_view_example1.png" alt="In toto multi-view reconstruction (ex)sample 1"/>
+
+<img src="images/multi_view_example2.png" alt="In toto multi-view reconstruction (ex)sample 2"/>
 
 MVRegFus uses the [elastix](https://elastix.lumc.nl/) registration toolkit for performing most image registrations.
 
