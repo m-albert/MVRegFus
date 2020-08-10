@@ -4458,7 +4458,7 @@ def scale_down_dask_array(a, b=3):
         return np.array(res)
 
     res = da.map_blocks(dask_scale_down_chunk, a, dtype=np.float32,
-                        chunks=tuple([a.chunksize[0]] + [a.chunksize[dim] / b for dim in range(1, 4)]), **{'b': b})
+                        chunks=tuple([a.chunksize[0]] + [int(a.chunksize[dim] / b) for dim in range(1, 4)]), **{'b': b})
 
     return res
 

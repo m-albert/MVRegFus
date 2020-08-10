@@ -37,10 +37,16 @@ MVRegFus uses the [elastix](https://elastix.lumc.nl/) registration toolkit for p
 
 ## Installation instructions
 
-1) Use anaconda and install an environment from the provided .yml file:
-`conda env create --file mv_environment.yml`
+- clone this repository from github:
+`git clone https://github.com/m-albert/MVRegFus.git`
 
-2) [Download elastix](https://elastix.lumc.nl/download.php) (binary version suitable for your platform) and place files into a folder 'elastix' in the same folder as this project, as such:
+- use anaconda to install an environment from the provided .yml file:
+`conda env create --file MVRegFus/mv_environment.yml`
+
+- install MVRegFus
+`pip install -e ./MVRegFus`
+
+- [Download elastix 4.9](https://elastix.lumc.nl/download.php) (binary version 4.9 suitable for your platform) and place files into a folder 'elastix' in the same folder as this project, as such:
 ```bash
 ./MVRegFus
 ./MVRegFus/bin

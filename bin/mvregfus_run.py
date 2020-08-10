@@ -47,6 +47,41 @@ ref_views = [ref_view] *len(filepaths)
 registration_pairs = None
 registration_pairss = [registration_pairs] *len(filepaths)
 
+# list of pairwise view indices to perform registration on
+# registration_pairs = [[0,1]]
+registration_pairs = None
+registration_pairss = [registration_pairs] *len(filepaths)
+
+# optionally, specify the meanings of indices
+# occuring in the list of pairs
+# this can be used to fuse illuminations independently
+# to do so, use view_dict, which is a dictionary containing
+# the indices as keys and dictionaries as items, such as:
+# >>> view_dict[0] = {'view': 0 # view 0 within the file
+#                     'ill' : 1 # illumination 1 within that view
+#                     }
+# another example:
+# >>> view_dict[0] = {'view': 0    # view 0 within the file
+#                     'ill' : None # like this, both ills of this view are fused
+#                     }
+
+# observation: - illumination 0 comes from left
+#              - illumination 1 comes from right
+#              - rotating in positive direction (in angles)
+#                brings left to the front
+# so it makes sense to register like this: (view, ill)
+# (0,1),(0,0)
+# (0,0),(1,1)
+# (1,1),(1,0)
+# (1,0),(2,1)
+# etc.
+
+# four view example:
+# view_dict = {i:{'view':i,'ill':None} for i in [0,1,4,6,7]}
+
+# if ills of all views should be averaged, set view_dict to None:
+view_dict = None
+
 # how to calculate final fusion volume
 # 'sample': takes best quality z plane of every view to define the volume
 # 'union': takes the union of all view volumes
@@ -78,8 +113,8 @@ mv_final_spacing = np.array([5.]*3)
 # fusion_method
 # 'weighted_average': weighted average of views using the given weights
 # 'LR': Lucy-Richardson multi-view deconvolution
-#fusion_method = 'LR'
-fusion_method = 'weighted_average'
+fusion_method = 'LR'
+# fusion_method = 'weighted_average'
 
 # fusion weights
 # 'blending': uniform weights with blending at the stack borders
@@ -117,65 +152,67 @@ LR_sigma_xy = 0.5  # sigma xy
 #### end of parameters to modify
 ##########################
 
+# graph_multiview.multiview_fused_label = graph_multiview.multiview_fused_label[:-2] + 'mhd'
+# graph_multiview.transformed_view_label = graph_multiview.transformed_view_label[:-2] + 'mhd'
 
-if __name__ == '__main__':
+graph = dict()
+result_keys = []
+for ifile,filepath in enumerate(filepaths):
+    channels = channelss[ifile]
+    # pairs = pairss[ifile]
 
-    # graph_multiview.multiview_fused_label = graph_multiview.multiview_fused_label[:-2] + 'mhd'
-    # graph_multiview.transformed_view_label = graph_multiview.transformed_view_label[:-2] + 'mhd'
-
-    graph = dict()
-    result_keys = []
-    for ifile,filepath in enumerate(filepaths):
-        channels = channelss[ifile]
-        # pairs = pairss[ifile]
-
-        print('Warning: Using different registration factors, default is 882')
-        graph.update(
-            mv_graph.build_multiview_graph(
-            filepath = filepath,
-            pairs = registration_pairss[ifile],
-            ref_view = ref_views[ifile],
-            # mv_registration_bin_factors = np.array([8,8,2]),
-            mv_registration_bin_factors = mv_registration_bin_factors, # x,y,z
-            mv_final_spacing = mv_final_spacing, # orig resolution
-            reg_channel = reg_channel,
-            channels = channels,
-            ds = 0,
-            sample = ifile,
-            out_dir = out_dir,
-            perform_chromatic_correction = perform_chromatic_correction,
-            ref_channel_chrom = ref_channel_chrom,
-            final_volume_mode = final_volume_mode,
-            elastix_dir = elastix_dir,
-            raw_input_binning = raw_input_binning, # x,y,z
-            background_level = background_level,
-            dct_size = dct_size,
-            dct_max_kernel = dct_max_kernel,
-            dct_gaussian_kernel = dct_gaussian_kernel,
-            LR_niter = LR_niter,  # iters
-            LR_sigma_z = LR_sigma_z,  # sigma z
-            LR_sigma_xy = LR_sigma_xy,  # sigma xy
-            LR_tol = LR_tol,  # tol
-            fusion_method = fusion_method,
-            fusion_weights = fusion_weights,
-            dct_how_many_best_views=dct_how_many_best_views,
-            dct_cumulative_weight_best_views=dct_cumulative_weight_best_views,
-            )
+    print('Warning: Using different registration factors, default is 882')
+    graph.update(
+        mv_graph.build_multiview_graph(
+        filepath = filepath,
+        pairs = registration_pairss[ifile],
+        view_dict = view_dict,
+        ref_view = ref_views[ifile],
+        # mv_registration_bin_factors = np.array([8,8,2]),
+        mv_registration_bin_factors = mv_registration_bin_factors, # x,y,z
+        mv_final_spacing = mv_final_spacing, # orig resolution
+        reg_channel = reg_channel,
+        channels = channels,
+        ds = 0,
+        sample = ifile,
+        out_dir = out_dir,
+        perform_chromatic_correction = perform_chromatic_correction,
+        ref_channel_chrom = ref_channel_chrom,
+        final_volume_mode = final_volume_mode,
+        elastix_dir = elastix_dir,
+        raw_input_binning = raw_input_binning, # x,y,z
+        background_level = background_level,
+        dct_size = dct_size,
+        dct_max_kernel = dct_max_kernel,
+        dct_gaussian_kernel = dct_gaussian_kernel,
+        LR_niter = LR_niter,  # iters
+        LR_sigma_z = LR_sigma_z,  # sigma z
+        LR_sigma_xy = LR_sigma_xy,  # sigma xy
+        LR_tol = LR_tol,  # tol
+        fusion_method = fusion_method,
+        fusion_weights = fusion_weights,
+        dct_how_many_best_views=dct_how_many_best_views,
+        dct_cumulative_weight_best_views=dct_cumulative_weight_best_views,
         )
+    )
 
-        # choose same reference coordinate system
-        # if ifile:
-        #     graph[graph_multiview.stack_properties_label %(0,ifile)] = graph_multiview.stack_properties_label %(0,0)
+    # choose same reference coordinate system
+    # if ifile:
+    #     graph[graph_multiview.stack_properties_label %(0,ifile)] = graph_multiview.stack_properties_label %(0,0)
 
-        # out_file = os.path.join(os.path.dirname(filepath),graph_multiview.multiview_fused_label %(0,ifile,0))
-        # if os.path.exists(out_file):
-        #     print('WARNING: skipping %s because %s already exists' %(filepath,out_file))
-        #     continue
+    # out_file = os.path.join(os.path.dirname(filepath),graph_multiview.multiview_fused_label %(0,ifile,0))
+    # if os.path.exists(out_file):
+    #     print('WARNING: skipping %s because %s already exists' %(filepath,out_file))
+    #     continue
 
-        multiview_fused_labels              = [mv_graph.multiview_fused_label % (0, ifile, ch) for ch in channels]
-        # fusion_params_label                 = 'mv_params_%03d_%03d.prealignment.h5' %(ikey,s)
-        result_keys += multiview_fused_labels
-            # p = threaded.get(graph,fusion_params_label)
+    multiview_fused_labels              = [mv_graph.multiview_fused_label % (0, ifile, ch) for ch in channels]
+    # fusion_params_label                 = 'mv_params_%03d_%03d.prealignment.h5' %(ikey,s)
+    result_keys += multiview_fused_labels
+        # p = threaded.get(graph,fusion_params_label)
+
+
+# run
+if __name__ == '__main__':
 
     o = io_utils.get(graph, result_keys[0], local=True)
 

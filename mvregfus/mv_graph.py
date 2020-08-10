@@ -199,7 +199,7 @@ def build_multiview_graph(
 
     for ipair,pair in enumerate(pairs):
 
-        print('WARNING: set registration degree to 2 (trans+rot+aff) (standard for chemoatlas!)')
+        print('INFO: set registration degree to 2 (trans+rot+aff)')
         # graph[fusion_params_pair_label %(ds,sample,ipair)] = (
 
         fusion_params_pair_file = os.path.join(out_dir,fusion_params_pair_label % (ds, sample, pair[0], pair[1]))

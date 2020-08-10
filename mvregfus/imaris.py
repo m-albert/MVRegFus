@@ -142,6 +142,143 @@ def np_to_ims(array, fname='myfile.ims',
 
     return fname
 
+def empty_to_ims(shape, fname='myfile.ims',
+              subsamp=((1, 1, 1), (2, 2, 2), (4,4,4), (8,8,8)),
+              chunks=((16, 128, 128), (64, 64, 64), (32, 32, 32), (16, 16, 16)),
+              compression='gzip',
+              thumbsize=256,
+              dx=1, dz=1,
+              overwrite= False,
+              origin=[0.,0.,0.],
+              ):
+
+    """
+    create empty imaris file to stream data into later
+    """
+
+    assert len(subsamp) == len(chunks)
+    assert all([len(i) == 3 for i in subsamp]), 'Only deal with 3D chunks'
+    assert all([len(i) == len(x) for i, x in zip(subsamp, chunks)])
+    assert compression in (None, 'gzip', 'lzf', 'szip'), 'Unknown compression type'
+    if not fname.endswith('.ims'):
+        fname = fname + '.ims'
+
+    if overwrite:
+        if os.path.exists(fname):
+            os.remove(fname)
+
+    # force 5D
+    # if not array.ndim == 5:
+    #     array = array.reshape(tuple([1] * (5 - array.ndim)) + array.shape)
+    # nt, nc, nz, ny, nx = array.shape
+    nt, nc, nz, ny, nx = (1, 1) + tuple(shape)
+    nr = len(subsamp)
+
+    GROUPS = [
+        'DataSetInfo',
+        'Thumbnail',
+        'DataSetTimes',
+        'DataSetInfo/Imaris',
+        'DataSetInfo/Image',
+        'DataSetInfo/TimeInfo'
+    ]
+
+    ATTRS = [
+        ('/', ('ImarisDataSet', 'ImarisDataSet')),
+        ('/', ('ImarisVersion', '5.5.0')),
+        ('/', ('DataSetInfoDirectoryName', 'DataSetInfo')),
+        ('/', ('ThumbnailDirectoryName', 'Thumbnail')),
+        ('/', ('DataSetDirectoryName', 'DataSet')),
+        ('DataSetInfo/Imaris', ('Version', '8.0')),
+        ('DataSetInfo/Imaris', ('ThumbnailMode', 'thumbnailMIP')),
+        ('DataSetInfo/Imaris', ('ThumbnailSize', thumbsize)),
+        ('DataSetInfo/Image', ('X', nx)),
+        ('DataSetInfo/Image', ('Y', ny)),
+        ('DataSetInfo/Image', ('Z', nz)),
+        ('DataSetInfo/Image', ('NumberOfChannels', nc)),
+        ('DataSetInfo/Image', ('Noc', nc)),
+        ('DataSetInfo/Image', ('Unit', 'um')),
+        ('DataSetInfo/Image', ('Description', 'description not specified')),
+        ('DataSetInfo/Image', ('MicroscopeModality', '',)),
+        ('DataSetInfo/Image', ('RecordingDate', '2018-05-24 20:36:07.000')),
+        ('DataSetInfo/Image', ('Name', 'name not specified')),
+        ('DataSetInfo/Image', ('ExtMin0', origin[0])),
+        ('DataSetInfo/Image', ('ExtMin1', origin[1])),
+        ('DataSetInfo/Image', ('ExtMin2', origin[2])),
+        ('DataSetInfo/Image', ('ExtMax0', origin[0] + nx * dx)),
+        ('DataSetInfo/Image', ('ExtMax1', origin[1] + ny * dx)),
+        ('DataSetInfo/Image', ('ExtMax2', origin[2] + nz * dz)),
+        ('DataSetInfo/Image', ('LensPower', '63x')),
+        ('DataSetInfo/TimeInfo', ('DatasetTimePoints', nt)),
+        ('DataSetInfo/TimeInfo', ('FileTimePoints', nt)),
+    ]
+
+    COLORS = ('0 1 0', '1 0 1', '1 1 0', '0 0 1')
+    for c in range(nc):
+        grp = 'DataSetInfo/Channel %s' % c
+        GROUPS.append(grp)
+        ATTRS.append((grp, ('ColorOpacity', 1)))
+        ATTRS.append((grp, ('ColorMode', 'BaseColor')))
+        ATTRS.append((grp, ('Color', COLORS[c % len(COLORS)])))
+        ATTRS.append((grp, ('GammaCorrection', 1)))
+        ATTRS.append((grp, ('ColorRange', '0 255')))
+        ATTRS.append((grp, ('Name', 'Channel %s' % c)))
+        # ATTRS.append(grp, ('LSMEmissionWavelength', 0))
+        # ATTRS.append(grp, ('LSMExcitationWavelength', ''))
+        # ATTRS.append(grp, ('Description', '(description not specified)'))
+
+    # TODO: create accurate timestamps
+    for t in range(nt):
+        m, s = divmod(t, 60)
+        h, m = divmod(m, 60)
+        strr = '2018-05-24 {:02d}:{:02d}:{:02d}.000'.format(h, m, s)
+        ATTRS.append(('DataSetInfo/TimeInfo', ('TimePoint{}'.format(t + 1), strr)))
+
+    with h5py.File(fname, 'a') as hf:
+        for grp in GROUPS:
+            hf.create_group(grp)
+
+        for grp, (key, value) in ATTRS:
+            hf[grp].attrs.create(key, h5str(value))
+
+        # create thumbnail later
+        # try:
+        #     thumb = make_thumbnail(array[0], thumbsize)
+        #     hf.create_dataset('Thumbnail/Data', data=thumb, dtype='u1')
+        # except Exception:
+        #     logger.warn('Failed to generate Imaris thumbnail')
+
+        # add data
+        fmt = '/DataSet/ResolutionLevel {r}/TimePoint {t}/Channel {c}/'
+        for t in range(nt):
+            for c in range(nc):
+                # data = np.squeeze(array[t, c])
+                # data = np.zeros(shape)
+
+                for r in range(nr):
+                    if any([i > 1 for i in subsamp[r]]):
+                    #     data = subsample_data(data, subsamp[r])
+                        nz, ny, nx = [[nz, ny, nx][dim] // subsamp[r][dim] for dim in range(3)]
+
+                    hist, edges = np.histogram(np.zeros(1), 256)
+                    # hist, edges = np.histogram(data, 256)
+
+                    grp = hf.create_group(fmt.format(r=r, t=t, c=c))
+                    print("Writing: %s" % grp)
+                    grp.create_dataset('Histogram', data=hist.astype(np.uint64))
+                    grp.attrs.create('HistogramMin', h5str(edges[0]))
+                    grp.attrs.create('HistogramMax', h5str(edges[-1]))
+
+                    # grp.create_dataset('Data', data=data,
+                    #                    chunks=tuple(min(*n) for n in zip(chunks[r], data.shape)),
+                    #                    compression=compression)
+
+                    grp.attrs.create('ImageSizeX', h5str(nx))
+                    grp.attrs.create('ImageSizeY', h5str(ny))
+                    grp.attrs.create('ImageSizeZ', h5str(nx))
+
+    return fname
+
 def im_to_ims(filepattern, channels, tps, fname='myfile.ims', overwrite = True, copy_or_link = 'link'):
 
     """

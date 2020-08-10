@@ -273,3 +273,10 @@ def sitk_to_image(sim):
     im = sitk.GetArrayFromImage(sim)
     im = ImageArray(im,spacing=np.array(sim.GetSpacing())[::-1],origin=np.array(sim.GetOrigin())[::-1])
     return im
+
+
+def transform_points(pts, p):
+    A = p[:9].reshape((3,3))
+    c = p[9:]
+    pts_t = np.array([np.dot(A, pt) + c for pt in pts]) # should vectorize this
+    return pts_t
