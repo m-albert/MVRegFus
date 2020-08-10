@@ -47,11 +47,6 @@ ref_views = [ref_view] *len(filepaths)
 registration_pairs = None
 registration_pairss = [registration_pairs] *len(filepaths)
 
-# list of pairwise view indices to perform registration on
-# registration_pairs = [[0,1]]
-registration_pairs = None
-registration_pairss = [registration_pairs] *len(filepaths)
-
 # optionally, specify the meanings of indices
 # occuring in the list of pairs
 # this can be used to fuse illuminations independently
