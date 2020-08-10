@@ -5,6 +5,7 @@ import os
 import SimpleITK as sitk
 import h5py
 import numpy as np
+from dask.diagnostics import ProgressBar
 
 # from dipy.align.imwarp import DiffeomorphicMap
 from mvregfus.image_array import ImageArray
@@ -24,11 +25,13 @@ def get(graph,key,local=True):
     import dask
     from dask.optimization import cull
     cgraph = cull(graph,key)[0]
-    if local:
-        return dask.local.get_sync(cgraph,key)
-    else:
-        return dask.threaded.get(cgraph,key)
-        # return dask.multiprocessing.get(cgraph,key)
+
+    with ProgressBar():
+        if local:
+            return dask.local.get_sync(cgraph,key)
+        else:
+            return dask.threaded.get(cgraph,key)
+            # return dask.multiprocessing.get(cgraph,key)
 
 def recursive_func_application(l,f):
     if type(l) == list:
@@ -106,7 +109,7 @@ def process_input_element(path):
                              )
 
     elif path.startswith('prealignment') and path.endswith('.h5'):
-        res =  h5py.File(path,mode='r')['prealignment'].value
+        res =  h5py.File(path,mode='r')['prealignment'][()]
 
     elif path.endswith('.mapping.h5'):
         res = diffmap_on_disk(path).get()
@@ -116,26 +119,26 @@ def process_input_element(path):
         tmpdict = dict()
         # for key,value in enumerate(tmpFile):
         for key,value in tmpFile.items():
-            tmpdict[key] = tmpFile[key].value
+            tmpdict[key] = tmpFile[key][()]
         tmpFile.close()
         res = tmpdict
 
     elif path.endswith('.image.h5'):
-        res = h5py.File(path,mode='r')['image'].value
+        res = h5py.File(path,mode='r')['image'][()]
 
     elif path.endswith('.imagear.h5'):
         tmpFile = h5py.File(path,mode='r')
-        tmp = ImageArray(tmpFile['array'].value)
-        tmp.origin = np.array(tmpFile['origin'].value)
-        tmp.spacing = np.array(tmpFile['spacing'].value)
-        tmp.rotation = np.array(tmpFile['rotation'].value)
+        tmp = ImageArray(tmpFile['array'][()])
+        tmp.origin = np.array(tmpFile['origin'][()])
+        tmp.spacing = np.array(tmpFile['spacing'][()])
+        tmp.rotation = np.array(tmpFile['rotation'][()])
         res = tmp
 
     elif path.endswith('hdf'):
         res = pd.read_hdf(path)
 
     elif 'prealignment' in path and path.endswith('.h5'):
-        res = h5py.File(path,mode='r')['prealignment'].value
+        res = h5py.File(path,mode='r')['prealignment'][()]
 
     elif path.endswith('ilp'):
         res = path
@@ -160,47 +163,6 @@ def process_input_element(path):
 
     return res
 
-# def process_input_element(path):
-#
-#     if not type(path) == str or (type(path) == str and len(path.split('.'))==1) or 'elastix_' in path:
-#         return path
-#
-#     elif path.endswith('.mhd') or path.endswith('.tif'):
-#         s = sitk.ReadImage(path)
-#         ar = ImageArray(sitk.GetArrayFromImage(s))
-#         ar.spacing = s.GetSpacing()[::-1]
-#         ar.origin = s.GetOrigin()[::-1]
-#         return ar
-#     elif path.startswith('prealignment') and path.endswith('.h5'):
-#         return h5py.File(path,mode='r')['prealignment'].value
-#     elif path.endswith('.mapping.h5'):
-#         return diffmap_on_disk(path).get()
-#     elif path.endswith('dict.h5'):
-#         tmpFile = h5py.File(path,mode='r')
-#         tmpdict = dict()
-#         # for key,value in enumerate(tmpFile):
-#         for key,value in tmpFile.items():
-#             tmpdict[key] = tmpFile[key].value
-#         tmpFile.close()
-#         return tmpdict
-#     elif path.endswith('.image.h5'):
-#         return h5py.File(path,mode='r')['image'].value
-#     elif path.endswith('.imagear.h5'):
-#         tmpFile = h5py.File(path,mode='r')
-#         tmp = ImageArray(tmpFile['array'].value)
-#         tmp.origin = tmpFile['origin'].value
-#         tmp.spacing = tmpFile['spacing'].value
-#         tmp.rotation = tmpFile['rotation'].value
-#         return tmp
-#     elif path.endswith('hdf'):
-#         return pd.read_hdf(path)
-#     elif 'prealignment' in path and path.endswith('.h5'):
-#         return h5py.File(path,mode='r')['prealignment'].value
-#     elif path.endswith('ilp'):
-#         return path
-#     else:
-#         raise(Exception('unrecognized string input to function'))
-#     return
 
 def get_mtime_from_path(path):
     # print('GETMTIME...')
@@ -212,6 +174,7 @@ def get_mtime_from_path(path):
         return os.lstat(path).st_mtime # this function doesn't follow symlinks which is good when base data is linked
     else:
         return -1
+
 
 def process_output_element(element,path):
     # if os.path.exists(path):
@@ -554,89 +517,3 @@ def io_decorator_local(func):
 
 # io_decorator = io_decorator_distributed
 io_decorator = io_decorator_local
-
-
-# class diffmap_on_disk(object):
-#     """
-#                      dim,
-#                  disp_shape,
-#                  disp_grid2world=None,
-#                  domain_shape=None,
-#                  domain_grid2world=None,
-#                  codomain_shape=None,
-#                  codomain_grid2world=None,
-#                  prealign=None):
-#     """
-#     def __init__(self,filepath=None):
-#         self.filepath       = filepath
-#         self.init_keys = ['dim',
-#                      'disp_shape',
-#                      'disp_grid2world',
-#                      'domain_shape',
-#                      'domain_grid2world',
-#                      'codomain_shape',
-#                      'codomain_grid2world',
-#                      'prealign',
-#                      ]
-#         self.more_keys = [
-#                      'forward',
-#                      'backward',
-#                      'is_inverse',
-#                      'evolution',
-#                      'warped'
-#                      ]
-#         self.keys = self.init_keys + self.more_keys
-#
-#     def exists(self):
-#         if os.path.exists(self.filepath):
-#             return True
-#         else:
-#             return False
-#
-#     def get(self):
-#
-#         diffmap_file = h5py.File(self.filepath,'r')
-#         init_dict = {}
-#         for key in self.init_keys:
-#             value = diffmap_file[key].value
-#             # if value == 'None':
-#             if (type(value) == str and value == 'None') or (type(value) == bytes and value == b'None'): # python 3 saves 'None' into h5 as b'None', python 2 as 'None'
-#                 init_dict[key] = None
-#             else:
-#                 if 'world' in key: # because of dtype problems when arrays came from dask (returns >f8...?)
-#                     value = value.astype(np.float64)
-#                 init_dict[key] = value
-#
-#         diffmap = DiffeomorphicMap(**init_dict)
-#
-#         for key in self.more_keys:
-#             value = diffmap_file[key].value
-#             if (type(value) == str and value == 'None') or (type(value) == bytes and value == b'None'): # python 3 saves 'None' into h5 as b'None', python 2 as 'None'
-#                 diffmap.__setattr__(key, None)
-#             else:
-#                 if key in ['forward','backward']:
-#                     value = value.astype(np.float32)
-#                 diffmap.__setattr__(key, value)
-#
-#         diffmap_file.close()
-#
-#         return diffmap
-#
-#     def save(self,diffmap):
-#
-#         diffmap_file = h5py.File(self.filepath)
-#         diffmap_file.clear()
-#         for key in self.keys:
-#             value = diffmap.__getattribute__(key)
-#             if value is None:
-#                 diffmap_file[key] = 'None'
-#             else:
-#                 # because of dtype problems when arrays came from dask (returns >f8...?)
-#                 if 'world' in key:
-#                     value = value.astype(np.float64)
-#                 elif key in ['forward','backward']:
-#                     value = value.astype(np.float32)
-#                 diffmap_file[key] = value
-#
-#         diffmap_file.close()
-#         return
