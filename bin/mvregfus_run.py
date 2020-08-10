@@ -25,13 +25,17 @@ logging.basicConfig(level=logging.WARN)
 ##########################
 
 # where elastix can be found (top folder)
-elastix_dir = '/Users/marvin/Documents/projects/elastix'
+elastix_dir = '/home/user/elastix'
 
-# files to fuse
-filepaths = ['/Users/marvin/data/dbspim/20140911_cxcr7_wt/wt_01.czi']
+# list of files to fuse
+filepaths = ['/home/user/some_folder/images/file01.czi',
+             '/home/user/some_folder/images/file02.czi']
+
+# where to save the output
+out_dir = os.path.dirname(filepaths[0])  # e.g. same folder as first file in filepaths
 
 # channels to fuse
-channels = [0,1]#*len(filepaths)
+channels = [0,1]
 channelss = [channels]*len(filepaths)
 
 # channel to use for registration
@@ -81,9 +85,6 @@ view_dict = None
 # 'sample': takes best quality z plane of every view to define the volume
 # 'union': takes the union of all view volumes
 final_volume_mode = 'sample'
-
-# where to save the output
-out_dir = os.path.dirname(filepaths[0])
 
 # whether to perform an affine chromatic correction
 # and which channel to use as reference
