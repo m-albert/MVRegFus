@@ -72,7 +72,7 @@ registration_pairss = [registration_pairs] *len(filepaths)
 # etc.
 
 # four view example:
-# view_dict = {i:{'view':i,'ill':None} for i in [0,1,4,6,7]}
+# view_dict = {i:{'view':i, 'ill':None} for i in [0, 1, 2, 3]}
 
 # if ills of all views should be averaged, set view_dict to None:
 view_dict = None
