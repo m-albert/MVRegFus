@@ -5,6 +5,7 @@ channels:
   - conda-forge
 dependencies:
   - ipython
+  - jupyter
   - h5py
   - h5pickle
   - numpy
@@ -19,6 +20,8 @@ dependencies:
   - tifffile
   - dipy
   - pip
+  - pip:
+      - SimpleITK
 #  - pip:
 #    - simpleitk # replace by simpleelastix
 #    - czifile==2019.1.26

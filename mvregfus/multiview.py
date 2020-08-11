@@ -1552,6 +1552,120 @@ def register_linear(static,moving,t0=None):
 #
 #     return t
 
+from .mv_utils import matrix_to_params, transform_points
+def transform_stack_dask(stack,
+                              p=None,
+                              out_shape=None,
+                              out_spacing=None,
+                              out_origin=None,
+                              interp='linear',
+                              stack_properties=None,
+                              chunksize=128,
+                        ):
+
+    # print('WARNING: USING BSPLINE INTERPOLATION AS DEFAULT')
+    if p is None:
+        p = np.array([1.,0,0,0,1,0,0,0,1,0,0,0])
+
+    p = np.array(p)
+
+    if stack_properties is not None:
+        out_shape = stack_properties['size']
+        out_origin = stack_properties['origin']
+        out_spacing = stack_properties['spacing']
+
+    else:
+        if out_shape is None:
+            out_shape = stack.shape
+
+        if out_origin is None:
+            out_origin = stack.origin
+
+        if out_spacing is None:
+            out_spacing = stack.spacing
+
+    trivial = True
+    if not np.allclose(p, matrix_to_params(np.eye(4))):
+        trivial = False
+    if not np.allclose(out_shape, stack.shape):
+        trivial = False
+    if not np.allclose(out_origin, stack.origin):
+        trivial = False
+    if not np.allclose(out_spacing, stack.spacing):
+        trivial = False
+
+    def transform_block(x, p, stack, block_info=None):
+
+        # bottleneck seems to be passing the stack array into the function (thread, process?)
+
+        offset = np.array([i[0] for i in block_info[0]['array-location']])
+        block_out_shape = x.shape
+        block_out_spacing = out_spacing
+        block_out_origin = out_origin + offset * out_spacing
+
+        edges = np.array([[i,j,k] for i in [0,1] for j in [0,1] for k in [0,1]]) * np.array(x.shape)
+        edges_out_phys = edges * block_out_spacing + block_out_origin
+
+        edges_in_phys = transform_points(edges_out_phys, p)
+
+        for dim in range(3):
+            edges_in_phys[:, dim] = np.clip(edges_in_phys[:, dim],
+                                            stack.origin[dim],
+                                            stack.origin[dim] + stack.shape[dim] * stack.spacing[dim])
+
+        edges_in_px = (edges_in_phys - stack.origin) / stack.spacing
+
+        min_coord_px = np.floor(np.min(edges_in_px, 0)).astype(np.uint64)
+        max_coord_px = np.ceil(np.max(edges_in_px, 0)).astype(np.uint64)
+
+        min_coord_phys = np.min(edges_in_phys, 0)
+        max_coord_phys = np.max(edges_in_phys, 0)
+
+        reduced_shape = max_coord_px - min_coord_px
+        reduced_origin_phys = min_coord_phys
+        reduced_origin_px = min_coord_px
+
+        slice_reduced = tuple([slice(reduced_origin_px[dim],
+                                     reduced_origin_px[dim] + reduced_shape[dim])
+                               for dim in range(3)])
+
+        stack_reduced = stack[slice_reduced]
+        stack_reduced.origin = reduced_origin_phys
+        stack_reduced.spacing = stack.spacing
+
+        if not np.min(reduced_shape):
+            return x
+        else:
+            print(reduced_shape)
+
+        x = transform_stack_sitk(stack_reduced, p,
+                                    out_origin=block_out_origin,
+                                    out_shape=block_out_shape,
+                                    out_spacing=block_out_spacing
+                                   )
+        x = np.array(x)
+        return x
+
+    import dask.array as da
+    import dask.delayed as delayed
+    result = da.from_array(np.zeros(out_shape, dtype=stack.dtype), chunks=tuple([chunksize] * 3))
+    result = result.map_blocks(transform_block, dtype=result.dtype, p=p, stack=delayed(stack))
+    return result
+
+from .imaris import da_to_ims
+def transform_view_dask_and_save_chunked(fn, view, params, iview, stack_properties, chunksize=128):
+    print('transforming and streaming to file: %s' % fn)
+    params = io_utils.process_input_element(params)
+    stack_properties = io_utils.process_input_element(stack_properties)
+
+    # res = transform_stack_sitk(view, params[iview], stack_properties=stack_properties,interp='bspline')
+    res = transform_stack_dask(view, params[iview], stack_properties=stack_properties, interp='linear',
+                               chunksize=chunksize)
+
+    da_to_ims(res, fn)
+
+    return fn
+
 def transform_stack_sitk(stack,p=None,out_shape=None,out_spacing=None,out_origin=None,interp='linear',stack_properties=None):
 
     # print('WARNING: USING BSPLINE INTERPOLATION AS DEFAULT')
@@ -4241,12 +4355,14 @@ def fuse_blockwise(fn,
     #result = result.compute()
 
     # if on gpu, use only one thread (why?)
-    try:
-        import cupy
-        result = result.compute(scheduler='single-threaded')
-        print('CuPy available, using single host thread for fusion')
-    except:
-        result = result.compute()
+    # try:
+    #     import cupy
+    #     result = result.compute(scheduler='single-threaded')
+    #     print('CuPy available, using single host thread for fusion')
+    # except:
+    #     result = result.compute()
+
+
 
     # manual_fusion = np.sum([weights[i]*np.array(tviews_dsets[i]) for i in range(4)],0)
     # io_utils.process_output_element(manual_fusion, fn[:-4] + '_manual_fusion.mhd')
@@ -4265,10 +4381,10 @@ def fuse_blockwise(fn,
     #             sizes.append(size)
     #
 
-    result = ImageArray(result,
-                        spacing=stack_properties['spacing'],
-                        origin=stack_properties['origin'],
-                        )
+    # result = ImageArray(result,
+    #                     spacing=stack_properties['spacing'],
+    #                     origin=stack_properties['origin'],
+    #                     )
 
 
 
@@ -4278,7 +4394,9 @@ def fuse_blockwise(fn,
 
         # result.to_hdf5(fn, 'array', compression='gzip')  # ,scheduler = "single-threaded")
 
-    io_utils.process_output_element(result, fn)
+    # io_utils.process_output_element(result, fn)
+    from .imaris import da_to_ims
+    da_to_ims(result, fn)
 
 
     # for ii,i in enumerate(weights):

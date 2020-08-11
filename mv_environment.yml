@@ -5,6 +5,7 @@ channels:
   - conda-forge
 dependencies:
   - ipython
+  - jupyter
   - h5py
   - h5pickle
   - numpy
