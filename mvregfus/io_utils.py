@@ -111,9 +111,6 @@ def process_input_element(path):
     elif path.startswith('prealignment') and path.endswith('.h5'):
         res =  h5py.File(path,mode='r')['prealignment'][()]
 
-    elif path.endswith('.mapping.h5'):
-        res = diffmap_on_disk(path).get()
-
     elif path.endswith('dict.h5'):
         tmpFile = h5py.File(path,mode='r')
         tmpdict = dict()
