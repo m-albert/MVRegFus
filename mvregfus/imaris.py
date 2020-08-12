@@ -15,8 +15,10 @@ logger = logging.getLogger(__name__)
 
 
 def da_to_ims(array, fname='myfile.ims',
-              subsamp=((1, 1, 1), (1, 2, 2)),
-              chunks=((16, 128, 128), (64, 64, 64)),
+              # subsamp=((1, 1, 1), (1, 2, 2)),
+              # chunks=((16, 128, 128), (64, 64, 64)),
+              subsamp=((1, 1, 1), (2, 2, 2), (4, 4, 4), (8, 8, 8)),
+              chunks=((128, 128, 128), (64, 64, 64), (32, 32, 32), (16, 16, 16)),
               compression='gzip',
               thumbsize=256,
               dx=0.1, dz=0.25,
@@ -129,11 +131,11 @@ def da_to_ims(array, fname='myfile.ims',
             else:
                 raise(Exception('array type not supported'))
 
-        try:
-            thumb = make_thumbnail(array[0], thumbsize)
-            hf.create_dataset('Thumbnail/Data', data=thumb, dtype='u1')
-        except Exception:
-            logger.warn('Failed to generate Imaris thumbnail')
+        # try:
+        #     thumb = make_thumbnail(array[0], thumbsize)
+        #     hf.create_dataset('Thumbnail/Data', data=thumb, dtype='u1')
+        # except Exception:
+        #     logger.warn('Failed to generate Imaris thumbnail')
 
         # add data
         fmt = '/DataSet/ResolutionLevel {r}/TimePoint {t}/Channel {c}/'
@@ -179,7 +181,8 @@ def da_to_ims(array, fname='myfile.ims',
             print("Writing dask array into %s" %fname)
             dask.array.core.store(list(dset_map.values()),
                                   list(dset_map.keys()),
-                                  scheduler='single-threaded',
+                                  # scheduler='single-threaded',
+                                  scheduler='threads',
                                   )
 
     return fname

@@ -69,7 +69,7 @@ def build_multiview_graph(
     ref_channel_chrom = 0,
     fusion_method = 'LR',
     fusion_weights = 'dct',
-    fusion_chunk_size = None,
+    fusion_chunk_size = 512,
     dct_size = None,
     dct_max_kernel = None,
     dct_gaussian_kernel = None,
@@ -566,7 +566,8 @@ def build_multiview_graph(
                 graph[transf_label] = transf_file
             else:
                 graph[transf_label] = (
-                    multiview.transform_view_and_save_chunked,
+                    # multiview.transform_view_and_save_chunked,
+                    multiview.transform_view_dask_and_save_chunked,
                     os.path.join(out_dir,transformed_view_label %(ds,sample,view,ch)),
                     multiview_view_corr_label % (ds,sample,view,ch),
                     fusion_params_label % (ds,sample),

@@ -1560,7 +1560,8 @@ def transform_stack_dask(stack,
                               out_origin=None,
                               interp='linear',
                               stack_properties=None,
-                              chunksize=128,
+                              # chunksize=128,
+                              chunksize=512,
                         ):
 
     # print('WARNING: USING BSPLINE INTERPOLATION AS DEFAULT')
@@ -1663,7 +1664,8 @@ def transform_view_dask_and_save_chunked(fn, view, params, iview, stack_properti
                                chunksize=chunksize)
 
     da_to_ims(res, fn)
-
+    # res.to_hdf5(fn, 'Data')#, chunks=(128, 128, 128))#, **{'scheduler':'single-threaded'})
+    #
     return fn
 
 def transform_stack_sitk(stack,p=None,out_shape=None,out_spacing=None,out_origin=None,interp='linear',stack_properties=None):
