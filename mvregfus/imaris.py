@@ -179,12 +179,16 @@ def da_to_ims(array, fname='myfile.ims',
 
         # stream dask array into file
         if not is_numpy:
+            # from .execution import client
             print("Writing dask array into %s" %fname)
+            # import pdb; pdb.set_trace()
             dask.array.core.store(list(dset_map.values()),
                                   list(dset_map.keys()),
+                                  # client=client
                                   scheduler=scheduler,
                                   # scheduler='threads',
                                   )
+            # executor.client.cluster.workers[0]
 
     return fname
 

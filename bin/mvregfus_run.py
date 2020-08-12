@@ -210,7 +210,9 @@ for ifile,filepath in enumerate(filepaths):
 # run
 if __name__ == '__main__':
 
-    o = io_utils.get(graph, result_keys[0], local=True)
+    o = io_utils.get(graph, result_keys[0], local=True, client=execution.client)
+
+
 
 
     # o = dask.local.get_sync(graph,result_keys)

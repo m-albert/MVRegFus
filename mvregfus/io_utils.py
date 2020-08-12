@@ -18,20 +18,29 @@ from mvregfus.image_array import ImageArray
 # conn = StrictRedis()
 
 
-def get(graph,key,local=True):
+def get(graph,key,local=True, client=None):
     # new function because from version 19.1 on, dask no longer culls graphs (apparently it's only done by distributed)
     # so the function combines a get call with previous culling (which means to modify a graph in such a way that only the relevant bit to the key remains)
+
+    from .execution import client
 
     import dask
     from dask.optimization import cull
     cgraph = cull(graph,key)[0]
 
     with ProgressBar():
-        if local:
-            return dask.local.get_sync(cgraph,key)
-        else:
-            return dask.threaded.get(cgraph,key)
-            # return dask.multiprocessing.get(cgraph,key)
+        return client.get(cgraph, key)
+
+    # if client is not None:
+    #     with ProgressBar():
+    #         return client.get(cgraph, key)
+    #
+    # with ProgressBar():
+    #     if local:
+    #         return dask.local.get_sync(cgraph,key)
+    #     else:
+    #         return dask.threaded.get(cgraph,key)
+    #         # return dask.multiprocessing.get(cgraph,key)
 
 def recursive_func_application(l,f):
     if type(l) == list:
