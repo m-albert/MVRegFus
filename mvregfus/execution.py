@@ -7,7 +7,7 @@ client = Client(processes=False)  # ,threads_per_worker=1)
 # client = Client(processes=False, threads_per_worker=10)
 # client = Client(processes=False,threads_per_worker=1)
 dashboard_link = 'http://localhost:%s' % int(client.cluster.scheduler.service_ports['dashboard'])
-print('LINK TO DASHBOARD: dashboard_link')
+print('LINK TO DASHBOARD: %s' % dashboard_link)
 
 if sys.platform.startswith("win"):
     try:
