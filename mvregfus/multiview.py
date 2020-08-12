@@ -1663,7 +1663,7 @@ def transform_view_dask_and_save_chunked(fn, view, params, iview, stack_properti
     res = transform_stack_dask(view, params[iview], stack_properties=stack_properties, interp='linear',
                                chunksize=chunksize)
 
-    da_to_ims(res, fn)
+    da_to_ims(res, fn, scheduler='threads')
     # res.to_hdf5(fn, 'Data')#, chunks=(128, 128, 128))#, **{'scheduler':'single-threaded'})
     #
     return fn
@@ -4398,7 +4398,14 @@ def fuse_blockwise(fn,
 
     # io_utils.process_output_element(result, fn)
     from .imaris import da_to_ims
-    da_to_ims(result, fn)
+    try:
+        import cupy
+        # result = result.compute(scheduler='single-threaded')
+        print('CuPy available, using single host thread for fusion')
+        da_to_ims(result, fn, scheduler='single-threaded')
+    except:
+        print('CuPy NOT available, using threads for fusion')
+        da_to_ims(result, fn)
 
 
     # for ii,i in enumerate(weights):

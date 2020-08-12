@@ -23,7 +23,8 @@ def da_to_ims(array, fname='myfile.ims',
               thumbsize=256,
               dx=0.1, dz=0.25,
               overwrite = False,
-              origin = [0., 0., 0.],
+              origin=[0., 0., 0.],
+              scheduler='threads',
 ):
     """
     :param array: Supports numpy and dask arrays
@@ -181,8 +182,8 @@ def da_to_ims(array, fname='myfile.ims',
             print("Writing dask array into %s" %fname)
             dask.array.core.store(list(dset_map.values()),
                                   list(dset_map.keys()),
-                                  # scheduler='single-threaded',
-                                  scheduler='threads',
+                                  scheduler=scheduler,
+                                  # scheduler='threads',
                                   )
 
     return fname
