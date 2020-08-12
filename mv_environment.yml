@@ -19,6 +19,7 @@ dependencies:
   - scikit-image
   - tifffile
   - dipy
+  - cupy
   - pip
   - pip:
       - SimpleITK
