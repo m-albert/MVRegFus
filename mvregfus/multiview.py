@@ -4265,7 +4265,7 @@ def fuse_blockwise(fn,
         return ys
 
     # tviews_dsets = [h5py.File(fn_tview)['array'] for fn_tview in fns_tview]
-    tviews_dsets = [h5py.File(fn_tview)['DataSet/ResolutionLevel 0/TimePoint 0/Channel 0/Data'] for fn_tview in fns_tview]
+    tviews_dsets = [h5py.File(fn_tview, 'r')['DataSet/ResolutionLevel 0/TimePoint 0/Channel 0/Data'] for fn_tview in fns_tview]
 
     depth = int(fusion_block_overlap)
     # depth = 0
@@ -4278,7 +4278,7 @@ def fuse_blockwise(fn,
     # expanded_shape = np.array(block_chunk_size[-3:]) * (np.array(tviews_dsets[0].shape) // chunksize) + np.array(tviews_dsets[0].shape) % chunksize
     expanded_shape = np.array(block_chunk_size[-3:]) * (np.array(tviews_dsets[0].shape) // chunksize) \
             + np.array([[0,chunksize][tviews_dsets[0].shape[dim] % chunksize > 0] for dim in range(3)])
-    print('expanded_shape', expanded_shape)
+    # print('expanded_shape', expanded_shape)
 
     array_template = da.empty((len(tviews_dsets),)+tuple(expanded_shape),chunks=block_chunk_size,dtype=np.uint16)
 
@@ -4339,60 +4339,6 @@ def fuse_blockwise(fn,
 
     result = result[:orig_shape[0],:orig_shape[1],:orig_shape[2]]
 
-    # from dask.diagnostics import ProgressBar
-
-    # with dask.config.set(scheduler='processes'), ProgressBar():
-    # with dask.config.set(scheduler='threads'), ProgressBar():
-    # with dask.config.set(scheduler='single-threaded'), ProgressBar():
-
-    # print('logger level: %s' %logging.getLevelName(logger.getEffectiveLevel()))
-    # if logger.getEffectiveLevel() >= logging.DEBUG:
-    #     print('diagnostics: calculating weights and saving them to results folder')
-    #     if depth > 0:
-    #         trim_dict = {i:[0,depth][i>0] for i in range(4)}
-    #         weights = da.overlap.trim_internal(weights, trim_dict)
-    #
-    #     weights = weights[:,:orig_shape[0], :orig_shape[1], :orig_shape[2]]
-    #     weights = weights.compute()
-    #     io_utils.process_output_element(weights, fn[:-4]+'_w.image.h5')
-
-    # logger.info('compute')
-    #result = result.compute()
-
-    # if on gpu, use only one thread (why?)
-    # try:
-    #     import cupy
-    #     result = result.compute(scheduler='single-threaded')
-    #     print('CuPy available, using single host thread for fusion')
-    # except:
-    #     result = result.compute()
-
-
-
-    # manual_fusion = np.sum([weights[i]*np.array(tviews_dsets[i]) for i in range(4)],0)
-    # io_utils.process_output_element(manual_fusion, fn[:-4] + '_manual_fusion.mhd')
-
-    # result = result[:,128:256].compute()
-
-
-    # starts, sizes = [], []
-    # chunks = result.chunks
-    # for ix, x in enumerate(chunks[0]):
-    #     for iy, y in enumerate(chunks[1]):
-    #         for iz, z in enumerate(chunks[2]):
-    #             start = [np.sum(chunks[dim][:[ix, iy, iz][dim]]) for dim in range(3)]
-    #             size = [chunks[dim][[ix, iy, iz][dim]] for dim in range(3)]
-    #             starts.append(start)
-    #             sizes.append(size)
-    #
-
-    # result = ImageArray(result,
-    #                     spacing=stack_properties['spacing'],
-    #                     origin=stack_properties['origin'],
-    #                     )
-
-
-
     if os.path.exists(fn):
         logger.warning('WARNING: OVERWRITING %s' %fn)
         os.remove(fn)
@@ -4417,20 +4363,6 @@ def fuse_blockwise(fn,
     with ProgressBar():
         print('fusing views...')
         da_to_ims(result, fn, scheduler=dask_scheduler)
-
-
-
-
-    # for ii,i in enumerate(weights):
-    #     fp = os.path.join(os.path.dirname(fn),'w%03d.mhd' %ii)
-    #     io_utils.process_output_element(i, fp)
-
-    # result.to_hdf5(fn,'array',compression='gzip')#,scheduler = "single-threaded")
-
-    # fn_zarr = fn[:-3]+'.zarr'
-    # result.to_zarr(fn_zarr)
-
-    # maybe add imagearray metadata here
 
     return fn
 
@@ -5278,7 +5210,7 @@ def get_weights_dct(
     #     gaussian_kernel = int(max_kernel)
     #     print('dct: choosing gaussian_kernel %s' %gaussian_kernel)
 
-    print('calculating dct weights...')
+    # print('calculating dct weights...')
     def determine_quality(vrs):
 
         """
@@ -6597,7 +6529,7 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
         """
         Update the history
         """
-    print("Done deconvolving")
+    # print("Done deconvolving")
 
     # in case of working on GPU, copy back to host
     try:

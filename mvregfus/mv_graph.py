@@ -197,9 +197,9 @@ def build_multiview_graph(
     else:
         graph[time_alignment_params_label %(ds,sample)] = np.array([1.,0,0,0,1,0,0,0,1,0,0,0])
 
+    print('INFO: setting registration degree to 2 (trans+rot+aff)')
     for ipair,pair in enumerate(pairs):
 
-        print('INFO: set registration degree to 2 (trans+rot+aff)')
         # graph[fusion_params_pair_label %(ds,sample,ipair)] = (
 
         fusion_params_pair_file = os.path.join(out_dir,fusion_params_pair_label % (ds, sample, pair[0], pair[1]))
