@@ -4634,17 +4634,21 @@ def get_weights_dct_dask(tviews,
     quality_stack_properties['origin'] = stack_properties['origin']
     # ws = tviews_binned_rechunked.map_blocks(determine_chunk_quality,dtype=np.float32,**{'how_many_best_views':how_many_best_views,'cumulative_weight_best_views':cumulative_weight_best_views})#,chunks=(tviews_binned.chunksize[0],1,1,1))
     # ws = tviews_binned_rechunked.map_blocks(determine_chunk_quality,chunks = (tviews_binned.chunksize[0],1,1,1),dtype=np.float32,**{'how_many_best_views':how_many_best_views,'cumulative_weight_best_views':cumulative_weight_best_views})#,chunks=(tviews_binned.chunksize[0],1,1,1))
-    ws = tviews_binned_rechunked.map_blocks(determine_chunk_quality,chunks = (tviews_binned.chunksize[0],1,1,1),dtype=np.float32,**{'orig_stack_propertiess': orig_stack_propertiess,
-                                                                                                                                    'params': params,
-                                                                                                                                    'stack_properties': quality_stack_properties,
-                                                                                                                                    # 'how_many_best_views': how_many_best_views,
-                                                                                                                                    # 'cumulative_weight_best_views':cumulative_weight_best_views
-                                                                                                                                    })
+    ws = tviews_binned_rechunked.map_blocks(determine_chunk_quality,
+                                            chunks = (tviews_binned.chunksize[0],1,1,1),
+                                            dtype=np.float32,
+                                            **{'orig_stack_propertiess': orig_stack_propertiess,
+                                               'params': params,
+                                               'stack_properties': quality_stack_properties,
+                                               # 'how_many_best_views': how_many_best_views,
+                                               # 'cumulative_weight_best_views':cumulative_weight_best_views
+                                            }
+                                            )
 
     from dask.diagnostics import ProgressBar
     with ProgressBar():
         print('calculating DCT weights')
-        ws = ws.compute()#scheduler='single-threaded')
+        ws = ws.compute(scheduler='threads')#scheduler='single-threaded')
 
     # size,max_kernel,gaussian_kernel = get_dct_options(
     #                                                   # binned_stack_properties['spacing'][0],
