@@ -149,7 +149,7 @@ def build_multiview_graph(
     print(''.join(['#']*10))
     print('These pairs of keys will be registered:\n%s' %pairs)
     import json # for prettier dict printing
-    print('They refer to the keys in this view_dict:\n%s' %json.dump(view_dict, indent=4))
+    print('They refer to the keys in this view_dict:\n%s' %json.dumps(view_dict, indent=4))
     print(''.join(['#'] * 10))
 
     # print('collecting stack properties')
