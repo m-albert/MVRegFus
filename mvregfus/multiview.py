@@ -4397,15 +4397,20 @@ def fuse_blockwise(fn,
         # result.to_hdf5(fn, 'array', compression='gzip')  # ,scheduler = "single-threaded")
 
     # io_utils.process_output_element(result, fn)
-    from .imaris import da_to_ims
     try:
         import cupy
         # result = result.compute(scheduler='single-threaded')
         print('CuPy available, using single host thread for fusion')
-        da_to_ims(result, fn, scheduler='single-threaded')
+        dask_scheduler = 'single-threaded'
+
     except:
         print('CuPy NOT available, using threads for fusion')
-        da_to_ims(result, fn)
+        dask_scheduler = 'threads'
+
+    from .imaris import da_to_ims
+    da_to_ims(result, fn, scheduler=dask_scheduler)
+
+
 
 
     # for ii,i in enumerate(weights):
@@ -4516,6 +4521,8 @@ def fuse_block(tviews_block,weights,params,stack_properties,orig_stack_propertie
 
     fused = fusion_func(tviews,weights=weights,
             **fusion_kwargs)
+
+    print('fused block with properties: ' %block_stack_properties)
 
     return fused
 
