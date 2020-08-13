@@ -5384,7 +5384,7 @@ def get_weights_dct(
     with ProgressBar():
         print('determining DCT weights')
         ws = ws.compute(scheduler = 'threads')
-        
+
     ws = np.array(ws)
 
     ws = ImageArray(ws,

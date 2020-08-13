@@ -26,12 +26,12 @@ def get(graph,key,local=True):
     from dask.optimization import cull
     cgraph = cull(graph,key)[0]
 
-    with ProgressBar():
-        if local:
-            return dask.local.get_sync(cgraph,key)
-        else:
-            return dask.threaded.get(cgraph,key)
-            # return dask.multiprocessing.get(cgraph,key)
+    # with ProgressBar():
+    if local:
+        return dask.local.get_sync(cgraph,key)
+    else:
+        return dask.threaded.get(cgraph,key)
+        # return dask.multiprocessing.get(cgraph,key)
 
 def recursive_func_application(l,f):
     if type(l) == list:
