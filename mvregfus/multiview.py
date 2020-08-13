@@ -4701,7 +4701,10 @@ def get_weights_dct_dask(tviews,
                                                                                                                                     # 'cumulative_weight_best_views':cumulative_weight_best_views
                                                                                                                                     })
 
-    ws = ws.compute()#scheduler='single-threaded')
+    from dask.diagnostics import ProgressBar
+    with ProgressBar():
+        print('calculating DCT weights')
+        ws = ws.compute()#scheduler='single-threaded')
 
     # size,max_kernel,gaussian_kernel = get_dct_options(
     #                                                   # binned_stack_properties['spacing'][0],
@@ -4804,7 +4807,11 @@ def get_weights_dct_dask(tviews,
             return ws
 
     ws = da.map_blocks(adapt_weights, da.from_array(ws,chunks=(len(ws),1,1,1)), dtype=np.float32, how_many_best_views=how_many_best_views, cumulative_weight_best_views=cumulative_weight_best_views)
-    ws = ws.compute(scheduler='single-threaded')
+
+    from dask.diagnostics import ProgressBar
+    with ProgressBar():
+        print('adapting weights to %s views' %(len(ws)))
+        ws = ws.compute(scheduler='single-threaded')
     # ws = np.array(ws)
 
     def nan_gaussian_filter(U, sigma):
@@ -5373,7 +5380,11 @@ def get_weights_dct(
     # ws=x.map_blocks(determine_quality,dtype=np.float)
     ws = x.map_blocks(determine_quality,dtype=np.float,chunks=(len(vs),1,1,1))
 
-    ws = ws.compute(scheduler = 'threads')
+    from dask.diagnostics import ProgressBar
+    with ProgressBar():
+        print('determining DCT weights')
+        ws = ws.compute(scheduler = 'threads')
+        
     ws = np.array(ws)
 
     ws = ImageArray(ws,
