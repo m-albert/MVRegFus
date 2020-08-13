@@ -585,7 +585,7 @@ def getStackInfoFromCZI(pathToImage, xy_spacing=None):
     :rtype : object
     """
 
-    print('getting stack info')
+    # print('getting stack info')
 
     infoDict = dict()
 

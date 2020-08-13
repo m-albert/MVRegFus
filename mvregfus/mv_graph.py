@@ -118,6 +118,7 @@ def build_multiview_graph(
             pairs = [(i,i+1) for i in range(n_views-1)]# + [(n_views-1,0)]
             # pairs = [(i,i+1) for i in range(n_views-1)]# + [(n_views-1,0)]
             print('Assuming linear chain of overlap in views')
+
         if view_dict is not None:
             view_indices = [k for k in view_dict.keys()]
             view_indices.sort()
