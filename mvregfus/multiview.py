@@ -591,7 +591,7 @@ def getStackInfoFromCZI(pathToImage, xy_spacing=None):
 
     imageFile = czifile.CziFile(pathToImage)
     originalShape = imageFile.shape
-    print(imageFile.shape)
+    print('file %s\n\thas array shape %s' %(os.path.basename(pathToImage), imageFile.shape))
     metadata = imageFile.metadata
     imageFile.close()
 
@@ -3418,20 +3418,20 @@ def get_mask_in_target_space(orig_stack_props,
     mask = mask > 0
     return mask
 
-def get_stack_properties_from_view_dict(view_dict,raw_input_binning=[1,1,1]):
+def get_stack_properties_from_view_dict(view_dict, stack_info, raw_input_binning=[1,1,1]):
 
     raw_input_binning = np.array(raw_input_binning)
 
-    info = getStackInfoFromCZI(view_dict['filename'])
+    # stack_info = getStackInfoFromCZI(view_dict['filename'])
     stack_props = dict()
-    stack_props['spacing'] = info['spacing'][::-1]
-    stack_props['origin'] = info['origins'][view_dict['view']][::-1]
-    stack_props['size'] = info['sizes'][view_dict['view']][::-1].astype(np.int64)
+    stack_props['spacing'] = stack_info['spacing'][::-1]
+    stack_props['origin'] = stack_info['origins'][view_dict['view']][::-1]
+    stack_props['size'] = stack_info['sizes'][view_dict['view']][::-1].astype(np.int64)
     for i in range(3):
         if raw_input_binning[::-1][i] > 1:
             stack_props['size'][i] = stack_props['size'][i] // raw_input_binning[::-1][i]
             stack_props['spacing'][i] = stack_props['spacing'][i] * raw_input_binning[::-1][i]
-            stack_props['origin'][i] = stack_props['origin'][i] + (stack_props['spacing'][i]-info['spacing'][::-1][i])/2.
+            stack_props['origin'][i] = stack_props['origin'][i] + (stack_props['spacing'][i]-stack_info['spacing'][::-1][i])/2.
 
     return stack_props
 
