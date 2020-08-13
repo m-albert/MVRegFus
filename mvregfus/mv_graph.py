@@ -146,11 +146,15 @@ def build_multiview_graph(
 
     if ref_view not in all_views: raise(Exception('chosen reference view is incompatible with chose registration pairs'))
 
-    print(''.join(['#']*10))
-    print('These pairs of keys will be registered:\n%s' %pairs)
-    import json # for prettier dict printing
-    print('They refer to the keys in this view_dict:\n%s' %json.dumps(view_dict, indent=4))
-    print(''.join(['#'] * 10))
+    # print(''.join(['#']*10))
+    # print('These pairs of keys will be registered:\n%s' %pairs)
+    print('These pairs of keys will be registered:')
+    import pprint
+    pp = pprint.PrettyPrinter(depth=4)
+    pp.pprint(pairs)
+    print("They refer to the keys in 'view_dict':")
+    pp.pprint(view_dict)
+    # print(''.join(['#'] * 10))
 
     # print('collecting stack properties')
     # orig_stack_propss = []
@@ -543,7 +547,7 @@ def build_multiview_graph(
                                                                 )
 
             # print('NOT CLEANING NOR SMOOTHIN PIXELS!')
-            if not clean_pixels: ('NOT CLEANING PIXELS!')
+            # if not clean_pixels: ('NOT CLEANING PIXELS!')
             # print('WARNING: NOOOOOOOO DESPECKLING')
             graph[multiview_view_fullres_label %(ds,sample,view,ch)] = (multiview.readStackFromMultiviewMultiChannelCzi,
                                                                         view_dict[view]['filename'],

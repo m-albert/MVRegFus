@@ -295,20 +295,20 @@ def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,
         stack = stack.astype(np.uint16)  # czifile can also load in other dtypes
 
     if raw_input_binning is not None:
-        print('WARNING: binning down raw input by xyz factors %s' %raw_input_binning)
+        print('Binning down raw input by xyz factors %s' %raw_input_binning)
         print('old shape: %s %s %s' %stack.shape)
         stack = np.array(bin_stack(ImageArray(stack),raw_input_binning))
         print('new shape: %s %s %s' %stack.shape)
 
     if do_despeckle: # try to supress vesicles
-        print('warning: despeckling images')
+        print('Despeckling images')
         stack = despeckle(stack)
     if do_clean_pixels:
         stack = clean_pixels(stack)
-        print('warning: clean pixels')
+        print('Cleaning pixels')
     if do_smooth:
         stack = ndimage.gaussian_filter(stack,sigma=(0,2,2.)).astype(np.uint16)
-        print('warning: smoothing pixels (kxy=2!)')
+        print('Smoothing pixels (kxy = 2)')
 
     # for big run, used cleaning and gaussian. deactivated 20180404 for lucien
 
@@ -1164,7 +1164,7 @@ def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None):
     t00 = matrix_to_params(t00)
 
     # reg_spacing = np.array([fixed.spacing[0]*4]*3)
-    print('WARNING: 20180614: changed fft registration spacing')
+    # print('WARNING: 20180614: changed fft registration spacing')
     reg_iso_spacing = np.min([np.array(im.spacing)*np.array(im.shape)/160. for im in [static,mov]])
     reg_iso_spacing = np.max([[reg_iso_spacing]+list(static.spacing)+list(mov.spacing)])
     reg_spacing = np.array([reg_iso_spacing]*3)
@@ -1193,7 +1193,7 @@ def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None):
 
     # offset = np.array([-offset[2],0,offset[0]]) * reg_spacing
     # offset = np.array([offset[0],0,offset[2]]) * reg_spacing
-    print('WARNING: add complete FFT offset (also y component), 20181109')
+    # print('WARNING: add complete FFT offset (also y component), 20181109')
     offset = np.array([offset[0],offset[1],offset[2]]) * reg_spacing
 
     t0 = np.copy(t00)
@@ -1218,7 +1218,7 @@ def translation3d(im0, im1):
     im0_m = np.copy(im0)
     im1_m = np.copy(im1)
 
-    print('WARNING: ADDING NOISE IN FFT REGISTRATION (added 20181109)')
+    # print('WARNING: ADDING NOISE IN FFT REGISTRATION (added 20181109)')
     print('stack size in FFT translation registration: %s' %list(im0.shape))
     # n0 = [im0_m[im0_m>0].min(),np.percentile(im0_m[im0_m>0],5)]
     n0 = [0.05,0.15] # typical border values resulting from applying clahe to Z1 background
@@ -1235,7 +1235,7 @@ def translation3d(im0, im1):
     f1 = fftn(im1_m)
     ir = abs(ifftn((f0 * f1.conjugate()) / (abs(f0) * abs(f1))))
 
-    print('WARNING: FILTERING IN FFT REGISTRATION (added 20181109)')
+    # print('WARNING: FILTERING IN FFT REGISTRATION (added 20181109)')
     ir_gauss = ndimage.gaussian_filter(ir,1)
 
     # t0, t1, t2 = np.unravel_index(np.argmax(ir), shape)
