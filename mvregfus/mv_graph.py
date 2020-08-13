@@ -110,10 +110,12 @@ def build_multiview_graph(
     # ref_channel_chrom = channels[ref_channel_index_chrom]
     # ref_channel_chrom = reg_channel
 
+    stack_info = multiview.getStackInfoFromCZI(filepath)
+
     if pairs is None:
 
         if view_dict is None:
-            info_dict = multiview.getStackInfoFromCZI(filepath)
+            info_dict = stack_info
             n_views = len(info_dict['origins'])
             pairs = [(i,i+1) for i in range(n_views-1)]# + [(n_views-1,0)]
             # pairs = [(i,i+1) for i in range(n_views-1)]# + [(n_views-1,0)]
@@ -164,9 +166,7 @@ def build_multiview_graph(
     #     orig_stack_propss.append(orig_stack_props)
     #     print(orig_stack_props)
 
-    graph[multiview_metadata_label %(ds,sample)] = (multiview.getStackInfoFromCZI,
-                                                    filepath,
-                                                    )
+    graph[multiview_metadata_label %(ds,sample)] = stack_info
 
     orig_stack_propss = []
     for view in all_views:

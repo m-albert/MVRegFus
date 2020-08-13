@@ -157,7 +157,6 @@ for ifile,filepath in enumerate(filepaths):
     channels = channelss[ifile]
     # pairs = pairss[ifile]
 
-    print('Warning: Using different registration factors, default is 882')
     graph.update(
         mv_graph.build_multiview_graph(
         filepath = filepath,

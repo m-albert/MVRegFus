@@ -713,10 +713,15 @@ def getStackInfoFromCZI(pathToImage, xy_spacing=None):
     except:
         pass
 
-    print('getting file info for %s\n' %os.path.basename(pathToImage),
-          '\timage spacing: %s\n' %infoDict['spacing'],
-          '\timage sizes:\n%s' %infoDict['sizes'],
-    )
+    import pprint
+    pp = pprint.PrettyPrinter(depth=4)
+
+    # print('getting file info for %s\n' %os.path.basename(pathToImage),
+    #       '\timage spacing: %s\n' %infoDict['spacing'],
+    #       '\timage sizes:\n%s' %infoDict['sizes'],
+    # )
+    print('\ngetting file info for %s\n' % os.path.basename(pathToImage))
+    pp.pprint(infoDict)
 
     return infoDict
 
