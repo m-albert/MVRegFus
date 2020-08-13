@@ -6475,16 +6475,18 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
     Time for deconvolution!!!
     """
 
-    estimate = np.zeros_like(weights[0])
-    for i in range(len(params)):
-        estimate += weights[i]*noisy_multiview_data[i]
+    # estimate = np.zeros_like(weights[0])
+    # for i in range(len(params)):
+    #     estimate += weights[i]*noisy_multiview_data[i]
+
+    estimate = np.sum(weights * noisy_multiview_data, 0)
 
     #estimate = np.sum([weights[i]*noisy_multiview_data[i] for i in range(len(params))],0).astype(np.float32)
     #estimate = np.sum(np.asarray([weights[i]*views[i] for i in range(len(params))],0).astype(np.float32)
 
     curr_imsum = np.sum(estimate)
 
-    masks = np.array([weights[ip]>1e-5 for ip in range(len(params))])
+    masks = weights>1e-5
 
     # # erode weights to produce final weights
     # pixels = int(sz*4/stack_properties['spacing'][0])
