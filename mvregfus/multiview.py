@@ -1655,7 +1655,7 @@ def transform_stack_dask(stack,
 
 from .imaris import da_to_ims
 def transform_view_dask_and_save_chunked(fn, view, params, iview, stack_properties, chunksize=128):
-    print('transforming and streaming to file: %s' % fn)
+
     params = io_utils.process_input_element(params)
     stack_properties = io_utils.process_input_element(stack_properties)
 
@@ -1663,7 +1663,10 @@ def transform_view_dask_and_save_chunked(fn, view, params, iview, stack_properti
     res = transform_stack_dask(view, params[iview], stack_properties=stack_properties, interp='linear',
                                chunksize=chunksize)
 
-    da_to_ims(res, fn, scheduler='threads')
+    from dask.diagnostics import ProgressBar
+    with ProgressBar():
+        print('transforming and streaming to file: %s' % fn)
+        da_to_ims(res, fn, scheduler='threads')
     # res.to_hdf5(fn, 'Data')#, chunks=(128, 128, 128))#, **{'scheduler':'single-threaded'})
     #
     return fn
@@ -4408,7 +4411,11 @@ def fuse_blockwise(fn,
         dask_scheduler = 'threads'
 
     from .imaris import da_to_ims
-    da_to_ims(result, fn, scheduler=dask_scheduler)
+
+    from dask.diagnostics import ProgressBar
+    with ProgressBar():
+        print('fusing views...')
+        da_to_ims(result, fn, scheduler=dask_scheduler)
 
 
 
@@ -4522,7 +4529,7 @@ def fuse_block(tviews_block,weights,params,stack_properties,orig_stack_propertie
     fused = fusion_func(tviews,weights=weights,
             **fusion_kwargs)
 
-    print('fused block with properties: ' %block_stack_properties)
+    # print('fused block with origin: %s' %block_stack_properties)
 
     return fused
 
@@ -6529,7 +6536,7 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
 
     i = 0
     while 1:
-        print("Iteration", i)
+        # print("Iteration", i)
 
         """
         Construct the expected data from the estimate
@@ -6578,7 +6585,7 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
         # if num_iterations < 1:
         new_imsum = np.sum(estimate)
         conv = np.abs(1-new_imsum/curr_imsum)
-        print('convergence: %s' %conv)
+        # print('convergence: %s' %conv)
 
         if conv < tol and i>=10: break
         if i >= num_iterations-1: break
