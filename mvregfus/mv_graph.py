@@ -164,11 +164,16 @@ def build_multiview_graph(
     #     orig_stack_propss.append(orig_stack_props)
     #     print(orig_stack_props)
 
+    graph[multiview_metadata_label %(ds,sample)] = (multiview.getStackInfoFromCZI,
+                                                    filepath,
+                                                    )
+
     orig_stack_propss = []
     for view in all_views:
         graph[orig_stack_properties_label %(ds,sample,view)] = (multiview.get_stack_properties_from_view_dict,
                                                                 view_dict[view],
-                                                                raw_input_binning
+                                                                multiview_metadata_label %(ds,sample),
+                                                                raw_input_binning,
                                                                 )
         orig_stack_propss.append(orig_stack_properties_label %(ds,sample,view))
 
@@ -290,9 +295,6 @@ def build_multiview_graph(
         # graph[stack_properties_label % (ds, sample)] = graph[stack_properties_label %(ds,time_alignment_ref_sample)]
         graph[stack_properties_label % (ds, sample)] = stack_properties_label %(ds,time_alignment_ref_sample)
 
-    graph[multiview_metadata_label %(ds,sample)] = (multiview.getStackInfoFromCZI,
-                                                    filepath,
-                                                    )
 
     # graph[multiview_data_label %(ds,sample)] = (dipy_multiview.readMultiviewCzi,
     #                                            filepath,
@@ -491,7 +493,7 @@ def build_multiview_graph(
                                                                                0,
                                                                                ch,
                                                                                background_level,
-                                                                               None,  #infoDict
+                                                                               multiview_metadata_label %(ds,sample),  #infoDict
                                                                                False,  #do_clean_pixels
                                                                                False,  #do_smooth
                                                                                False,  #extract_rotation

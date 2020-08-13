@@ -591,7 +591,6 @@ def getStackInfoFromCZI(pathToImage, xy_spacing=None):
 
     imageFile = czifile.CziFile(pathToImage)
     originalShape = imageFile.shape
-    print('file %s\n\thas array shape %s' %(os.path.basename(pathToImage), imageFile.shape))
     metadata = imageFile.metadata
     imageFile.close()
 
@@ -713,6 +712,11 @@ def getStackInfoFromCZI(pathToImage, xy_spacing=None):
         infoDict['dT'] = float(int(metadata.findall('//TimeSpan/Value')[0].text) / 1000)
     except:
         pass
+
+    print('getting file info for %s\n' %os.path.basename(pathToImage),
+          '\timage spacing: %s\n' %infoDict['spacing'],
+          '\timage sizes:\n%s' %infoDict['sizes'],
+    )
 
     return infoDict
 
