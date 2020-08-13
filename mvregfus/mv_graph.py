@@ -148,7 +148,8 @@ def build_multiview_graph(
 
     print(''.join(['#']*10))
     print('These pairs of keys will be registered:\n%s' %pairs)
-    print('They refer to the keys in this view_dict:\n%s' %view_dict)
+    import json # for prettier dict printing
+    print('They refer to the keys in this view_dict:\n%s' %json.dump(view_dict, indent=4))
     print(''.join(['#'] * 10))
 
     # print('collecting stack properties')
@@ -235,13 +236,13 @@ def build_multiview_graph(
         import SimpleITK as sitk
         sitk.ElastixImageFilter()
         simple_elastix_available = True
-        print('Using groupwise registration')
+        # print('Using groupwise registration')
     except:
-        print("No groupwise registration because SimpleElastix is not available")
+        # print("No groupwise registration because SimpleElastix is not available")
         simple_elastix_available = False
 
     # print('Not using groupwise registration for the moment')
-    print('Using groupwise registration!')
+    print('Skipping groupwise registration!')
     simple_elastix_available = False
     # simple_elastix_available = True
 
