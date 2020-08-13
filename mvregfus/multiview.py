@@ -4403,7 +4403,8 @@ def fuse_blockwise(fn,
     try:
         import cupy
         # result = result.compute(scheduler='single-threaded')
-        print('CuPy available, using single host thread for fusion')
+        print('CuPy available, using several host thread for fusion\n'
+              '(switch back to single-threaded in case of memory problems)')
         dask_scheduler = 'single-threaded'
 
     except:
