@@ -4283,6 +4283,8 @@ def fuse_blockwise(fn,
     chunksize = 128
     block_chunk_size = np.array([nviews,chunksize,chunksize,chunksize])
 
+
+
     orig_shape = np.array(tviews_dsets[0].shape)
     # expanded_shape = np.array(block_chunk_size[-3:]) * (np.array(tviews_dsets[0].shape) // chunksize) + np.array(tviews_dsets[0].shape) % chunksize
     expanded_shape = np.array(block_chunk_size[-3:]) * (np.array(tviews_dsets[0].shape) // chunksize) \
@@ -4342,6 +4344,7 @@ def fuse_blockwise(fn,
                                                    'fusion_kwargs': fusion_kwargs,
                                                   })
 
+
     if depth > 0:
         trim_dict = {i:depth for i in range(3)}
         result = da.overlap.trim_internal(result, trim_dict)
@@ -4360,7 +4363,7 @@ def fuse_blockwise(fn,
         # result = result.compute(scheduler='single-threaded')
         print('CuPy available, using several host thread for fusion\n'
               '(switch back to single-threaded in case of memory problems)')
-        dask_scheduler = 'single-threaded'
+        dask_scheduler = 'threads'
 
     except:
         print('CuPy NOT available, using threads for fusion')
@@ -4885,7 +4888,6 @@ def get_weights_dct_dask(tviews,
                        params=params,
                        orig_stack_propertiess=orig_stack_propertiess,
                        )
-
 
     # da.map_blocks()
     #
