@@ -725,15 +725,6 @@ def getStackInfoFromCZI(pathToImage, xy_spacing=None):
 
     return infoDict
 
-def get_view_properties(fn, iview, raw_input_binning):
-    stack_info = getStackInfoFromCZI(fn)
-    view_properties = dict()
-    view_properties['spacing'] = stack_info['spacing'] * np.array(raw_input_binning)
-    view_properties['origin'] = stack_info['origins'][iview]
-    view_properties['size'] = np.floor(stack_info['sizes'][iview] / np.array(raw_input_binning)).astype(np.uint64)
-
-    return view_properties
-
 def clahe(image,kernel_size,clip_limit=0.02,pad=0,ds=4):
     print('compute clahe with kernel size %s' %kernel_size)
     # pad = int(pad_ratio * np.min(image.shape))
@@ -3449,6 +3440,8 @@ def get_stack_properties_from_view_dict(view_dict, stack_info, raw_input_binning
     raw_input_binning = np.array(raw_input_binning)
 
     # stack_info = getStackInfoFromCZI(view_dict['filename'])
+    stack_info = copy.deepcopy(stack_info)
+
     stack_props = dict()
     stack_props['spacing'] = stack_info['spacing'][::-1]
     stack_props['origin'] = stack_info['origins'][view_dict['view']][::-1]
@@ -4413,14 +4406,22 @@ def fuse_blockwise(fn,
                               scheduler='threads',
                               compute=False,
                               )
+
         print("hello2")
         dsk = res.dask
         keys = [k for k in dsk.keys() if (type(k) == tuple and k[0].startswith('store'))]
         print(keys)
 
-        # for k in keys:
-        #     print('processing ', k)
-        #     dask.get(dsk, keys=k, scheduler='single-threaded')
+        from dask.optimization import cull
+        ds = []
+        for k in keys:
+            print('processing ', k)
+            cdsk = cull(dsk, k)[0]
+            # dask.get(cdsk, keys=k, scheduler='threads')
+            tmp = dask.delayed(dask.get)(cdsk, keys=k, scheduler='single-threaded')
+            ds.append(tmp)
+
+        dask.compute(ds, scheduler='threads')
 
         # dask.get(dsk, keys=keys, scheduler='single-threaded')
 
@@ -4431,8 +4432,8 @@ def fuse_blockwise(fn,
         # they'd need to be joined,
         # otherwise backfilling happens (?)
 
-    # return fn
-    return res, dsk, keys
+    return fn
+    # return res, dsk, keys, result
 
 def fuse_block(tviews_block,weights,params,stack_properties,orig_stack_propertiess,array_info,weights_func,fusion_func,weights_kwargs,fusion_kwargs,block_info=None):
 
