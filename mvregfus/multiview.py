@@ -713,17 +713,26 @@ def getStackInfoFromCZI(pathToImage, xy_spacing=None):
     except:
         pass
 
-    import pprint
-    pp = pprint.PrettyPrinter(depth=4)
-
-    # print('getting file info for %s\n' %os.path.basename(pathToImage),
-    #       '\timage spacing: %s\n' %infoDict['spacing'],
-    #       '\timage sizes:\n%s' %infoDict['sizes'],
-    # )
-    print('\ngetting file info for %s\n' % os.path.basename(pathToImage))
-    pp.pprint(infoDict)
+    # import pprint
+    # pp = pprint.PrettyPrinter(depth=4)
+    #
+    # # print('getting file info for %s\n' %os.path.basename(pathToImage),
+    # #       '\timage spacing: %s\n' %infoDict['spacing'],
+    # #       '\timage sizes:\n%s' %infoDict['sizes'],
+    # # )
+    # print('\ngetting file info for %s\n' % os.path.basename(pathToImage))
+    # pp.pprint(infoDict)
 
     return infoDict
+
+def get_view_properties(fn, iview, raw_input_binning):
+    stack_info = getStackInfoFromCZI(fn)
+    view_properties = dict()
+    view_properties['spacing'] = stack_info['spacing'] * np.array(raw_input_binning)
+    view_properties['origin'] = stack_info['origins'][iview]
+    view_properties['size'] = np.floor(stack_info['sizes'][iview] / np.array(raw_input_binning)).astype(np.uint64)
+
+    return view_properties
 
 def clahe(image,kernel_size,clip_limit=0.02,pad=0,ds=4):
     print('compute clahe with kernel size %s' %kernel_size)
@@ -1178,7 +1187,8 @@ def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None):
     reg_iso_spacing = np.max([[reg_iso_spacing]+list(static.spacing)+list(mov.spacing)])
     reg_spacing = np.array([reg_iso_spacing]*3)
 
-    stack_properties = calc_stack_properties_from_views_and_params([static,mov], [matrix_to_params(np.eye(4)), t00],
+    stack_properties = calc_stack_properties_from_views_and_params([static.get_info(), mov.get_info()],
+                                                                   [matrix_to_params(np.eye(4)), t00],
                                                                    spacing=reg_spacing, mode='union')
 
     static_t = transform_stack_sitk(static,
@@ -1213,7 +1223,10 @@ def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None):
     static = ImageArray(fixed[:,yl0:yu0,:],spacing=fixed.spacing,origin=origin_overlap0)
     mov = ImageArray(moving[:,yl1:yu1,:],spacing=moving.spacing,origin=origin_overlap1)
 
-    parameters = register_linear_elastix_seq(static,mov,t0,degree=degree,elastix_dir=elastix_dir)
+    parameters = register_linear_elastix_seq(static, mov, t0,
+                                             degree=degree,
+                                             elastix_dir=elastix_dir)
+
     return parameters
 
 
@@ -3098,15 +3111,16 @@ def register_groupwise_euler_and_affine(orig_ims, params0, ref_view_index=0, iso
 #             params_pairwise[(view0,view1)] = pairwise
 #     return params_pairwise
 
-def get_union_volume(ims, params):
+def get_union_volume(stack_properties_list, params):
     """
     back project first planes in every view to get maximum volume
     """
 
     generic_vertices = np.array([[i,j,k] for i in [0,1] for j in [0,1] for k in [0,1]])
-    vertices = np.zeros((len(ims)*len(generic_vertices),3))
-    for iim,im in enumerate(ims):
-        tmp_vertices = generic_vertices * np.array(im.shape) * im.spacing + im.origin
+    vertices = np.zeros((len(stack_properties_list)*len(generic_vertices),3))
+    for iim, sp in enumerate(stack_properties_list):
+        # tmp_vertices = generic_vertices * np.array(im.shape) * im.spacing + im.origin
+        tmp_vertices = generic_vertices * np.array(sp['size']) * np.array(sp['spacing']) + np.array(sp['origin'])
         inv_params = params_to_matrix(invert_params(params[iim]))
         tmp_vertices_transformed = np.dot(inv_params[:3,:3], tmp_vertices.T).T + inv_params[:3,3]
         vertices[iim*len(generic_vertices):(iim+1)*len(generic_vertices)] = tmp_vertices_transformed
@@ -3120,16 +3134,17 @@ def get_union_volume(ims, params):
 
     return lower,upper
 
-def get_intersection_volume(ims, params):
+def get_intersection_volume(stack_properties_list, params):
     """
     back project first planes in every view to get maximum volume
     """
 
     # generic_vertices = np.array([[i,j,k] for i in [0,1] for j in [0,1] for k in [0,1]])
     generic_vertices = np.array([[i,j,k] for i in [0,1] for j in [0,1] for k in [0,1]])
-    vertices = np.zeros((len(ims),len(generic_vertices),3))
-    for iim,im in enumerate(ims):
-        tmp_vertices = generic_vertices * np.array(im.shape) * im.spacing + im.origin
+    vertices = np.zeros((len(stack_properties_list),len(generic_vertices),3))
+    for iim, sp in enumerate(stack_properties_list):
+        # tmp_vertices = generic_vertices * np.array(im.shape) * im.spacing + im.origin
+        tmp_vertices = generic_vertices * np.array(sp['size']) * np.array(sp['spacing']) + np.array(sp['origin'])
         inv_params = params_to_matrix(invert_params(params[iim]))
         tmp_vertices_transformed = np.dot(inv_params[:3,:3], tmp_vertices.T).T + inv_params[:3,3]
         vertices[iim,:] = tmp_vertices_transformed
@@ -3143,16 +3158,18 @@ def get_intersection_volume(ims, params):
 
     return lower,upper
 
-def get_sample_volume(ims, params):
+# def get_sample_volume(ims, params):
+def get_sample_volume(stack_properties_list, params):
     """
     back project first planes in every view to get maximum volume
     """
 
     # generic_vertices = np.array([[i,j,k] for i in [0,1] for j in [0,1] for k in [0,1]])
     generic_vertices = np.array([[i,j,k] for i in [0,1] for j in [0,1] for k in [0.5]])
-    vertices = np.zeros((len(ims)*len(generic_vertices),3))
-    for iim,im in enumerate(ims):
-        tmp_vertices = generic_vertices * np.array(im.shape) * im.spacing + im.origin
+    vertices = np.zeros((len(stack_properties_list)*len(generic_vertices),3))
+    for iim, sp in enumerate(stack_properties_list):
+        # tmp_vertices = generic_vertices * np.array(im.shape) * im.spacing + im.origin
+        tmp_vertices = generic_vertices * np.array(sp['size']) * np.array(sp['spacing']) + np.array(sp['origin'])
         # tmp_vertices = generic_vertices * (np.array(im.shape)-2) * im.spacing + im.origin + im.spacing # exclude one line everywhere
         inv_params = params_to_matrix(invert_params(params[iim]))
         tmp_vertices_transformed = np.dot(inv_params[:3,:3], tmp_vertices.T).T + inv_params[:3,3]
@@ -4363,20 +4380,59 @@ def fuse_blockwise(fn,
         # result = result.compute(scheduler='single-threaded')
         print('CuPy available, using several host thread for fusion\n'
               '(switch back to single-threaded in case of memory problems)')
-        dask_scheduler = 'threads'
+        dask_scheduler = 'single-threaded'
 
     except:
         print('CuPy NOT available, using threads for fusion')
-        dask_scheduler = 'threads'
+        # dask_scheduler = 'threads'
+        dask_scheduler = 'single-threaded'
 
     from .imaris import da_to_ims
 
     from dask.diagnostics import ProgressBar
     with ProgressBar():
         print('fusing views...')
-        da_to_ims(result, fn, scheduler=dask_scheduler)
+        # da_to_ims(result, fn, scheduler=dask_scheduler)
 
-    return fn
+        f = h5py.File(fn, 'w')
+        # from dask.array.core import store
+        # store(f['Data'])
+
+        dset = f.require_dataset('Data',
+                                   shape=result.shape,
+                                   dtype=result.dtype,
+                                   chunks=(128, 128, 128),
+                                   compression='gzip')
+
+        # stream dask array into file
+        print("hello")
+        import dask
+        res = dask.array.core.store([result],
+                              [dset],
+                              # scheduler='single-threaded',
+                              scheduler='threads',
+                              compute=False,
+                              )
+        print("hello2")
+        dsk = res.dask
+        keys = [k for k in dsk.keys() if (type(k) == tuple and k[0].startswith('store'))]
+        print(keys)
+
+        # for k in keys:
+        #     print('processing ', k)
+        #     dask.get(dsk, keys=k, scheduler='single-threaded')
+
+        # dask.get(dsk, keys=keys, scheduler='single-threaded')
+
+        # res.visualize(filename='/tmp/before_opt.pdf')
+        # res =
+
+        #hypothesis: each resolution has a store key and
+        # they'd need to be joined,
+        # otherwise backfilling happens (?)
+
+    # return fn
+    return res, dsk, keys
 
 def fuse_block(tviews_block,weights,params,stack_properties,orig_stack_propertiess,array_info,weights_func,fusion_func,weights_kwargs,fusion_kwargs,block_info=None):
 
@@ -5723,20 +5779,21 @@ def fuse_views_weights(views,
     return f
 
 @io_decorator
-def calc_stack_properties_from_views_and_params(views,params,spacing=None,mode='sample'):
+def calc_stack_properties_from_views_and_params(views_props, params, spacing=None, mode='sample'):
 
     spacing = np.array(spacing).astype(np.float64)
     if spacing is None:
-        spacing = np.max([view.spacing for view in views],0)
+        spacing = np.max([view['spacing'] for view in views_props],0)
 
     if mode == 'sample':
-        volume = get_sample_volume(views,params)
+        volume = get_sample_volume(views_props,params)
     elif mode == 'union':
-        volume = get_union_volume(views,params)
+        volume = get_union_volume(views_props,params)
     elif mode == 'intersection':
-        volume = get_intersection_volume(views,params)
+        volume = get_intersection_volume(views_props,params)
 
-    stack_properties = calc_stack_properties_from_volume(volume,spacing)
+    stack_properties = calc_stack_properties_from_volume(volume, spacing)
+
     return stack_properties
 
 def transform_view_and_save_chunked(fn,view,params,iview,stack_properties,chunksize=None):#,pad_end=True):

@@ -32,6 +32,7 @@ multiview_view_reg_label            = 'view_reg_%03d_%03d_v%03d_c%02d'
 multiview_view_fullres_label        = 'view_fullres_%03d_%03d_v%03d_c%02d'
 multiview_weights_label             = 'mv_weights_%03d_%03d_v%03d_c%02d.imagear.h5'
 multiview_view_corr_label           = 'view_corr_%03d_%03d_v%03d_c%02d'
+multiview_properties_label          = 'view_props_%03d_%03d_v%03d_c%02d'
 multiview_metadata_label            = 'mv_metadata_%03d_%03d.dict.h5'
 multiview_data_label                = 'mv_data_%03d_%03d.image.h5'
 fusion_params_pair_label            = 'mv_params_%03d_%03d_vfix%03d_vmov%03d.prealignment.h5'
@@ -285,7 +286,9 @@ def build_multiview_graph(
         graph[stack_properties_label %(ds,sample)] = (
             multiview.calc_stack_properties_from_views_and_params,
             os.path.join(out_dir,stack_properties_label %(ds,sample)),
-            [multiview_view_corr_label %(ds,sample,view,reg_channel) for view in all_views],
+            # [multiview_view_corr_label %(ds,sample,view,reg_channel) for view in all_views],
+            # [multiview_view_corr_label %(ds,sample,view,reg_channel) for view in all_views],
+            [multiview_properties_label %(ds,sample,view,reg_channel) for view in all_views],
             fusion_params_label % (ds,sample),
             mv_final_spacing,
             final_volume_mode,
@@ -594,6 +597,14 @@ def build_multiview_graph(
                     multiview_view_fullres_label % (ds,sample,view,ch),
                     chromatic_correction_params_label % (ds,sample,ref_channel_chrom,ch),
                                                                     )
+
+            graph[multiview_properties_label %(ds,sample,view,ch)] = (
+                multiview.get_view_properties,
+                view_dict[view]['filename'],
+                view_dict[view]['view'],
+                raw_input_binning,
+            )
+
 
     graph = io_utils.process_graph(graph)
     return graph
