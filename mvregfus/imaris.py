@@ -180,11 +180,34 @@ def da_to_ims(array, fname='myfile.ims',
         # stream dask array into file
         if not is_numpy:
             print("Writing into %s" %fname)
-            dask.array.core.store(list(dset_map.values()),
-                                  list(dset_map.keys()),
-                                  scheduler=scheduler,
-                                  # scheduler='threads',
-                                  )
+            with dask.config.set({'optimization.fuse.ave-width': 100}):
+                stored = dask.array.core.store(list(dset_map.values()),
+                                      list(dset_map.keys()),
+                                      # scheduler=scheduler,
+                                      scheduler='single-threaded',
+                                      compute=True,
+                                      )
+
+
+            # print("hello_imaris")
+            # dsk = stored.dask
+            # keys = [k for k in dsk.keys() if (type(k) == tuple and k[0].startswith('store'))]
+            #
+            #
+            #
+            # import pdb; pdb.set_trace()
+            # print(keys)
+            #
+            # from dask.optimization import cull
+            # ds = []
+            # for k in keys:
+            #     print('processing ', k)
+            #     cdsk = cull(dsk, k)[0]
+            #     # dask.get(cdsk, keys=k, scheduler='threads')
+            #     tmp = dask.delayed(dask.get)(cdsk, keys=k, scheduler='single-threaded')
+            #     ds.append(tmp)
+            #
+            # dask.compute(ds, scheduler='threads')
 
     return fname
 

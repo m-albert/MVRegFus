@@ -1649,8 +1649,8 @@ def transform_stack_dask(stack,
 
         if not np.min(reduced_shape):
             return x
-        else:
-            print(reduced_shape)
+        # else:
+        #     print(reduced_shape)
 
         x = transform_stack_sitk(stack_reduced, p,
                                     out_origin=block_out_origin,
@@ -4385,54 +4385,45 @@ def fuse_blockwise(fn,
     from dask.diagnostics import ProgressBar
     with ProgressBar():
         print('fusing views...')
-        # da_to_ims(result, fn, scheduler=dask_scheduler)
+        da_to_ims(result, fn, scheduler=dask_scheduler)
 
-        f = h5py.File(fn, 'w')
-        # from dask.array.core import store
-        # store(f['Data'])
-
-        dset = f.require_dataset('Data',
-                                   shape=result.shape,
-                                   dtype=result.dtype,
-                                   chunks=(128, 128, 128),
-                                   compression='gzip')
-
-        # stream dask array into file
-        print("hello")
-        import dask
-        res = dask.array.core.store([result],
-                              [dset],
-                              # scheduler='single-threaded',
-                              scheduler='threads',
-                              compute=False,
-                              )
-
-        print("hello2")
-        dsk = res.dask
-        keys = [k for k in dsk.keys() if (type(k) == tuple and k[0].startswith('store'))]
-        print(keys)
-
-        from dask.optimization import cull
-        ds = []
-        for k in keys:
-            print('processing ', k)
-            cdsk = cull(dsk, k)[0]
-            # dask.get(cdsk, keys=k, scheduler='threads')
-            tmp = dask.delayed(dask.get)(cdsk, keys=k, scheduler='single-threaded')
-            ds.append(tmp)
-
-        dask.compute(ds, scheduler='threads')
-
-        # dask.get(dsk, keys=keys, scheduler='single-threaded')
-
-        # res.visualize(filename='/tmp/before_opt.pdf')
-        # res =
-
-        #hypothesis: each resolution has a store key and
-        # they'd need to be joined,
-        # otherwise backfilling happens (?)
+        # f = h5py.File(fn, 'w')
+        # dset = f.require_dataset('Data',
+        #                            shape=result.shape,
+        #                            dtype=result.dtype,
+        #                            chunks=(128, 128, 128),
+        #                            compression='gzip')
+        #
+        # # stream dask array into file
+        # print("hello")
+        # import dask
+        #
+        # # with dask.config.set({'optimization.fuse.ave-width': 100, 'optimization.fuse.subgraphs': True}):
+        # res = dask.array.core.store([result],
+        #                       [dset],
+        #                       # scheduler='single-threaded',
+        #                       scheduler='threads',
+        #                       compute=False,
+        #                       )
+        #
+        # print("hello2")
+        # dsk = res.dask
+        # keys = [k for k in dsk.keys() if (type(k) == tuple and k[0].startswith('store'))]
+        # print(keys)
+        #
+        # from dask.optimization import cull
+        # ds = []
+        # for k in keys:
+        #     print('processing ', k)
+        #     cdsk = cull(dsk, k)[0]
+        #     # dask.get(cdsk, keys=k, scheduler='threads')
+        #     tmp = dask.delayed(dask.get)(cdsk, keys=k, scheduler='single-threaded')
+        #     ds.append(tmp)
+        #
+        # dask.compute(ds, scheduler='threads')
 
     return fn
+    # return res
     # return res, dsk, keys, result
 
 def fuse_block(tviews_block,weights,params,stack_properties,orig_stack_propertiess,array_info,weights_func,fusion_func,weights_kwargs,fusion_kwargs,block_info=None):

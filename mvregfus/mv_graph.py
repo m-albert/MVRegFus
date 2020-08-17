@@ -69,7 +69,7 @@ def build_multiview_graph(
     ref_channel_chrom = 0,
     fusion_method = 'LR',
     fusion_weights = 'dct',
-    fusion_chunk_size = 512,
+    fusion_chunk_size = 128,
     dct_size = None,
     dct_max_kernel = None,
     dct_gaussian_kernel = None,
