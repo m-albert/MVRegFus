@@ -1633,7 +1633,7 @@ def transform_stack_dask(stack,
         max_coord_px = np.ceil(np.max(edges_in_px, 0)).astype(np.uint64)
 
         min_coord_phys = np.min(edges_in_phys, 0)
-        max_coord_phys = np.max(edges_in_phys, 0)
+        # max_coord_phys = np.max(edges_in_phys, 0)
 
         reduced_shape = max_coord_px - min_coord_px
         reduced_origin_phys = min_coord_phys
@@ -4373,12 +4373,12 @@ def fuse_blockwise(fn,
         # result = result.compute(scheduler='single-threaded')
         print('CuPy available, using several host thread for fusion\n'
               '(switch back to single-threaded in case of memory problems)')
-        dask_scheduler = 'single-threaded'
+        dask_scheduler = 'threads'
 
     except:
         print('CuPy NOT available, using threads for fusion')
-        # dask_scheduler = 'threads'
-        dask_scheduler = 'single-threaded'
+        dask_scheduler = 'threads'
+        # dask_scheduler = 'single-threaded'
 
     from .imaris import da_to_ims
 
@@ -4386,41 +4386,6 @@ def fuse_blockwise(fn,
     with ProgressBar():
         print('fusing views...')
         da_to_ims(result, fn, scheduler=dask_scheduler)
-
-        # f = h5py.File(fn, 'w')
-        # dset = f.require_dataset('Data',
-        #                            shape=result.shape,
-        #                            dtype=result.dtype,
-        #                            chunks=(128, 128, 128),
-        #                            compression='gzip')
-        #
-        # # stream dask array into file
-        # print("hello")
-        # import dask
-        #
-        # # with dask.config.set({'optimization.fuse.ave-width': 100, 'optimization.fuse.subgraphs': True}):
-        # res = dask.array.core.store([result],
-        #                       [dset],
-        #                       # scheduler='single-threaded',
-        #                       scheduler='threads',
-        #                       compute=False,
-        #                       )
-        #
-        # print("hello2")
-        # dsk = res.dask
-        # keys = [k for k in dsk.keys() if (type(k) == tuple and k[0].startswith('store'))]
-        # print(keys)
-        #
-        # from dask.optimization import cull
-        # ds = []
-        # for k in keys:
-        #     print('processing ', k)
-        #     cdsk = cull(dsk, k)[0]
-        #     # dask.get(cdsk, keys=k, scheduler='threads')
-        #     tmp = dask.delayed(dask.get)(cdsk, keys=k, scheduler='single-threaded')
-        #     ds.append(tmp)
-        #
-        # dask.compute(ds, scheduler='threads')
 
     return fn
     # return res

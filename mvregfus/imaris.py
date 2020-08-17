@@ -180,34 +180,29 @@ def da_to_ims(array, fname='myfile.ims',
         # stream dask array into file
         if not is_numpy:
             print("Writing into %s" %fname)
-            with dask.config.set({'optimization.fuse.ave-width': 100}):
-                stored = dask.array.core.store(list(dset_map.values()),
-                                      list(dset_map.keys()),
-                                      # scheduler=scheduler,
-                                      scheduler='single-threaded',
-                                      compute=True,
-                                      )
+            # alternatively to manually executing tasks associated to each chunk,
+            # use dask optimizations. ave-width seems to work for large dataset with dct weights.
+            # however it's not clear how dask optimizes
+            # with dask.config.set({'optimization.fuse.ave-width': 100}):
+            stored = dask.array.core.store(list(dset_map.values()),
+                                  list(dset_map.keys()),
+                                  # scheduler=scheduler,
+                                  scheduler='single-threaded',
+                                  compute=False,
+                                  )
 
+            dsk = stored.dask
+            keys = [k for k in dsk.keys() if (type(k) == tuple and k[0].startswith('store'))]
+            nblocks = [len(c) for c in array.chunks][2:]
 
-            # print("hello_imaris")
-            # dsk = stored.dask
-            # keys = [k for k in dsk.keys() if (type(k) == tuple and k[0].startswith('store'))]
-            #
-            #
-            #
-            # import pdb; pdb.set_trace()
-            # print(keys)
-            #
-            # from dask.optimization import cull
-            # ds = []
-            # for k in keys:
-            #     print('processing ', k)
-            #     cdsk = cull(dsk, k)[0]
-            #     # dask.get(cdsk, keys=k, scheduler='threads')
-            #     tmp = dask.delayed(dask.get)(cdsk, keys=k, scheduler='single-threaded')
-            #     ds.append(tmp)
-            #
-            # dask.compute(ds, scheduler='threads')
+            delayed_chunks = []
+            from dask.optimization import cull
+            for x, y, z in np.ndindex(*nblocks):
+                chunk_keys = [k for k in keys if k[1:] == (x, y, z)]
+                cdsk = cull(dsk, chunk_keys)[0]
+                delayed_chunks.append(dask.delayed(dask.get)(cdsk, chunk_keys, scheduler='single-threaded'))
+
+            dask.compute(delayed_chunks, scheduler=scheduler)
 
     return fname
 
