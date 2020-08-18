@@ -1647,7 +1647,8 @@ def transform_stack_dask(stack,
         stack_reduced.origin = reduced_origin_phys
         stack_reduced.spacing = stack.spacing
 
-        if not np.min(reduced_shape):
+        # if not np.min(reduced_shape):
+        if not np.min(stack_reduced.shape):
             return x
         # else:
         #     print(reduced_shape)
