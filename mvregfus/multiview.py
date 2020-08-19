@@ -416,7 +416,7 @@ def illumination_fusion_planewise(stack, fusion_axis=2):#, sample_intensity=220)
     # stack = np.moveaxis(stack,fusion_axis,-1)
 
     stack = da.from_array(stack,chunks = (2,1,stack.shape[-2],stack.shape[-1]))
-    print(stack.shape)
+    # print(stack.shape)
 
     def fuse_planes(planes):
 
@@ -457,7 +457,9 @@ def illumination_fusion_planewise(stack, fusion_axis=2):#, sample_intensity=220)
 
         return planes
 
-    stack = stack.map_blocks(fuse_planes,drop_axis=0,dtype=np.uint16).compute(scheduler='threads')
+    from dask.diagnostics import ProgressBar
+    with ProgressBar():
+        stack = stack.map_blocks(fuse_planes,drop_axis=0,dtype=np.uint16).compute(scheduler='threads')
 
     return stack#, (1-right_weight), right_weight, mask, cumsum
     # return stack
@@ -1663,7 +1665,8 @@ def transform_stack_dask(stack,
 
     import dask.array as da
     import dask.delayed as delayed
-    result = da.from_array(np.zeros(out_shape, dtype=stack.dtype), chunks=tuple([chunksize] * 3))
+    # result = da.from_array(np.zeros(out_shape, dtype=stack.dtype), chunks=tuple([chunksize] * 3))
+    result = da.zeros(out_shape, dtype=stack.dtype, chunks=tuple([chunksize] * 3))
     result = result.map_blocks(transform_block, dtype=result.dtype, p=p, stack=delayed(stack))
     return result
 
