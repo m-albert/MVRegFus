@@ -4375,12 +4375,13 @@ def fuse_blockwise(fn,
     try:
         import cupy
         # result = result.compute(scheduler='single-threaded')
-        print('CuPy available, using several host thread for fusion\n'
-              '(switch back to single-threaded in case of memory problems)')
-        dask_scheduler = 'threads'
+        print('CuPy available, using single host thread for fusion\n')
+              # '(switch back to single-threaded in case of memory problems)')
+        # dask_scheduler = 'threads'
+        dask_scheduler = 'single-threaded'
 
     except:
-        print('CuPy NOT available, using threads for fusion')
+        print('CuPy NOT available, using multiple threads for fusion')
         dask_scheduler = 'threads'
         # dask_scheduler = 'single-threaded'
 
