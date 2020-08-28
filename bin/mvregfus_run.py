@@ -51,24 +51,29 @@ ref_views = [ref_view] *len(filepaths)
 registration_pairs = None
 registration_pairss = [registration_pairs] *len(filepaths)
 
-# optionally, specify the meanings of indices
+# optionally, specify the meanings of the indices
 # occuring in the list of pairs
 # this can be used to fuse illuminations independently
-# to do so, use view_dict, which is a dictionary containing
-# the indices as keys and dictionaries as items, such as:
+# using view_dict, which is a dictionary containing
+# the indices as keys and dictionaries defining the indices as items, such as:
 # >>> view_dict[0] = {'view': 0 # view 0 within the file
 #                     'ill' : 1 # illumination 1 within that view
 #                     }
 # another example:
 # >>> view_dict[0] = {'view': 0    # view 0 within the file
-#                     'ill' : None # like this, both ills of this view are fused
+#                     'ill' : None # like this, both ills of this view are fused using the average of ills
+#                     }
+# another example:
+# >>> view_dict[0] = {'view': 0    # view 0 within the file
+#                     'ill' : 2    # like this, both ills of this view are fused using blending weights
 #                     }
 
-# observation: - illumination 0 comes from left
+# in case of treating ills as independent views:
+#              - illumination 0 comes from left
 #              - illumination 1 comes from right
 #              - rotating in positive direction (in angles)
 #                brings left to the front
-# so it makes sense to register like this: (view, ill)
+# so it makes sense to define the registration pairs like this: (view, ill)
 # (0,1),(0,0)
 # (0,0),(1,1)
 # (1,1),(1,0)
@@ -76,7 +81,7 @@ registration_pairss = [registration_pairs] *len(filepaths)
 # etc.
 
 # four view example:
-# view_dict = {i:{'view':i, 'ill':None} for i in [0, 1, 2, 3]}
+# view_dict = {i:{'view':i, 'ill': 2} for i in [0, 1, 2, 3]}
 
 # if ills of all views should be averaged, set view_dict to None:
 view_dict = None
