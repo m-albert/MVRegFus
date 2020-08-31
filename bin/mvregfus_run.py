@@ -214,42 +214,11 @@ for ifile,filepath in enumerate(filepaths):
 # run
 if __name__ == '__main__':
 
-    o = io_utils.get(graph, result_keys[0], local=True)
+    # Number of files to fuse in parallel.
+    # Bottleneck here is GPU memory (if used):
+    # Each parallel file requires approx. 8GB of GPU memory
 
-
-    # o = dask.local.get_sync(graph,result_keys)
-    #
-    # N = 1
-    # results = []
-    # for i in range(0,len(result_keys),N*len(channelss[0])):
-    #     # try:
-    #     # results.append(threaded.get(graph,result_keys[i:i+N*len(channels)],num_workers=23))
-    #     results.append(multiprocessing.get(graph,result_keys[i:i+N*len(channelss[0])],num_workers=23))
-    #     # results.append(dask.local.get_sync(graph,result_keys[i:i+N*len(channels)]))
-    #     # results.append(multiprocessing.get(graph,result_keys[i:i+N*len(channels)],num_workers=23))
-    #     # except:
-    #     #     pass
-
-    # def execute(key):
-    #     return dask.local.get_sync(graph,key)
-    #
-    # import multiprocessing
-    # # p = multiprocessing.Pool(processes = multiprocessing.cpu_count()-1)
-    # p = multiprocessing.Pool(processes = 3)
-    # p.map(execute, [result_keys[i:i+len(channelss[0])] for i in range(0,len(result_keys),len(channelss[0]))])
-
-    # N = 1
-    # results = []
-    # for i in range(0,len(result_keys),N*len(channels)):
-    #     results.append(dask.local.get_sync(graph,result_keys[i:i+N*len(channels)]))
-
-    # o = threaded.get(graph,result_keys,num_workers=10)
-    # o = dask.local.get_sync(graph,result_keys)
-    # o = dask.local.get_sync(graph,'')
-    # o = threaded.get(graph,'mv_001_003_c01.imagear.h5',num_workers=4)
-    # o = dask.local.get_sync(graph,result_keys)
-    # o = dask.local.get_sync(graph,graph_multiview.transformed_view_label %(13,0,0,0))
-
-    # io_utils.process_output_element(p,os.path.join(out_dir,fusion_params_label))
-    # [io_utils.process_output_element(o[i],os.path.join(out_dir,multiview_fused_labels[i])) for i in range(len(multiview_fused_labels))]
-    # tifffile.imsave(tmp_out,o)
+    N = 1
+    results = []
+    for i in range(0, len(result_keys), N * len(channels)):
+        results.append(io_utils.get(graph, result_keys[i:i + N * len(channels)]))
