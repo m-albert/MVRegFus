@@ -4,35 +4,33 @@
 
 Python module to process multi-view light sheet data. This includes
 
-1) image registration
+1) Image registration
     - view registration
-    - time registration (drift correction)
+    - time registration (e.g. for drift correction)
     - channel registration (affine chromatic aberration correction)
     
-2) view fusion
+2) View fusion
     - weighted additive fusion
-    - multi-view deconvolution (Richardson Lucy)
-        - traditional
-        - weighted
-    - for both fusion methods, weights can be chosen from:
+    - multi-view deconvolution (Richardson-Lucy)
+    - for both fusion types, weights can be:
         - blending weights
-        - weights based on an image quality metric
+        - based on an image quality metric
         
 - Additional features:
 
     - processing pipeline is leveraged by [`dask`](http://dask.org)
-        - entire workflow can be executed on laptops, independently of dataset size
+        - entire workflow can be executed on laptops, independently of output dataset size (two input views need to fit into memory at once)
         - execution on computational clusters using `dask.distributed`
     - GPU accelerated multi-view deconvolution (using CuPy)
 
 Notes:
-- currently, only czi files from Z1 microscopes are supported out of the box
+- currently, (only) czi files from Z1 microscopes are supported out of the box
 
 <img src="images/multi_view_example1.png" alt="In toto multi-view reconstruction (ex)sample 1"/>
 
 <img src="images/multi_view_example2.png" alt="In toto multi-view reconstruction (ex)sample 2"/>
 
-MVRegFus uses the [elastix](https://elastix.lumc.nl/) registration toolkit for performing most image registrations.
+MVRegFus uses the [elastix](https://elastix.lumc.nl/) registration toolkit for performing most image registration.
 
 
 ## Installation instructions
@@ -46,7 +44,7 @@ MVRegFus uses the [elastix](https://elastix.lumc.nl/) registration toolkit for p
 - install MVRegFus
 `pip install -e ./MVRegFus`
 
-- [Download elastix 4.9](https://elastix.lumc.nl/download.php) (binary version 4.9 suitable for your platform) and place files into a folder 'elastix' in the same folder as this project, as such:
+- [Download elastix 4.9](https://elastix.lumc.nl/download.php) (binary version 4.9 suitable for your platform) and place files into a folder 'elastix' next to the project folder, as such:
 ```bash
 ./MVRegFus
 ./MVRegFus/bin
@@ -83,9 +81,9 @@ Python libraries:
 - scikit-image
 - bcolz
 - tifffile (included)
-- czifileczifile==2019.1.26 (included)
+- czifile==2019.1.26 (included)
 - cupy (optional)
 
 External:
-- elastix (install binary and indicate path at the beginning of dipy_multiview.py)
+- elastix
 - SimpleElastix (optional)
