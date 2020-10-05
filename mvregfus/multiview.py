@@ -1117,6 +1117,7 @@ def register_linear_elastix_seq(fixed,moving,t0=None,degree=2,elastix_dir=None):
     for i in range(len(param_strings)):
         final_params = matrix_to_params(get_affine_parameters_from_elastix_output(os.path.join(temp_dir, 'TransformParameters.%s.txt' % i), t0=final_params))
     print(outdir)
+
     return final_params
 
 @io_decorator
@@ -1225,9 +1226,8 @@ def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None, identifier_f
             import tifffile
             tifffile.imsave(os.path.join(debug_dir, 'view_%s.tif' %identifier_fixed), static)
             tifffile.imsave(os.path.join(debug_dir, 'view_%s.tif' %identifier_moving), mov)
+
         raise(Exception('Could not register view pair (%s, %s)' %(identifier_fixed, identifier_moving)))
-
-
 
     return parameters
 
@@ -3476,15 +3476,13 @@ def blocks_inside(
 
     border_points = []
     rel_coords = np.linspace(0,1,n_points_per_dim)
-    verts = []
     for point in [[i,j,k] for i in rel_coords for j in rel_coords for k in rel_coords]:
-        verts.append(point)
         phys_point = stack_properties['origin'] +\
                      np.array(point)*stack_properties['size']*stack_properties['spacing']
         border_points.append(phys_point)
 
     # for iview,view in enumerate(views):
-    # print(border_points)
+
     ws = []
     for iview in range(len(params)):
 
@@ -3493,11 +3491,9 @@ def blocks_inside(
 
         # transform border points into orig view space (pixel coords)
         t_border_points_inside = []
-        # pxs = []
         for point in border_points:
             t_point = np.dot(params[iview][:9].reshape((3,3)),point) + params[iview][9:]
             t_point_pix = (t_point - osp['origin']) / osp['spacing']
-            # pxs.append(t_point_pix)
             inside = True
             for icoord,coord in enumerate(t_point_pix):
                 if coord < 0 or coord >= osp['size'][icoord]:
@@ -3531,7 +3527,6 @@ def blocks_inside(
             ws.append(2)
             # print('block lies partially inside')
 
-    # print(ws)
     return np.array(ws)
 
 # @io_decorator
@@ -3633,9 +3628,8 @@ def get_weights_simple(
         sigN = 200
         sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-2)/(sigN-1)*orig_stack_propertiess[iview]['spacing']
         # sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-1)/(sigN-1)*orig_stack_propertiess[iview]['spacing']
-        # print(orig_stack_propertiess)
-        # b_in_um = 40.
-        b_in_um = 1.
+
+        b_in_um = 40.
         b_in_pixels = int(b_in_um / sigspacing[0])
         # print('blending weights: border width: %s um, %s pixels' %(b_in_um,b_in_pixels))
 
@@ -3663,14 +3657,11 @@ def get_weights_simple(
                 slices[d] = slice(sig.shape[d] - bx - 1, sig.shape[d] - bx)
                 sig[tuple(slices)] = np.min([sig[tuple(slices)] * 0 + sigmoid(bx, borderwidth), sig[tuple(slices)]], 0)
 
-        # import tifffile
-        # tifffile.imsave('/Users/marvin/data/dbspim/20140911_cxcr7_wt/test_weights_small/sig_%03d' %iview, sig)
         # sig = ImageArray(sig,spacing=views[iview].spacing,origin=views[iview].origin)
 
         # sigspacing = (np.array(views[iview].shape)-1)/(sigN-1)*views[iview].spacing
         # sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-3)/(sigN-1)*orig_stack_propertiess[iview]['spacing']
         sig = ImageArray(sig,spacing=sigspacing,origin=orig_stack_propertiess[iview]['origin']+1*orig_stack_propertiess[iview]['spacing'])
-        # sig = ImageArray(sig,spacing=sigspacing,origin=orig_stack_propertiess[iview]['origin'])
 
         tmpvs = transform_stack_sitk(sig,params[iview],
                                out_origin=stack_properties['origin'],
@@ -4388,25 +4379,6 @@ def fuse_blockwise(fn,
                                                    'fusion_kwargs': fusion_kwargs,
                                                   })
 
-    from .imaris import da_to_ims
-
-    from dask.diagnostics import ProgressBar
-
-    # weights = weights[:, :orig_shape[0],:orig_shape[1],:orig_shape[2]]
-    weights = np.array(weights)
-    # import pdb; pdb.set_trace()
-    with ProgressBar():
-        print('writing weights...')
-        dask_scheduler = 'threads'
-        # weights.to_hdf5(fn[:-4] + '_weights.ims', 'Data', scheduler='single-threaded')
-
-        for i in range(len(weights)):
-            tmpfn = fn[:-4] + '_weights_%03d.ims' % i
-            if os.path.exists(tmpfn): os.remove(tmpfn)
-            io_utils.process_output_element(weights[i], tmpfn)
-            # da_to_ims(weights[i], tmpfn, scheduler=dask_scheduler)
-
-
     if depth > 0:
         trim_dict = {i:depth for i in range(3)}
         result = da.overlap.trim_internal(result, trim_dict)
@@ -4966,7 +4938,6 @@ def get_weights_dct_dask(tviews,
                        orig_stack_propertiess=orig_stack_propertiess,
                        )
 
-
     # da.map_blocks()
     #
     # ws = da.from_array(ws,chunks=(tviews_binned.chunksize[0],)+tuple([dct_chunks]*3))
@@ -5105,7 +5076,6 @@ def determine_chunk_quality(vrs,
     :return:
     """
     # print('dw...')
-    # print(block_info)
 
     curr_origin = []
     # target_origin = []
@@ -5125,12 +5095,8 @@ def determine_chunk_quality(vrs,
     block_stack_properties['spacing'] = np.array(stack_properties['spacing'])
     block_stack_properties['origin'] = np.array(curr_origin)# - depth * block_stack_properties['spacing']
 
-    # print(block_stack_properties)
     view_inside_mask = blocks_inside(orig_stack_propertiess,params,block_stack_properties,n_points_per_dim=2)
     # print(view_inside_mask)
-
-    # # malbert
-    # return np.array(view_inside_mask).astype(np.float32)[:,None,None,None]
 
     # no view inside
     if not np.max(view_inside_mask):
