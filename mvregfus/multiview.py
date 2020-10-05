@@ -10,7 +10,7 @@ logger.setLevel(logging.WARNING)
 import os,tempfile, sys,copy
 import numpy as np
 from mvregfus import czifile
-from mvregfus import io_utils, claheNd, mv_utils
+from mvregfus import io_utils, mv_utils
 
 import SimpleITK as sitk
 from mvregfus.image_array import ImageArray
@@ -727,6 +727,7 @@ def getStackInfoFromCZI(pathToImage, xy_spacing=None):
 
     return infoDict
 
+from skimage import exposure
 def clahe(image,kernel_size,clip_limit=0.02,pad=0,ds=4):
     print('compute clahe with kernel size %s' %kernel_size)
     # pad = int(pad_ratio * np.min(image.shape))
@@ -748,7 +749,8 @@ def clahe(image,kernel_size,clip_limit=0.02,pad=0,ds=4):
     newim = np.zeros(tuple(better_shape),dtype=image.dtype)
     newim[tuple([slice(0,original_shape[i]) for i in range(image.ndim)])] = image
 
-    result = claheNd.equalize_adapthist(newim, kernel_size=kernel_size, clip_limit=clip_limit, nbins=2 ** 13)
+    # result = claheNd.equalize_adapthist(newim, kernel_size=kernel_size, clip_limit=clip_limit, nbins=2 ** 13)
+    result = exposure.equalize_adapthist(newim, kernel_size=kernel_size, clip_limit=clip_limit, nbins=2 ** 13)
     # result = result[pad:-pad,pad:-pad,pad:-pad]
     result = result[tuple([slice(0,original_shape[i]) for i in range(image.ndim)])]
 
