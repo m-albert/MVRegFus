@@ -229,7 +229,10 @@ def build_multiview_graph(
                 multiview_view_reg_label % (ds,sample,pair[1],reg_channel),
                 2,  # degree = 1 (trans + rotation)
                 elastix_dir,
-                                                                       )
+                pair[0],
+                pair[1],
+                out_dir,
+            )
 
     graph[fusion_params0_label %(ds,sample)] = (
         multiview.get_params_from_pairs,
