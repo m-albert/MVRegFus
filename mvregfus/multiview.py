@@ -932,7 +932,7 @@ def createParameterFile(spacing,initialTransformFile,template,outPath):
     return
 
 
-def register_linear_elastix_seq(fixed,moving,t0=None,degree=2,elastix_dir=None):
+def register_linear_elastix_seq(fixed,moving,t0=None,degree=2,elastix_dir=None,fixed_mask=None):
 
     """
     assumes clahe images
@@ -1086,8 +1086,9 @@ def register_linear_elastix_seq(fixed,moving,t0=None,degree=2,elastix_dir=None):
     # set fixed mask
     fixed_mask_path = os.path.join(temp_dir,'fixed_mask.mhd')
     # fixed_clahe = clahe(fixed,40,clip_limit=0.02)
-    fixed_clahe = fixed
-    fixed_mask = get_mask_using_otsu(fixed_clahe)
+    if fixed_mask is None:
+        fixed_clahe = clahe(fixed, 40, clip_limit=0.02)
+        fixed_mask = get_mask_using_otsu(fixed_clahe)
     # print('warning: simple mask in elastix call')
     # fixed_mask = (np.array(fixed_clahe) > np.mean(fixed_clahe)).astype(np.uint16)
 
@@ -1168,6 +1169,9 @@ def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None, identifier_f
     static = ImageArray(c0[:,yl0:yu0,:],spacing=fixed.spacing,origin=origin_overlap0)
     mov = ImageArray(c1[:,yl1:yu1,:],spacing=moving.spacing,origin=origin_overlap1)
 
+    static_mask = get_mask_using_otsu(static)
+    static_mask = ImageArray(static_mask, spacing=fixed.spacing, origin=origin_overlap0)
+
     t00 = mv_utils.euler_matrix(0, + fixed.rotation - moving.rotation, 0)
     center_static = np.array(static.shape)/2.*static.spacing + static.origin
     center_mov = np.array(mov.shape)/2.*mov.spacing + mov.origin
@@ -1220,7 +1224,8 @@ def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None, identifier_f
     try:
         parameters = register_linear_elastix_seq(static, mov, t0,
                                                  degree=degree,
-                                                 elastix_dir=elastix_dir)
+                                                 elastix_dir=elastix_dir,
+                                                 fixed_mask=static_mask)
     except:
         if debug_dir is not None:
             import tifffile
