@@ -88,6 +88,7 @@ def build_multiview_graph(
     raw_input_binning = None,
     clean_pixels = False,
     elastix_dir = '/scratch/malbert/dependencies_linux/elastix_linux64_v4.8',
+    pairwise_registration_mode = 2,
     ):
 
     if input_graph is None:
@@ -227,7 +228,7 @@ def build_multiview_graph(
                 # os.path.join('/tmp/', fusion_params_pair_label %(ds,sample,ipair)),
                 multiview_view_reg_label % (ds,sample,pair[0],reg_channel),
                 multiview_view_reg_label % (ds,sample,pair[1],reg_channel),
-                2,  # degree = 1 (trans + rotation)
+                pairwise_registration_mode,  # degree = 1 (trans + rotation)
                 elastix_dir,
                 pair[0],
                 pair[1],

@@ -107,6 +107,13 @@ background_level = 200
 # mv_registration_bin_factors = np.array([1,1,1])
 mv_registration_bin_factors = np.array([4,4,4])
 
+# registration mode for pairwise view registration
+# (default is 2)
+# 0: only translation
+# 1: translation + rotation
+# 2: translation + rotation + affine
+pairwise_registration_mode = 2
+
 # final output spacing in um
 mv_final_spacing = np.array([5.]*3)
 
@@ -193,6 +200,7 @@ for ifile,filepath in enumerate(filepaths):
         fusion_weights = fusion_weights,
         dct_how_many_best_views=dct_how_many_best_views,
         dct_cumulative_weight_best_views=dct_cumulative_weight_best_views,
+        pairwise_registration_mode = pairwise_registration_mode,
         )
     )
 
