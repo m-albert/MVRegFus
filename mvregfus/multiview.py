@@ -2035,8 +2035,8 @@ def get_params_from_pairs(ref_view,pairs,params,time_alignment_params=None):
         else:
             paths = networkx.all_shortest_paths(g,ref_view,view)
             paths_params = []
-            # for ipath,path in enumerate(paths):
-            for ipath,path in enumerate(paths[:1]): # is it ok to take mean affine params?
+            for ipath,path in enumerate(paths):
+                if ipath > 0: break # is it ok to take mean affine params?
                 path_pairs = [[path[i],path[i+1]] for i in range(len(path)-1)]
                 print(path_pairs)
                 path_params = np.eye(4)
