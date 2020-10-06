@@ -1124,7 +1124,8 @@ def register_linear_elastix_seq(fixed,moving,t0=None,degree=2,elastix_dir=None,f
     return final_params
 
 @io_decorator
-def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None, identifier_fixed=None, identifier_moving=None, debug_dir=None):
+def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None,
+                            identifier_sample=None, identifier_fixed=None, identifier_moving=None, debug_dir=None):
 
     """
     estimate t0 and crop images to intersection in y
@@ -1228,11 +1229,30 @@ def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None, identifier_f
                                                  degree=degree,
                                                  elastix_dir=elastix_dir,
                                                  fixed_mask=static_mask)
+
+        if debug_dir is not None:
+            movt0 = transform_stack_sitk(mov, t0, stack_properties=static.get_info())
+            movt = transform_stack_sitk(mov, parameters, stack_properties=static.get_info())
+            import tifffile
+            tifffile.imsave(os.path.join(debug_dir, 'mv_reginfo_000_%03d_pair_%s_%s_view_%s.tif'
+                                         %(identifier_sample, identifier_fixed, identifier_moving, identifier_fixed)), static)
+            tifffile.imsave(os.path.join(debug_dir, 'mv_reginfo_000_%03d_pair_%s_%s_view_%s.tif'
+                                         %(identifier_sample, identifier_fixed, identifier_moving, identifier_moving)), mov)
+            tifffile.imsave(os.path.join(debug_dir, 'mv_reginfo_000_%03d_pair_%s_%s_view_%s_pretransformed.tif'
+                                         %(identifier_sample, identifier_fixed, identifier_moving, identifier_moving)), movt0)
+            tifffile.imsave(os.path.join(debug_dir, 'mv_reginfo_000_%03d_pair_%s_%s_view_%s_transformed.tif'
+                                         %(identifier_sample, identifier_fixed, identifier_moving, identifier_moving)), movt)
+
     except:
         if debug_dir is not None:
+            movt0 = transform_stack_sitk(mov, t0, stack_properties=static.get_info())
             import tifffile
-            tifffile.imsave(os.path.join(debug_dir, 'view_%s.tif' %identifier_fixed), static)
-            tifffile.imsave(os.path.join(debug_dir, 'view_%s.tif' %identifier_moving), mov)
+            tifffile.imsave(os.path.join(debug_dir, 'mv_reginfo_000_%03d_pair_%s_%s_view_%s.tif'
+                                         % (identifier_sample, identifier_fixed, identifier_moving, identifier_fixed)), static)
+            tifffile.imsave(os.path.join(debug_dir, 'mv_reginfo_000_%03d_pair_%s_%s_view_%s.tif'
+                                         % (identifier_sample, identifier_fixed, identifier_moving, identifier_moving)), mov)
+            tifffile.imsave(os.path.join(debug_dir, 'mv_reginfo_000_%03d_pair_%s_%s_view_%s_pretransformed.tif'
+                                         % (identifier_sample, identifier_fixed, identifier_moving, identifier_moving)), movt0)
 
         raise(Exception('Could not register view pair (%s, %s)' %(identifier_fixed, identifier_moving)))
 

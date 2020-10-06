@@ -201,6 +201,7 @@ for ifile,filepath in enumerate(filepaths):
         dct_how_many_best_views=dct_how_many_best_views,
         dct_cumulative_weight_best_views=dct_cumulative_weight_best_views,
         pairwise_registration_mode = pairwise_registration_mode,
+        debug_pairwise_registration=True,
         )
     )
 
