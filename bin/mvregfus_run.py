@@ -98,6 +98,8 @@ ref_channel_chrom = 0
 
 # binning of raw input from views (x,y,z)
 # [1,1,1]: no binning
+# shapes of views to be registered should not significantly
+# exceed ~(400, 400, 400)
 raw_input_binning = [4,4,1]
 
 # background level to subtract

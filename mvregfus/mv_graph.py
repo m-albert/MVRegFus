@@ -101,6 +101,7 @@ def build_multiview_graph(
     if view_dict is not None:
         view_dict = copy.deepcopy(view_dict)
 
+    graph['out_dir'] = out_dir
     if not os.path.exists(out_dir):
         try:
             os.mkdir(out_dir)
