@@ -111,6 +111,7 @@ mv_registration_bin_factors = np.array([4,4,4])
 
 # registration mode for pairwise view registration
 # (default is 2)
+# -1: only preregistration (translation, no elastix)
 # 0: only translation
 # 1: translation + rotation
 # 2: translation + rotation + affine

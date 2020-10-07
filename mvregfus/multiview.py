@@ -1662,8 +1662,12 @@ def transform_stack_dask(stack,
 
         edges_in_px = (edges_in_phys - stack.origin) / stack.spacing
 
-        min_coord_px = np.floor(np.min(edges_in_px, 0)).astype(np.uint64)
-        max_coord_px = np.ceil(np.max(edges_in_px, 0)).astype(np.uint64)
+        min_coord_px = np.floor(np.min(edges_in_px, 0))  # .astype(np.uint64)
+        max_coord_px = np.ceil(np.max(edges_in_px, 0))  # .astype(np.uint64)
+
+        # expand reduced slice, otherwise artefacts can appear
+        min_coord_px = np.max([[0, 0, 0], min_coord_px - 1], 0).astype(np.uint64)
+        max_coord_px = np.min([stack.shape, max_coord_px + 1], 0).astype(np.uint64)
 
         min_coord_phys = np.min(edges_in_phys, 0)
         # max_coord_phys = np.max(edges_in_phys, 0)
