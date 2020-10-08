@@ -1598,6 +1598,155 @@ def register_linear(static,moving,t0=None):
 #
 #     return t
 
+def transform_stack_dask_numpy(
+                              stack,
+                              p=None,
+                              out_shape=None,
+                              out_spacing=None,
+                              out_origin=None,
+                              interp='linear',
+                              stack_properties=None,
+                              chunksize=512,
+                        ):
+
+    if stack_properties is not None:
+        out_shape = stack_properties['size']
+        out_origin = stack_properties['origin']
+        out_spacing = stack_properties['spacing']
+
+    else:
+        if out_shape is None:
+            out_shape = stack.shape
+
+        if out_origin is None:
+            out_origin = stack.origin
+
+        if out_spacing is None:
+            out_spacing = stack.spacing
+
+    p = np.array(p)
+    matrix = p[:9].reshape(3,3)
+    offset = p[9:]
+
+    # spacing matrices
+    Sx = np.diag(out_spacing)
+    Sy = np.diag(stack.spacing)
+
+    matrix_prime = np.dot(np.linalg.inv(Sy), np.dot(matrix, Sx))
+    # offset_prime = np.dot(np.linalg.inv(Sy), offset + stack.origin - np.dot(matrix, out_origin))
+    offset_prime = np.dot(np.linalg.inv(Sy), offset - stack.origin + np.dot(matrix, out_origin))
+
+    print('matrices', matrix, matrix_prime)
+    print('offsets', offset, offset_prime)
+
+    if interp == 'linear':
+        order = 1
+    elif interp == 'nearest':
+        order  = 0
+    else:
+        order = 3
+
+    transformed = affine_transform_dask(stack,
+                                        matrix_prime,
+                                        offset_prime,
+                                        output_shape=out_shape,
+                                        output_chunks=[chunksize] * 3,
+                                        order=order)
+
+    # transformed = ImageArray(transformed)
+    # transformed.spacing = out_spacing
+    # transformed.origin = out_origin
+
+    return transformed
+
+import numpy as np
+import dask.array as da
+from scipy import ndimage
+def affine_transform_dask(
+        input,
+        matrix,
+        offset=0.0,
+        output_shape=None,
+        output_chunks=(128, 128, 128),
+        **kwargs
+):
+
+    def transform_chunk(x, matrix, offset, input, kwargs, block_info=None):
+
+        N = x.ndim
+        input_shape = input.shape
+
+        chunk_offset = np.array([i[0] for i in block_info[0]['array-location']])
+        # print('chunk_offset', chunk_offset)
+
+        edges_output_chunk = np.array([[i,j,k] for i in [0,1] for j in [0,1] for k in [0,1]]) * np.array(x.shape) + chunk_offset
+        # print('edges_output_chunk', edges_output_chunk)
+        edges_relevant_input = np.dot(matrix, edges_output_chunk.T).T + offset
+
+        # print('edges_relevant_input', edges_relevant_input) # ok
+
+        min_coord_px = np.min(edges_relevant_input, 0)#.astype(np.uint64)
+        max_coord_px = np.max(edges_relevant_input, 0)#.astype(np.uint64)
+
+        # check factors here
+        for dim in range(N):
+            min_coord_px[dim] = np.clip(min_coord_px[dim] - 2, 0, input_shape[dim])
+            max_coord_px[dim] = np.clip(max_coord_px[dim] + 2, 0, input_shape[dim])
+
+        min_coord_px = min_coord_px.astype(np.int64)
+        max_coord_px = max_coord_px.astype(np.int64)
+
+        # print('min max input', min_coord_px, max_coord_px)
+
+        input_relevant_slice = tuple([
+            slice(int(min_coord_px[dim]),
+                  int(max_coord_px[dim]))
+            for dim in range(N)])
+
+        input_relevant = input[input_relevant_slice]
+
+        # print('input_relevant_slice', input_relevant_slice)
+
+        # modify offset due to cropped input
+        # y = Mx + o
+        # coordinate substitution:
+        # y' = y - y0(min_coord_px)
+        # x' = x - x0(chunk_offset)
+        # then
+        # y' = Mx' + o + Mx0 - y0
+
+        # see what happens without input cropping
+        # result: function is slower
+        # min_coord_px = np.zeros(3).astype(np.int64)
+        # max_coord_px = np.array(input.shape).astype(np.int64)
+        # input_relevant = input
+
+        offset_modified = offset + np.dot(matrix, chunk_offset) - min_coord_px
+
+        # print('offset, offset_modified', offset, offset_modified)
+        # print('input_relevant shape', input_relevant.shape)
+
+        transformed_chunk = ndimage.affine_transform(input_relevant,
+                                                     matrix,
+                                                     offset_modified,
+                                                     output_shape=x.shape,
+                                                     **kwargs)
+
+        return transformed_chunk
+
+    if output_shape is None: output_shape = input.shape
+
+    import dask.array as da
+    transformed = da.zeros(output_shape, dtype=input.dtype, chunks=output_chunks)
+    transformed = transformed.map_blocks(transform_chunk, dtype=input.dtype,
+                                         matrix=matrix,
+                                         input=input,
+                                         offset=offset,
+                                         kwargs=kwargs,
+                                         )
+
+    return transformed
+
 from .mv_utils import matrix_to_params, transform_points
 def transform_stack_dask(stack,
                               p=None,
@@ -1666,8 +1815,8 @@ def transform_stack_dask(stack,
         max_coord_px = np.ceil(np.max(edges_in_px, 0))  # .astype(np.uint64)
 
         # expand reduced slice, otherwise artefacts can appear
-        min_coord_px = np.max([[0, 0, 0], min_coord_px - 1], 0).astype(np.uint64)
-        max_coord_px = np.min([stack.shape, max_coord_px + 1], 0).astype(np.uint64)
+        min_coord_px = np.max([[0, 0, 0], min_coord_px - 2], 0).astype(np.uint64)
+        max_coord_px = np.min([stack.shape, max_coord_px + 2], 0).astype(np.uint64)
 
         min_coord_phys = np.min(edges_in_phys, 0)
         # max_coord_phys = np.max(edges_in_phys, 0)
@@ -1712,7 +1861,7 @@ def transform_view_dask_and_save_chunked(fn, view, params, iview, stack_properti
     stack_properties = io_utils.process_input_element(stack_properties)
 
     # res = transform_stack_sitk(view, params[iview], stack_properties=stack_properties,interp='bspline')
-    res = transform_stack_dask(view, params[iview], stack_properties=stack_properties, interp='linear',
+    res = transform_stack_dask_numpy(view, params[iview], stack_properties=stack_properties, interp='linear',
                                chunksize=chunksize)
 
     from dask.diagnostics import ProgressBar
