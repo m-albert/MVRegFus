@@ -1756,7 +1756,11 @@ def affine_transform_dask(
 
     if output_shape is None: output_shape = input.shape
 
+    import dask
     import dask.array as da
+    if type(input) is not dask.array.core.Array:
+        im = da.from_array(input, chunks=np.array(output_chunks))
+
     transformed = da.zeros(output_shape, dtype=input.dtype, chunks=output_chunks)
     transformed = transformed.map_blocks(transform_chunk, dtype=input.dtype,
                                          matrix=matrix,
@@ -1887,8 +1891,8 @@ def transform_view_dask_and_save_chunked(fn, view, params, iview, stack_properti
     from dask.diagnostics import ProgressBar
     with ProgressBar():
         print('transforming and streaming to file: %s' % fn)
-        # da_to_ims(res, fn, scheduler='threads')
-        da_to_ims(res, fn, scheduler='single-threaded')
+        da_to_ims(res, fn, scheduler='threads')
+        # da_to_ims(res, fn, scheduler='single-threaded')
     # res.to_hdf5(fn, 'Data')#, chunks=(128, 128, 128))#, **{'scheduler':'single-threaded'})
     #
     return fn
