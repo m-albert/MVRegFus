@@ -1672,7 +1672,7 @@ def affine_transform_dask(
 ):
 
     try:
-        from cupy import asarray
+        from cupy import asarray, asnumpy
         import cupyx.scipy.ndimage as curr_ndimage
         gpu = True
         print('GPU acceleration for transformation')
@@ -1717,6 +1717,9 @@ def affine_transform_dask(
 
         input_relevant = input[input_relevant_slice]
 
+        if not np.min(input_relevant.shape):
+            return np.zeros(x.shape, dtype=x.dtype)
+
         # print('input_relevant_slice', input_relevant_slice)
 
         # modify offset due to cropped input
@@ -1746,7 +1749,7 @@ def affine_transform_dask(
                                                      # **kwargs)
 
         if gpu:
-            transformed_chunk = cp.asnumpy(transformed_chunk)
+            transformed_chunk = asnumpy(transformed_chunk)
 
         return transformed_chunk
 
