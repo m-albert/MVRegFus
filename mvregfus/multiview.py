@@ -1890,6 +1890,13 @@ def transform_view_dask_and_save_chunked(fn, view, params, iview, stack_properti
 
     from dask.diagnostics import ProgressBar
     with ProgressBar():
+
+        try:
+            import cupy
+            scheduler = 'single-threaded'
+        except:
+            scheduler = 'threads'
+
         print('transforming and streaming to file: %s' % fn)
         da_to_ims(res, fn, scheduler='threads')
         # da_to_ims(res, fn, scheduler='single-threaded')
