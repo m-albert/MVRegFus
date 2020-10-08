@@ -1672,6 +1672,7 @@ def affine_transform_dask(
 ):
 
     try:
+
         from cupy import asarray, asnumpy
         import cupyx.scipy.ndimage as curr_ndimage
         gpu = True
@@ -1886,7 +1887,8 @@ def transform_view_dask_and_save_chunked(fn, view, params, iview, stack_properti
     from dask.diagnostics import ProgressBar
     with ProgressBar():
         print('transforming and streaming to file: %s' % fn)
-        da_to_ims(res, fn, scheduler='threads')
+        # da_to_ims(res, fn, scheduler='threads')
+        da_to_ims(res, fn, scheduler='single-threaded')
     # res.to_hdf5(fn, 'Data')#, chunks=(128, 128, 128))#, **{'scheduler':'single-threaded'})
     #
     return fn
