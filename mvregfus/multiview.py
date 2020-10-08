@@ -1673,12 +1673,12 @@ def affine_transform_dask(
 
     try:
         from cupy import asarray
-        import cupyx.scipy.ndimage as ndimage_affine_transform
+        import cupyx.scipy.ndimage as curr_ndimage
         gpu = True
         print('GPU acceleration for transformation')
     except:
         from numpy import asarray
-        import scipy.ndimage as ndimage_affine_transform
+        import scipy.ndimage as curr_ndimage
         gpu = False
         print('no GPU acceleration for transformation')
         pass
@@ -1738,7 +1738,7 @@ def affine_transform_dask(
         # print('offset, offset_modified', offset, offset_modified)
         # print('input_relevant shape', input_relevant.shape)
 
-        transformed_chunk = ndimage_affine_transform(asarray(input_relevant),
+        transformed_chunk = curr_ndimage.affine_transform(asarray(input_relevant),
                                                      asarray(matrix),
                                                      asarray(offset_modified),
                                                      output_shape=x.shape,
