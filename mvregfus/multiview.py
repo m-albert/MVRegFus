@@ -1686,8 +1686,9 @@ def affine_transform_dask(
 
     def transform_chunk(x, matrix, offset, input, kwargs, block_info=None):
 
-        N = x.ndim
+        N = input.ndim
         input_shape = input.shape
+        chunk_shape = block_info[None]['chunk-shape']
 
         chunk_offset = np.array([i[0] for i in block_info[0]['array-location']])
         # print('chunk_offset', chunk_offset)
@@ -1745,7 +1746,7 @@ def affine_transform_dask(
         transformed_chunk = curr_ndimage.affine_transform(asarray(input_relevant),
                                                      asarray(matrix),
                                                      asarray(offset_modified),
-                                                     output_shape=x.shape,
+                                                     output_shape=chunk_shape,
                                                      order = 1)
                                                      # **kwargs)
 

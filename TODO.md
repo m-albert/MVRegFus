@@ -8,9 +8,8 @@
 
 
 ###Performance
-- stream fused blocks directly to file
 - perform blockwise transformations to handle large target volumes
-- optimize weight calculation (downscaling seems to take long)
+- optimize weight calculation (downscaling seems to take long) (dask.array.coarsen?)
 
 
 ### Registration
