@@ -1403,8 +1403,6 @@ def register_linear(static,moving,t0=None):
     # static[static == 0] = np.random.randint(0,10,(np.sum(static == 0)))
     # moving[moving == 0] = np.random.randint(0,10,(np.sum(moving == 0)))
 
-    # import pdb
-
     static_grid2world = np.eye(4)
     moving_grid2world = np.eye(4)
 
@@ -1598,313 +1596,311 @@ def register_linear(static,moving,t0=None):
 #
 #     return t
 
-def transform_stack_dask_numpy(
-                              stack,
-                              p=None,
-                              out_shape=None,
-                              out_spacing=None,
-                              out_origin=None,
-                              interp='linear',
-                              stack_properties=None,
-                              chunksize=512,
-                        ):
-
-    if stack_properties is not None:
-        out_shape = stack_properties['size']
-        out_origin = stack_properties['origin']
-        out_spacing = stack_properties['spacing']
-
-    else:
-        if out_shape is None:
-            out_shape = stack.shape
-
-        if out_origin is None:
-            out_origin = stack.origin
-
-        if out_spacing is None:
-            out_spacing = stack.spacing
-
-    p = np.array(p)
-    matrix = p[:9].reshape(3,3)
-    offset = p[9:]
-
-    # spacing matrices
-    Sx = np.diag(out_spacing)
-    Sy = np.diag(stack.spacing)
-
-    matrix_prime = np.dot(np.linalg.inv(Sy), np.dot(matrix, Sx))
-    # offset_prime = np.dot(np.linalg.inv(Sy), offset + stack.origin - np.dot(matrix, out_origin))
-    offset_prime = np.dot(np.linalg.inv(Sy), offset - stack.origin + np.dot(matrix, out_origin))
-
-    print('matrices', matrix, matrix_prime)
-    print('offsets', offset, offset_prime)
-
-    if interp == 'linear':
-        order = 1
-    elif interp == 'nearest':
-        order  = 0
-    else:
-        order = 3
-
-    transformed = affine_transform_dask(stack,
-                                        matrix_prime,
-                                        offset_prime,
-                                        output_shape=out_shape,
-                                        output_chunks=[chunksize] * 3,
-                                        order=order)
-
-    # transformed = ImageArray(transformed)
-    # transformed.spacing = out_spacing
-    # transformed.origin = out_origin
-
-    return transformed
-
-import numpy as np
-import dask.array as da
-from scipy import ndimage
-def affine_transform_dask(
-        input,
-        matrix,
-        offset=0.0,
-        output_shape=None,
-        output_chunks=(128, 128, 128),
-        **kwargs
-):
-
-    try:
-
-        from cupy import asarray, asnumpy
-        import cupyx.scipy.ndimage as curr_ndimage
-        gpu = True
-        print('GPU acceleration for transformation')
-    except:
-        from numpy import asarray
-        import scipy.ndimage as curr_ndimage
-        gpu = False
-        print('no GPU acceleration for transformation')
-        pass
-
-    def transform_chunk(x, matrix, offset, input, kwargs, block_info=None):
-
-        N = input.ndim
-        input_shape = input.shape
-        chunk_shape = block_info[None]['chunk-shape']
-
-        chunk_offset = np.array([i[0] for i in block_info[0]['array-location']])
-        # print('chunk_offset', chunk_offset)
-
-        edges_output_chunk = np.array([[i,j,k] for i in [0,1] for j in [0,1] for k in [0,1]]) * np.array(x.shape) + chunk_offset
-        # print('edges_output_chunk', edges_output_chunk)
-        edges_relevant_input = np.dot(matrix, edges_output_chunk.T).T + offset
-
-        # print('edges_relevant_input', edges_relevant_input) # ok
-
-        min_coord_px = np.min(edges_relevant_input, 0)#.astype(np.uint64)
-        max_coord_px = np.max(edges_relevant_input, 0)#.astype(np.uint64)
-
-        # check factors here
-        for dim in range(N):
-            min_coord_px[dim] = np.clip(min_coord_px[dim] - 2, 0, input_shape[dim])
-            max_coord_px[dim] = np.clip(max_coord_px[dim] + 2, 0, input_shape[dim])
-
-        min_coord_px = min_coord_px.astype(np.int64)
-        max_coord_px = max_coord_px.astype(np.int64)
-
-        # print('min max input', min_coord_px, max_coord_px)
-
-        input_relevant_slice = tuple([
-            slice(int(min_coord_px[dim]),
-                  int(max_coord_px[dim]))
-            for dim in range(N)])
-
-        input_relevant = input[input_relevant_slice]
-
-        if not np.min(input_relevant.shape):
-            return np.zeros(x.shape, dtype=x.dtype)
-
-        # print('input_relevant_slice', input_relevant_slice)
-
-        # modify offset due to cropped input
-        # y = Mx + o
-        # coordinate substitution:
-        # y' = y - y0(min_coord_px)
-        # x' = x - x0(chunk_offset)
-        # then
-        # y' = Mx' + o + Mx0 - y0
-
-        # see what happens without input cropping
-        # result: function is slower
-        # min_coord_px = np.zeros(3).astype(np.int64)
-        # max_coord_px = np.array(input.shape).astype(np.int64)
-        # input_relevant = input
-
-        offset_modified = offset + np.dot(matrix, chunk_offset) - min_coord_px
-
-        # print('offset, offset_modified', offset, offset_modified)
-        # print('input_relevant shape', input_relevant.shape)
-
-        transformed_chunk = curr_ndimage.affine_transform(asarray(input_relevant),
-                                                     asarray(matrix),
-                                                     asarray(offset_modified),
-                                                     output_shape=chunk_shape,
-                                                     order = 1)
-                                                     # **kwargs)
-
-        if gpu:
-            transformed_chunk = asnumpy(transformed_chunk)
-
-        return transformed_chunk
-
-    if output_shape is None: output_shape = input.shape
-
-    # import dask
-    # any benefit from transforming to dask array?
-    # import dask.array as da
-    # if type(input) is not dask.array.core.Array:
-    #     im = da.from_array(input, chunks=np.array(output_chunks))
-
-    transformed = da.zeros(output_shape, dtype=input.dtype, chunks=output_chunks)
-    transformed = transformed.map_blocks(transform_chunk, dtype=input.dtype,
-                                         matrix=matrix,
-                                         input=input,
-                                         offset=offset,
-                                         kwargs=kwargs,
-                                         )
-
-    return transformed
-
-from .mv_utils import matrix_to_params, transform_points
-def transform_stack_dask(stack,
-                              p=None,
-                              out_shape=None,
-                              out_spacing=None,
-                              out_origin=None,
-                              interp='linear',
-                              stack_properties=None,
-                              # chunksize=128,
-                              chunksize=512,
-                        ):
-
-    # print('WARNING: USING BSPLINE INTERPOLATION AS DEFAULT')
-    if p is None:
-        p = np.array([1.,0,0,0,1,0,0,0,1,0,0,0])
-
-    p = np.array(p)
-
-    if stack_properties is not None:
-        out_shape = stack_properties['size']
-        out_origin = stack_properties['origin']
-        out_spacing = stack_properties['spacing']
-
-    else:
-        if out_shape is None:
-            out_shape = stack.shape
-
-        if out_origin is None:
-            out_origin = stack.origin
-
-        if out_spacing is None:
-            out_spacing = stack.spacing
-
-    trivial = True
-    if not np.allclose(p, matrix_to_params(np.eye(4))):
-        trivial = False
-    if not np.allclose(out_shape, stack.shape):
-        trivial = False
-    if not np.allclose(out_origin, stack.origin):
-        trivial = False
-    if not np.allclose(out_spacing, stack.spacing):
-        trivial = False
-
-    def transform_block(x, p, stack, block_info=None):
-
-        # bottleneck seems to be passing the stack array into the function (thread, process?)
-
-        offset = np.array([i[0] for i in block_info[0]['array-location']])
-        block_out_shape = x.shape
-        block_out_spacing = out_spacing
-        block_out_origin = out_origin + offset * out_spacing
-
-        edges = np.array([[i,j,k] for i in [0,1] for j in [0,1] for k in [0,1]]) * np.array(x.shape)
-        edges_out_phys = edges * block_out_spacing + block_out_origin
-
-        edges_in_phys = transform_points(edges_out_phys, p)
-
-        for dim in range(3):
-            edges_in_phys[:, dim] = np.clip(edges_in_phys[:, dim],
-                                            stack.origin[dim],
-                                            stack.origin[dim] + stack.shape[dim] * stack.spacing[dim])
-
-        edges_in_px = (edges_in_phys - stack.origin) / stack.spacing
-
-        min_coord_px = np.floor(np.min(edges_in_px, 0))  # .astype(np.uint64)
-        max_coord_px = np.ceil(np.max(edges_in_px, 0))  # .astype(np.uint64)
-
-        # expand reduced slice, otherwise artefacts can appear
-        min_coord_px = np.max([[0, 0, 0], min_coord_px - 2], 0).astype(np.uint64)
-        max_coord_px = np.min([stack.shape, max_coord_px + 2], 0).astype(np.uint64)
-
-        min_coord_phys = np.min(edges_in_phys, 0)
-        # max_coord_phys = np.max(edges_in_phys, 0)
-
-        reduced_shape = max_coord_px - min_coord_px
-        reduced_origin_phys = min_coord_phys
-        reduced_origin_px = min_coord_px
-
-        slice_reduced = tuple([slice(reduced_origin_px[dim],
-                                     reduced_origin_px[dim] + reduced_shape[dim])
-                               for dim in range(3)])
-
-        stack_reduced = stack[slice_reduced]
-        stack_reduced.origin = reduced_origin_phys
-        stack_reduced.spacing = stack.spacing
-
-        # if not np.min(reduced_shape):
-        if not np.min(stack_reduced.shape):
-            return x
-        # else:
-        #     print(reduced_shape)
-
-        x = transform_stack_sitk(stack_reduced, p,
-                                    out_origin=block_out_origin,
-                                    out_shape=block_out_shape,
-                                    out_spacing=block_out_spacing
-                                   )
-        x = np.array(x)
-        return x
-
-    import dask.array as da
-    import dask.delayed as delayed
-    # result = da.from_array(np.zeros(out_shape, dtype=stack.dtype), chunks=tuple([chunksize] * 3))
-    result = da.zeros(out_shape, dtype=stack.dtype, chunks=tuple([chunksize] * 3))
-    result = result.map_blocks(transform_block, dtype=result.dtype, p=p, stack=delayed(stack))
-    return result
-
-from .imaris import da_to_ims
-def transform_view_dask_and_save_chunked(fn, view, params, iview, stack_properties, chunksize=128):
-
-    params = io_utils.process_input_element(params)
-    stack_properties = io_utils.process_input_element(stack_properties)
-
-    # res = transform_stack_sitk(view, params[iview], stack_properties=stack_properties,interp='bspline')
-    res = transform_stack_dask_numpy(view, params[iview], stack_properties=stack_properties, interp='linear',
-                               chunksize=chunksize)
-
-    from dask.diagnostics import ProgressBar
-    with ProgressBar():
-
-        try:
-            import cupy
-            scheduler = 'single-threaded'
-        except:
-            scheduler = 'threads'
-
-        print('transforming and streaming to file: %s' % fn)
-        da_to_ims(res, fn, scheduler=scheduler)
-        # da_to_ims(res, fn, scheduler='single-threaded')
-    # res.to_hdf5(fn, 'Data')#, chunks=(128, 128, 128))#, **{'scheduler':'single-threaded'})
-    #
-    return fn
+# def transform_stack_dask_numpy(
+#                               stack,
+#                               p=None,
+#                               out_shape=None,
+#                               out_spacing=None,
+#                               out_origin=None,
+#                               interp='linear',
+#                               stack_properties=None,
+#                               chunksize=512,
+#                         ):
+#
+#     if stack_properties is not None:
+#         out_shape = stack_properties['size']
+#         out_origin = stack_properties['origin']
+#         out_spacing = stack_properties['spacing']
+#
+#     else:
+#         if out_shape is None:
+#             out_shape = stack.shape
+#
+#         if out_origin is None:
+#             out_origin = stack.origin
+#
+#         if out_spacing is None:
+#             out_spacing = stack.spacing
+#
+#     p = np.array(p)
+#     matrix = p[:9].reshape(3,3)
+#     offset = p[9:]
+#
+#     # spacing matrices
+#     Sx = np.diag(out_spacing)
+#     Sy = np.diag(stack.spacing)
+#
+#     matrix_prime = np.dot(np.linalg.inv(Sy), np.dot(matrix, Sx))
+#     # offset_prime = np.dot(np.linalg.inv(Sy), offset + stack.origin - np.dot(matrix, out_origin))
+#     offset_prime = np.dot(np.linalg.inv(Sy), offset - stack.origin + np.dot(matrix, out_origin))
+#
+#     print('matrices', matrix, matrix_prime)
+#     print('offsets', offset, offset_prime)
+#
+#     if interp == 'linear':
+#         order = 1
+#     elif interp == 'nearest':
+#         order  = 0
+#     else:
+#         order = 3
+#
+#     transformed = affine_transform_dask(stack,
+#                                         matrix_prime,
+#                                         offset_prime,
+#                                         output_shape=out_shape,
+#                                         output_chunks=[chunksize] * 3,
+#                                         order=order)
+#
+#     # transformed = ImageArray(transformed)
+#     # transformed.spacing = out_spacing
+#     # transformed.origin = out_origin
+#
+#     return transformed
+#
+# import numpy as np
+# def affine_transform_dask(
+#         input,
+#         matrix,
+#         offset=0.0,
+#         output_shape=None,
+#         output_chunks=(128, 128, 128),
+#         **kwargs
+# ):
+#
+#     try:
+#
+#         from cupy import asarray, asnumpy
+#         import cupyx.scipy.ndimage as curr_ndimage
+#         gpu = True
+#         print('GPU acceleration for transformation')
+#     except:
+#         from numpy import asarray
+#         import scipy.ndimage as curr_ndimage
+#         gpu = False
+#         print('no GPU acceleration for transformation')
+#         pass
+#
+#     def transform_chunk(x, matrix, offset, input, kwargs, block_info=None):
+#
+#         N = input.ndim
+#         input_shape = input.shape
+#         chunk_shape = block_info[None]['chunk-shape']
+#
+#         chunk_offset = np.array([i[0] for i in block_info[0]['array-location']])
+#         # print('chunk_offset', chunk_offset)
+#
+#         edges_output_chunk = np.array([[i,j,k] for i in [0,1] for j in [0,1] for k in [0,1]]) * np.array(x.shape) + chunk_offset
+#         # print('edges_output_chunk', edges_output_chunk)
+#         edges_relevant_input = np.dot(matrix, edges_output_chunk.T).T + offset
+#
+#         # print('edges_relevant_input', edges_relevant_input) # ok
+#
+#         min_coord_px = np.min(edges_relevant_input, 0)#.astype(np.uint64)
+#         max_coord_px = np.max(edges_relevant_input, 0)#.astype(np.uint64)
+#
+#         # check factors here
+#         for dim in range(N):
+#             min_coord_px[dim] = np.clip(min_coord_px[dim] - 2, 0, input_shape[dim])
+#             max_coord_px[dim] = np.clip(max_coord_px[dim] + 2, 0, input_shape[dim])
+#
+#         min_coord_px = min_coord_px.astype(np.int64)
+#         max_coord_px = max_coord_px.astype(np.int64)
+#
+#         # print('min max input', min_coord_px, max_coord_px)
+#
+#         input_relevant_slice = tuple([
+#             slice(int(min_coord_px[dim]),
+#                   int(max_coord_px[dim]))
+#             for dim in range(N)])
+#
+#         input_relevant = input[input_relevant_slice]
+#
+#         if not np.min(input_relevant.shape):
+#             return np.zeros(x.shape, dtype=x.dtype)
+#
+#         # print('input_relevant_slice', input_relevant_slice)
+#
+#         # modify offset due to cropped input
+#         # y = Mx + o
+#         # coordinate substitution:
+#         # y' = y - y0(min_coord_px)
+#         # x' = x - x0(chunk_offset)
+#         # then
+#         # y' = Mx' + o + Mx0 - y0
+#
+#         # see what happens without input cropping
+#         # result: function is slower
+#         # min_coord_px = np.zeros(3).astype(np.int64)
+#         # max_coord_px = np.array(input.shape).astype(np.int64)
+#         # input_relevant = input
+#
+#         offset_modified = offset + np.dot(matrix, chunk_offset) - min_coord_px
+#
+#         # print('offset, offset_modified', offset, offset_modified)
+#         # print('input_relevant shape', input_relevant.shape)
+#
+#         transformed_chunk = curr_ndimage.affine_transform(asarray(input_relevant),
+#                                                      asarray(matrix),
+#                                                      asarray(offset_modified),
+#                                                      output_shape=chunk_shape,
+#                                                      order = 1)
+#                                                      # **kwargs)
+#
+#         if gpu:
+#             transformed_chunk = asnumpy(transformed_chunk)
+#
+#         return transformed_chunk
+#
+#     if output_shape is None: output_shape = input.shape
+#
+#     # import dask
+#     # any benefit from transforming to dask array?
+#     # import dask.array as da
+#     # if type(input) is not dask.array.core.Array:
+#     #     im = da.from_array(input, chunks=np.array(output_chunks))
+#
+#     transformed = da.zeros(output_shape, dtype=input.dtype, chunks=output_chunks)
+#     transformed = transformed.map_blocks(transform_chunk, dtype=input.dtype,
+#                                          matrix=matrix,
+#                                          input=input,
+#                                          offset=offset,
+#                                          kwargs=kwargs,
+#                                          )
+#
+#     return transformed
+
+# from .mv_utils import matrix_to_params, transform_points
+# def transform_stack_dask(stack,
+#                               p=None,
+#                               out_shape=None,
+#                               out_spacing=None,
+#                               out_origin=None,
+#                               interp='linear',
+#                               stack_properties=None,
+#                               # chunksize=128,
+#                               chunksize=512,
+#                         ):
+#
+#     # print('WARNING: USING BSPLINE INTERPOLATION AS DEFAULT')
+#     if p is None:
+#         p = np.array([1.,0,0,0,1,0,0,0,1,0,0,0])
+#
+#     p = np.array(p)
+#
+#     if stack_properties is not None:
+#         out_shape = stack_properties['size']
+#         out_origin = stack_properties['origin']
+#         out_spacing = stack_properties['spacing']
+#
+#     else:
+#         if out_shape is None:
+#             out_shape = stack.shape
+#
+#         if out_origin is None:
+#             out_origin = stack.origin
+#
+#         if out_spacing is None:
+#             out_spacing = stack.spacing
+#
+#     trivial = True
+#     if not np.allclose(p, matrix_to_params(np.eye(4))):
+#         trivial = False
+#     if not np.allclose(out_shape, stack.shape):
+#         trivial = False
+#     if not np.allclose(out_origin, stack.origin):
+#         trivial = False
+#     if not np.allclose(out_spacing, stack.spacing):
+#         trivial = False
+#
+#     def transform_block(x, p, stack, block_info=None):
+#
+#         # bottleneck seems to be passing the stack array into the function (thread, process?)
+#
+#         offset = np.array([i[0] for i in block_info[0]['array-location']])
+#         block_out_shape = x.shape
+#         block_out_spacing = out_spacing
+#         block_out_origin = out_origin + offset * out_spacing
+#
+#         edges = np.array([[i,j,k] for i in [0,1] for j in [0,1] for k in [0,1]]) * np.array(x.shape)
+#         edges_out_phys = edges * block_out_spacing + block_out_origin
+#
+#         edges_in_phys = transform_points(edges_out_phys, p)
+#
+#         for dim in range(3):
+#             edges_in_phys[:, dim] = np.clip(edges_in_phys[:, dim],
+#                                             stack.origin[dim],
+#                                             stack.origin[dim] + stack.shape[dim] * stack.spacing[dim])
+#
+#         edges_in_px = (edges_in_phys - stack.origin) / stack.spacing
+#
+#         min_coord_px = np.floor(np.min(edges_in_px, 0))  # .astype(np.uint64)
+#         max_coord_px = np.ceil(np.max(edges_in_px, 0))  # .astype(np.uint64)
+#
+#         # expand reduced slice, otherwise artefacts can appear
+#         min_coord_px = np.max([[0, 0, 0], min_coord_px - 2], 0).astype(np.uint64)
+#         max_coord_px = np.min([stack.shape, max_coord_px + 2], 0).astype(np.uint64)
+#
+#         min_coord_phys = np.min(edges_in_phys, 0)
+#         # max_coord_phys = np.max(edges_in_phys, 0)
+#
+#         reduced_shape = max_coord_px - min_coord_px
+#         reduced_origin_phys = min_coord_phys
+#         reduced_origin_px = min_coord_px
+#
+#         slice_reduced = tuple([slice(reduced_origin_px[dim],
+#                                      reduced_origin_px[dim] + reduced_shape[dim])
+#                                for dim in range(3)])
+#
+#         stack_reduced = stack[slice_reduced]
+#         stack_reduced.origin = reduced_origin_phys
+#         stack_reduced.spacing = stack.spacing
+#
+#         # if not np.min(reduced_shape):
+#         if not np.min(stack_reduced.shape):
+#             return x
+#         # else:
+#         #     print(reduced_shape)
+#
+#         x = transform_stack_sitk(stack_reduced, p,
+#                                     out_origin=block_out_origin,
+#                                     out_shape=block_out_shape,
+#                                     out_spacing=block_out_spacing
+#                                    )
+#         x = np.array(x)
+#         return x
+#
+#     import dask.array as da
+#     import dask.delayed as delayed
+#     # result = da.from_array(np.zeros(out_shape, dtype=stack.dtype), chunks=tuple([chunksize] * 3))
+#     result = da.zeros(out_shape, dtype=stack.dtype, chunks=tuple([chunksize] * 3))
+#     result = result.map_blocks(transform_block, dtype=result.dtype, p=p, stack=delayed(stack))
+#     return result
+
+# from .imaris import da_to_ims
+# def transform_view_dask_and_save_chunked(fn, view, params, iview, stack_properties, chunksize=128):
+#
+#     params = io_utils.process_input_element(params)
+#     stack_properties = io_utils.process_input_element(stack_properties)
+#
+#     # res = transform_stack_sitk(view, params[iview], stack_properties=stack_properties,interp='bspline')
+#     res = transform_stack_dask_numpy(view, params[iview], stack_properties=stack_properties, interp='linear',
+#                                chunksize=chunksize)
+#
+#     from dask.diagnostics import ProgressBar
+#     with ProgressBar():
+#
+#         try:
+#             import cupy
+#             scheduler = 'single-threaded'
+#         except:
+#             scheduler = 'threads'
+#
+#         print('transforming and streaming to file: %s' % fn)
+#         da_to_ims(res, fn, scheduler=scheduler)
+#         # da_to_ims(res, fn, scheduler='single-threaded')
+#     # res.to_hdf5(fn, 'Data')#, chunks=(128, 128, 128))#, **{'scheduler':'single-threaded'})
+#     #
+#     return fn
 
 def transform_stack_sitk(stack,p=None,out_shape=None,out_spacing=None,out_origin=None,interp='linear',stack_properties=None):
 
@@ -3648,7 +3644,7 @@ def get_mask_in_target_space(orig_stack_props,
     tmpspacing = (orig_stack_props['size']-2)*orig_stack_props['spacing']
 #     reducedview_shape[0] -= badplanes
 #     reducedview = np.ones(reducedview_shape,dtype=np.uint16)
-    reducedview = np.ones((1,1,1),dtype=np.uint16)
+    reducedview = np.ones((1,get_weights_dct1,1),dtype=np.uint16)
     reducedview = ImageArray(reducedview + 1, spacing=tmpspacing, origin=tmporigin)
     mask = transform_stack_sitk(reducedview, param,
                                 out_origin=target_stack_props['origin'],
@@ -3738,6 +3734,22 @@ def blocks_inside(
             # print('block lies partially inside')
 
     return np.array(ws)
+
+
+def get_weights_simple_block(stack_properties, params, orig_stack_propertiess, block_info=None):
+
+
+    offset = np.array([i[0] for i in block_info[None]['array-location'][1:]])
+    size = np.array(block_info[None]['chunk-shape'][1:])
+
+    weight_stack_properties = copy.deepcopy(stack_properties)
+    weight_stack_properties['size'] = size
+    weight_stack_properties['origin'] = weight_stack_properties['origin']\
+                                        + offset * weight_stack_properties['spacing']
+
+    block_ws = get_weights_simple(orig_stack_propertiess, params, weight_stack_properties)
+    return np.array(block_ws)
+
 
 # @io_decorator
 def get_weights_simple(
@@ -3902,554 +3914,231 @@ def get_weights_simple(
 
     return ws
 
-# # @io_decorator
-# def get_weights_simple(
-#                     orig_stack_propertiess,
-#                     params,
-#                     stack_properties,
-#                     ):
-#     """
-#     sigmoid on borders
-#     """
-#
-#     # w_stack_properties = stack_properties.copy()
-#     # minspacing = 3.
-#     # changed_stack_properties = False
-#     # if w_stack_properties['spacing'][0] < minspacing:
-#     #     changed_stack_properties = True
-#     #     print('using downsampled images for calculating simple weights..')
-#     #     w_stack_properties['spacing'] = np.array([minspacing]*3)
-#     #     w_stack_properties['size'] = (stack_properties['spacing'][0]/w_stack_properties['spacing'][0])*stack_properties['size']
-#
-#     ws = []
-#
-#     border_points = []
-#     rel_coords = np.linspace(0,1,5)
-#     for point in [[i,j,k] for i in rel_coords for j in rel_coords for k in rel_coords]:
-#         phys_point = stack_properties['origin'] + np.array(point)*stack_properties['size']*stack_properties['spacing']
-#         border_points.append(phys_point)
-#
-#     # for iview,view in enumerate(views):
-#     import time
-#     times = []
-#     for iview in range(len(params)):
-#
-#         start = time.time()
-#
-#         # quick check if stack_properties inside orig volume
-#         osp = orig_stack_propertiess[iview]
-#
-#         # transform border points into orig view space (pixel coords)
-#         t_border_points_inside = []
-#         for point in border_points:
-#             t_point = np.dot(params[iview][:9].reshape((3,3)),point) + params[iview][9:]
-#             t_point_pix = (t_point - osp['origin']) / osp['spacing']
-#             inside = True
-#             for icoord,coord in enumerate(t_point_pix):
-#                 if coord < 0 or coord >= osp['size'][icoord]:
-#                     inside = False
-#                     break
-#             t_border_points_inside.append(inside)
-#
-#
-#         if np.all(t_border_points_inside):
-#             ws.append(np.ones(stack_properties['size'],dtype=np.float32))
-#             print('all borders inside')
-#             continue
-#
-#         elif not np.any(t_border_points_inside):
-#             ws.append(np.zeros(stack_properties['size'], dtype=np.float32))
-#             print('all borders outside')
-#             continue
-#
-#         else:
-#             print('block lies partially inside')
-#
-#
-#         # tmporigin = views[iview].origin+views[iview].spacing/2.
-#         # badplanes = int(0/views[iview].spacing[0]) # in microns
-#         # tmporigin[0]+= views[iview].spacing[0]*badplanes
-#         # # print('WATCH OUT! simple_weights: disregarding %s bad planes at the end of the stack' % badplanes)
-#         # # sig =
-#         #
-#         # # x,y,z = np.mgrid[:sig.shape[0],:sig.shape[1],:sig.shape[2]]
-#         # # dists = np.ones(sig.shape)*np.max(sig.shape)
-#         # # for d in range(3):
-#         # #     ddists =
-#         # #     dists = np.min([dists,ddists])
-#         # reducedview = view[badplanes:-1,:-1,:-1]
-#         # tmp_view = ImageArray(reducedview+1,spacing=views[iview].spacing,origin=tmporigin,rotation=views[iview].rotation)
-#         # # tmp_view = ImageArray(view[:-1,:-1,:-1]+1,spacing=views[iview].spacing,origin=views[iview].origin+views[iview].spacing/2.,rotation=views[iview].rotation)
-#         # mask = transform_stack_sitk(tmp_view,params[iview],
-#         #                        out_origin=w_stack_properties['origin'],
-#         #                        out_shape=w_stack_properties['size'],
-#         #                        out_spacing=w_stack_properties['spacing'],
-#         #                         interp='nearest')
-#
-#         def sigmoid(x,borderwidth):
-#             x0 = float(borderwidth)/2.
-#             a = 12./borderwidth
-#             return 1/(1+np.exp(-a*(x-x0)))
-#
-#         # determine boundary using the psf? alternatively, um
-#
-#         sigN = 200
-#         sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-1)/(sigN-1)*orig_stack_propertiess[iview]['spacing']
-#
-#         b_in_um = 40.
-#         b_in_pixels = int(b_in_um / sigspacing[0])
-#         print('blending weights: border width: %s um, %s pixels' %(b_in_um,b_in_pixels))
-#
-#         # r = 0.05 # relative border width
-#         # sig = np.ones(reducedview.shape,dtype=np.float32)
-#         # sigN = 200
-#         sig = np.ones([sigN]*3,dtype=np.float32)
-#
-#         for d in range(3):
-#             # borderwidth = int(r * sig.shape[d])
-#             borderwidth = b_in_pixels
-#             # print(borderwidth)
-#             slices = [slice(0, sig.shape[i]) for i in range(3)]
-#             for bx in range(borderwidth):
-#                 slices[d] = slice(bx, bx + 1)
-#                 sig[tuple(slices)] = np.min([sig[tuple(slices)] * 0 + sigmoid(bx, borderwidth), sig[tuple(slices)]], 0)
-#
-#             # don't blend best part of the image (assuming that is true for high zs)
-#             # if d == 0: borderwidth = int(0.02 * sig.shape[d])
-#             # if d == 0: borderwidth = int(0.05 * sig.shape[d])
-#             for bx in range(borderwidth):
-#                 slices[d] = slice(sig.shape[d] - bx - 1, sig.shape[d] - bx)
-#                 sig[tuple(slices)] = np.min([sig[tuple(slices)] * 0 + sigmoid(bx, borderwidth), sig[tuple(slices)]], 0)
-#
-#         # sig = ImageArray(sig,spacing=views[iview].spacing,origin=views[iview].origin)
-#
-#         # sigspacing = (np.array(views[iview].shape)-1)/(sigN-1)*views[iview].spacing
-#         # sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-3)/(sigN-1)*orig_stack_propertiess[iview]['spacing']
-#         sig = ImageArray(sig,spacing=sigspacing,origin=orig_stack_propertiess[iview]['origin']+1*orig_stack_propertiess[iview]['spacing'])
-#
-#         tmpvs = transform_stack_sitk(sig,params[iview],
-#                                out_origin=stack_properties['origin'],
-#                                out_shape=stack_properties['size'],
-#                                out_spacing=stack_properties['spacing'],
-#                                interp='linear',
-#                                      )
-#
-#         mask = get_mask_in_target_space(orig_stack_propertiess[iview],
-#                                  stack_properties,
-#                                  params[iview]
-#                                  )
-#         times.append(time.time()-start)
-#         # mask = mask > 0
-#         # print('WARNING; 1 ITERATIONS FOR MASK DILATION (DCT WEIGHTS')
-#         # mask = ndimage.binary_dilation(mask == 0,iterations=1)
-#         ws.append(tmpvs*(mask))
-#         # ws.append(tmpvs)
-#
-#     print('times',times)
-#
-#     wsum = np.sum(ws,0)
-#     wsum[wsum==0] = 1
-#     for iw,w in enumerate(ws):
-#         # ws[iw] /= wsum
-#         ws[iw] = ws[iw] / wsum
-#
-#     return ws
 
-# # @io_decorator
-# def get_weights_simple(
-#                     orig_stack_propertiess,
-#                     params,
-#                     stack_properties,
-#                     ):
-#     """
-#     sigmoid on borders
-#     """
-#
-#     # w_stack_properties = stack_properties.copy()
-#     # minspacing = 3.
-#     # changed_stack_properties = False
-#     # if w_stack_properties['spacing'][0] < minspacing:
-#     #     changed_stack_properties = True
-#     #     print('using downsampled images for calculating simple weights..')
-#     #     w_stack_properties['spacing'] = np.array([minspacing]*3)
-#     #     w_stack_properties['size'] = (stack_properties['spacing'][0]/w_stack_properties['spacing'][0])*stack_properties['size']
-#
-#     ws = []
-#
-#     border_points = []
-#     rel_coords = np.linspace(0,1,5)
-#     for point in [[i,j,k] for i in rel_coords for j in rel_coords for k in rel_coords]:
-#         phys_point = stack_properties['origin'] + np.array(point)*stack_properties['size']*stack_properties['spacing']
-#         border_points.append(phys_point)
-#
-#     # for iview,view in enumerate(views):
-#     import time
-#     times = []
-#     for iview in range(len(params)):
-#
-#         start = time.time()
-#
-#         # quick check if stack_properties inside orig volume
-#         osp = orig_stack_propertiess[iview]
-#
-#         # transform border points into orig view space (pixel coords)
-#         t_border_points_inside = []
-#         for point in border_points:
-#             t_point = np.dot(params[iview][:9].reshape((3,3)),point) + params[iview][9:]
-#             t_point_pix = (t_point - osp['origin']) / osp['spacing']
-#             inside = True
-#             for icoord,coord in enumerate(t_point_pix):
-#                 if coord < 0 or coord >= osp['size'][icoord]:
-#                     inside = False
-#                     break
-#             t_border_points_inside.append(inside)
-#
-#
-#         if np.all(t_border_points_inside):
-#             ws.append(np.ones(stack_properties['size'],dtype=np.float32))
-#             print('all borders inside')
-#             continue
-#
-#         elif not np.any(t_border_points_inside):
-#             ws.append(np.zeros(stack_properties['size'], dtype=np.float32))
-#             print('all borders outside')
-#             continue
-#
-#         else:
-#             print('block lies partially inside')
-#
-#
-#         # tmporigin = views[iview].origin+views[iview].spacing/2.
-#         # badplanes = int(0/views[iview].spacing[0]) # in microns
-#         # tmporigin[0]+= views[iview].spacing[0]*badplanes
-#         # # print('WATCH OUT! simple_weights: disregarding %s bad planes at the end of the stack' % badplanes)
-#         # # sig =
-#         #
-#         # # x,y,z = np.mgrid[:sig.shape[0],:sig.shape[1],:sig.shape[2]]
-#         # # dists = np.ones(sig.shape)*np.max(sig.shape)
-#         # # for d in range(3):
-#         # #     ddists =
-#         # #     dists = np.min([dists,ddists])
-#         # reducedview = view[badplanes:-1,:-1,:-1]
-#         # tmp_view = ImageArray(reducedview+1,spacing=views[iview].spacing,origin=tmporigin,rotation=views[iview].rotation)
-#         # # tmp_view = ImageArray(view[:-1,:-1,:-1]+1,spacing=views[iview].spacing,origin=views[iview].origin+views[iview].spacing/2.,rotation=views[iview].rotation)
-#         # mask = transform_stack_sitk(tmp_view,params[iview],
-#         #                        out_origin=w_stack_properties['origin'],
-#         #                        out_shape=w_stack_properties['size'],
-#         #                        out_spacing=w_stack_properties['spacing'],
-#         #                         interp='nearest')
-#
-#         def sigmoid(x,borderwidth):
-#             x0 = float(borderwidth)/2.
-#             a = 12./borderwidth
-#             return 1/(1+np.exp(-a*(x-x0)))
-#
-#         r = 0.05 # relative border width
-#         # sig = np.ones(reducedview.shape,dtype=np.float32)
-#         # sigN = 200
-#         sigN = 200
-#         sig = np.ones([sigN]*3,dtype=np.float32)
-#
-#         for d in range(3):
-#             borderwidth = int(r * sig.shape[d])
-#             # print(borderwidth)
-#             slices = [slice(0, sig.shape[i]) for i in range(3)]
-#             for bx in range(borderwidth):
-#                 slices[d] = slice(bx, bx + 1)
-#                 sig[tuple(slices)] = np.min([sig[tuple(slices)] * 0 + sigmoid(bx, borderwidth), sig[tuple(slices)]], 0)
-#
-#             # don't blend best part of the image (assuming that is true for high zs)
-#             if d == 0: borderwidth = int(0.02 * sig.shape[d])
-#             # if d == 0: borderwidth = int(0.05 * sig.shape[d])
-#             for bx in range(borderwidth):
-#                 slices[d] = slice(sig.shape[d] - bx - 1, sig.shape[d] - bx)
-#                 sig[tuple(slices)] = np.min([sig[tuple(slices)] * 0 + sigmoid(bx, borderwidth), sig[tuple(slices)]], 0)
-#
-#         # sig = ImageArray(sig,spacing=views[iview].spacing,origin=views[iview].origin)
-#
-#         # sigspacing = (np.array(views[iview].shape)-1)/(sigN-1)*views[iview].spacing
-#         sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-1)/(sigN-1)*orig_stack_propertiess[iview]['spacing']
-#         sig = ImageArray(sig,spacing=sigspacing,origin=orig_stack_propertiess[iview]['origin'])
-#
-#         tmpvs = transform_stack_sitk(sig,params[iview],
-#                                out_origin=stack_properties['origin'],
-#                                out_shape=stack_properties['size'],
-#                                out_spacing=stack_properties['spacing'],
-#                                interp='nearest',
-#                                      )
-#
-#         mask = get_mask_in_target_space(orig_stack_propertiess[iview],
-#                                  stack_properties,
-#                                  params[iview]
-#                                  )
-#         times.append(time.time()-start)
-#         # mask = mask > 0
-#         # print('WARNING; 1 ITERATIONS FOR MASK DILATION (DCT WEIGHTS')
-#         # mask = ndimage.binary_dilation(mask == 0,iterations=1)
-#         ws.append(tmpvs*(mask))
-#         # ws.append(tmpvs)
-#
-#     print('times',times)
-#
-#     wsum = np.sum(ws,0)
-#     wsum[wsum==0] = 1
-#     for iw,w in enumerate(ws):
-#         # ws[iw] /= wsum
-#         ws[iw] = ws[iw] / wsum
-#
-#     return ws
+from itertools import product
+
+import dask.array as da
+from dask.base import tokenize
+
+from scipy.ndimage import affine_transform as ndimage_affine_transform
+import warnings
 
 
-# from scipy.fftpack import dctn,idctn
-# from scipy import ndimage
-# import dask.array as da
-# @io_decorator
-# def get_weights_dct(
-#                     views,
-#                     params,
-#                     orig_stack_propertiess,
-#                     stack_properties,
-#                     size=None,
-#                     max_kernel=None,
-#                     gaussian_kernel=None,
-#                     ):
-#     """
-#     DCT Shannon Entropy, as in:
-#     Adaptive light-sheet microscopy for long-term, high-resolution imaging in living organisms
-#     http://www.nature.com/articles/nbt.3708
-#
-#     Adaptations:
-#     - consider the full bandwidth, so set r0=d0 in their equation
-#     - calculate on blocks of size <size> and then interpolate to full grid
-#     - run maximum filter
-#     - run smoothing gaussian filter
-#     - final sigmoidal blending at view transitions
-#
-#     :param vrs:
-#     :return:
-#     """
-#
-#     w_stack_properties = stack_properties.copy()
-#     minspacing = 3.
-#     changed_stack_properties = False
-#     if w_stack_properties['spacing'][0] < minspacing:
-#         changed_stack_properties = True
-#         print('using downsampled images for calculating weights..')
-#         w_stack_properties['spacing'] = np.array([minspacing]*3)
-#         w_stack_properties['size'] = (stack_properties['spacing'][0]/w_stack_properties['spacing'][0])*stack_properties['size']
-#
-#     vs = []
-#     vdils = []
-#     for iview,view in enumerate(views):
-#
-#         tmpvs = transform_stack_sitk(view,matrix_to_params(np.eye(4)),
-#                                out_origin=w_stack_properties['origin'],
-#                                out_shape=w_stack_properties['size'],
-#                                out_spacing=w_stack_properties['spacing'])
-#
-#         mask = get_mask_in_target_space(orig_stack_propertiess[iview],
-#                                  w_stack_properties,
-#                                  params[iview]
-#                                  )
-#
-#         vdils.append(mask == 0)
-#         vs.append(tmpvs*(mask>0))
-#
-#     if size is None:
-#         size = np.max([4,int(50 / vs[0].spacing[0])]) # 50um
-#         print('dct: choosing size %s' %size)
-#     if max_kernel is None:
-#         max_kernel = int(size/2.)
-#         print('dct: choosing max_kernel %s' %max_kernel)
-#     if gaussian_kernel is None:
-#         gaussian_kernel = int(max_kernel)
-#         print('dct: choosing gaussian_kernel %s' %gaussian_kernel)
-#
-#     print('calculating dct weights...')
-#     def determine_quality(vrs):
-#
-#         """
-#         DCT Shannon Entropy, as in:
-#         Adaptive light-sheet microscopy for long-term, high-resolution imaging in living organisms
-#         http://www.nature.com/articles/nbt.3708
-#         Consider the full bandwidth, so set r0=d0 in their equation
-#         :param vrs:
-#         :return:
-#         """
-#         # print('dw...')
-#
-#         vrs = np.copy(vrs)
-#
-#         axes = [0,1,2]
-#         ds = []
-#         for v in vrs:
-#
-#             if np.sum(v==0) > np.product(v.shape) * (4/5.):
-#                 ds.append([0])
-#                 continue
-#             elif v.min()<0.0001:
-#                 v[v==0] = v[v>0].min() # or nearest neighbor
-#
-#             d = dctn(v,norm='ortho',axes=axes)
-#             # cut = size//2
-#             # d[:cut,:cut,:cut] = 0
-#             ds.append(d.flatten())
-#
-#         # l2 norm
-#         dsl2 = np.array([np.sum(np.abs(d)) for d in ds])
-#         # don't divide by zero below
-#         dsl2[dsl2==0] = 1
-#
-#         def abslog(x):
-#             res = np.zeros_like(x)
-#             x = np.abs(x)
-#             res[x==0] = 0
-#             res[x>0] = np.log2(x[x>0])
-#             return res
-#
-#         ws = np.array([-np.sum(np.abs(d)*abslog(d/dsl2[id])) for id,d in enumerate(ds)])
-#
-#         # simple weights in case everything is zero
-#         if not ws.max():
-#             ws = np.ones(len(ws))/float(len(ws))
-#
-#         return ws[:,None,None,None]
-#
-#
-#     x = da.from_array(np.array(vs), chunks=(len(vs),size,size,size))
-#     # ws=x.map_blocks(determine_quality,dtype=np.float)
-#     ws = x.map_blocks(determine_quality,dtype=np.float,chunks=(len(vs),1,1,1))
-#
-#     ws = ws.compute(scheduler = 'threads')
-#     ws = np.array(ws)
-#
-#     ws = ImageArray(ws,
-#                     spacing= np.array([size]*3)*np.array(w_stack_properties['spacing']),
-#                     origin = w_stack_properties['origin'] + ((size-1)*w_stack_properties['spacing'])/2.,
-#                     )
-#
-#     newws = []
-#     for iw in range(len(ws)):
-#         newws.append(transform_stack_sitk(ws[iw],
-#                             [1,0,0,0,1,0,0,0,1,0,0,0],
-#                             # out_shape=stack_properties['size'],
-#                             # out_origin=stack_properties['origin'],
-#                             # out_spacing=stack_properties['spacing'],
-#                                out_origin=w_stack_properties['origin'],
-#                                out_shape=w_stack_properties['size'],
-#                                out_spacing=w_stack_properties['spacing'],
-#                             interp='linear',
-#                              ))
-#     ws = np.array(newws)
-#
-#     for iw,w in enumerate(ws):
-#         print('filtering')
-#         ws[iw] = ndimage.maximum_filter(ws[iw],max_kernel)
-#
-#     for iw,w in enumerate(ws):
-#         ws[iw][vdils[iw]] = 0
-#
-#     wsmin = ws.min(0)
-#     wsmax = ws.max(0)
-#     ws = np.array([(w - wsmin)/(wsmax - wsmin + 0.01) for w in ws])
-#     # ws = np.array([(w - wsmin)/(wsmax - wsmin) for w in ws])
-#
-#     # for iw,w in enumerate(ws):
-#     #     ws[iw][vdils[iw]] = 0.00001
-#
-#     wsum = np.sum(ws,0)
-#     wsum[wsum==0] = 1
-#     for iw,w in enumerate(ws):
-#         ws[iw] /= wsum
-#
-#     # tifffile.imshow(np.array([np.array(ts)*10,ws]).swapaxes(-3,-2),vmax=10000)
-#     for iw,w in enumerate(ws):
-#         print('filtering')
-#         # ws[iw] = ndimage.maximum_filter(ws[iw],10)
-#         # ws[iw][vdils[iw]] = 0.00001
-#         ws[iw] = ndimage.gaussian_filter(ws[iw],gaussian_kernel)
-#         # zeros = ndimage.binary_dilation(vs[iw] == 0)
-#         # ws[iw][zeros] = 0.00001
-#         # ws[iw][vdils[iw]] = 0.00001
-#         ws[iw][vdils[iw]] = 0
-#
-#
-#     # HEURISTIC to adapt weights to number of views
-#     # idea: typically, 2-3 views carry good information at a given location
-#     # and the rest should not contribute
-#     # w**exp with exp>1 polarises the weights
-#     # we want to find exp such that 90% of the quality contribution
-#     # is given by the two best views
-#     # this is overall and the analysis is limited to regions where the best view
-#     # has at least double its baseline value 1/len(views)
-#     # alternatively: best view should have 0.5
-#
-#     if len(ws) > 2:
-#
-#         print('applying heuristic to adapt weights to N=%s views' %len(ws))
-#         print('criterion: weights**exp such that best two views > 0.9')
-#
-#         wsum = np.sum(ws,0)
-#         wsum[wsum==0] = 1
-#         for iw,w in enumerate(ws):
-#             ws[iw] /= wsum
-#
-#         wf = ws[:, np.max(ws, 0) > (2 * (1 / len(ws)))]
-#         # wf = wf[:,np.sum(wf,0)>0]
-#         wfs = np.sort(wf, axis=0)
-#
-#         def energy(exp):
-#             exp = exp[0]
-#             tmpw = wfs ** exp
-#             tmpsum = np.sum(tmpw, 0)
-#             tmpw = tmpw / tmpsum
-#             nsum = np.sum(tmpw[-2:], (-1)) / wfs.shape[-1]
-#             energy = np.abs(np.sum(nsum) - 0.9)
-#             return energy
-#
-#         from scipy import optimize
-#         res = optimize.minimize(energy, [0.5], bounds=[[0.5, 5]], method='L-BFGS-B', options={'maxiter': 10})
-#
-#         exp = res.x[0]
-#
-#         print('found exp=%s' %exp)
-#
-#         ws = [ws[i]**exp for i in range(len(ws))]
-#
-#     ws = list(ws)
-#     for iw,w in enumerate(ws):
-#         ws[iw] = ImageArray(ws[iw],
-#                             origin=w_stack_properties['origin'],
-#                             spacing=w_stack_properties['spacing'])
-#
-#
-#     if changed_stack_properties:
-#         for iview in range(len(ws)):
-#             ws[iview] = transform_stack_sitk(ws[iview],[1,0,0,0,1,0,0,0,1,0,0,0],
-#                                    out_origin=stack_properties['origin'],
-#                                    out_shape=stack_properties['size'],
-#                                    out_spacing=stack_properties['spacing'])
-#
-#     # smooth edges
-#     ws_simple = get_weights_simple(
-#                     orig_stack_propertiess,
-#                     params,
-#                     stack_properties
-#     )
-#
-#     ws = [ws[i]*ws_simple[i] for i in range(len(ws))]
-#
-#     wsum = np.sum(ws,0)
-#     wsum[wsum==0] = 1
-#     for iw,w in enumerate(ws):
-#         ws[iw] /= wsum
-#
-#     return ws
+def dask_affine_transform(
+        image,
+        matrix,
+        offset=None,
+        output_shape=None,
+        order=1,
+        output_chunks=None,
+        depth=None,
+        **kwargs
+):
+    """Apply an affine transform using Dask. For every
+    output chunk, only the slice containing the relevant part
+    of the image is processed. Chunkwise processing is performed
+    either using `ndimage.affine_transform` or
+    `cupyx.scipy.ndimage.affine_transform`, depending on the input type.
+
+    Notes
+    -----
+        Differences to `ndimage.affine_transformation`:
+        - currently, prefiltering is not supported
+          (affecting the output in case of interpolation `order > 1`)
+        - default order is 1
+        - modes 'reflect', 'mirror' and 'wrap' are not supported
+
+        Arguments equal to `ndimage.affine_transformation`,
+        except for `output_chunks`.
+
+    Parameters
+    ----------
+    image : array_like (Numpy Array, Cupy Array, Dask Array...)
+        The image array.
+    matrix : array (ndim,), (ndim, ndim), (ndim, ndim+1) or (ndim+1, ndim+1)
+        Transformation matrix.
+    offset : array (ndim,)
+        Transformation offset.
+    output_shape : array (ndim,), optional
+        The size of the array to be returned.
+    order : int, optional
+        The order of the spline interpolation. Note that for order>1
+        scipy's affine_transform applies prefiltering, which is not
+        yet supported and skipped in this implementation.
+    output_chunks : array (ndim,), optional
+        The chunks of the output Dask Array.
+
+    Returns
+    -------
+    affine_transform : Dask Array
+        A dask array representing the transformed output
+
+    """
+
+    if not type(image) == da.core.Array:
+        image = da.from_array(image)
+
+    if output_shape is None:
+        output_shape = image.shape
+
+    if output_chunks is None:
+        output_chunks = image.shape
+
+    # Perform test run to ensure parameter validity.
+    ndimage_affine_transform(np.zeros([0] * image.ndim),
+                             matrix,
+                             offset)
+
+    # Make sure parameters contained in matrix and offset
+    # are not overlapping, i.e. that the offset is valid as
+    # it needs to be modified for each chunk.
+    # Further parameter checks are performed directly by
+    # `ndimage.affine_transform`.
+
+    matrix = np.asarray(matrix)
+    offset = np.asarray(offset).squeeze()
+
+    # these lines were copied and adapted from `ndimage.affine_transform`
+    if (matrix.ndim == 2 and matrix.shape[1] == image.ndim + 1 and
+            (matrix.shape[0] in [image.ndim, image.ndim + 1])):
+
+        # assume input is homogeneous coordinate transformation matrix
+        offset = matrix[:image.ndim, image.ndim]
+        matrix = matrix[:image.ndim, :image.ndim]
+
+    # process kwargs
+    # prefilter is not yet supported
+    if 'prefilter' in kwargs:
+        if kwargs['prefilter'] and order > 1:
+            warnings.warn('Currently, `dask_image.ndinterp.affine_transform` '
+                          'doesn\'t support `prefilter=True`. Proceeding with'
+                          ' `prefilter=False`, which if order > 1 can lead '
+                          'to the output containing more blur than with '
+                          'prefiltering.', UserWarning)
+        del kwargs['prefilter']
+
+    if 'mode' in kwargs:
+        if kwargs['mode'] in ['wrap', 'reflect', 'mirror']:
+            raise(NotImplementedError("Mode %s is not currently supported."
+                                      % kwargs['mode']))
+
+    n = image.ndim
+    image_shape = image.shape
+
+    # calculate output array properties
+    normalized_chunks = da.core.normalize_chunks(output_chunks, output_shape)
+    block_indices = product(*(range(len(bds)) for bds in normalized_chunks))
+    block_offsets = [np.cumsum((0,) + bds[:-1]) for bds in normalized_chunks]
+
+    # construct dask graph for output array
+    # using unique and deterministic identifier
+    output_name = 'affine_transform-' + tokenize(image, matrix, offset,
+                                                 output_shape, output_chunks,
+                                                 kwargs)
+    output_layer = {}
+    rel_images = []
+    for ib, block_ind in enumerate(block_indices):
+
+        out_chunk_shape = [normalized_chunks[dim][block_ind[dim]]
+                           for dim in range(n)]
+        out_chunk_offset = [block_offsets[dim][block_ind[dim]]
+                            for dim in range(n)]
+
+        if depth is not None:
+            for k, v in depth:
+                out_chunk_offset[k] -= v
+                out_chunk_shape[k] += v
+
+        out_chunk_edges = np.array([i for i in np.ndindex(tuple([2] * n))])\
+            * np.array(out_chunk_shape) + np.array(out_chunk_offset)
+
+        # map output chunk edges onto input image coordinates
+        # to define the input region relevant for the current chunk
+        if matrix.ndim == 1 and len(matrix) == image.ndim:
+            rel_image_edges = matrix * out_chunk_edges + offset
+        else:
+            rel_image_edges = np.dot(matrix, out_chunk_edges.T).T + offset
+
+        rel_image_i = np.min(rel_image_edges, 0)
+        rel_image_f = np.max(rel_image_edges, 0)
+
+        # Calculate edge coordinates required for the footprint of the
+        # spline kernel according to
+        # https://github.com/scipy/scipy/blob/9c0d08d7d11fc33311a96d2ac3ad73c8f6e3df00/scipy/ndimage/src/ni_interpolation.c#L412-L419 # noqa: E501
+        # Also see this discussion:
+        # https://github.com/dask/dask-image/issues/24#issuecomment-706165593 # noqa: E501
+        for dim in range(n):
+
+            if order % 2 == 0:
+                rel_image_i[dim] += 0.5
+                rel_image_f[dim] += 0.5
+
+            # for some reason the behaviour becomes inconsistent with ndimage
+            # if leaving out the -1 in the next line
+            rel_image_i[dim] = np.floor(rel_image_i[dim]) - order // 2
+            rel_image_f[dim] = np.floor(rel_image_f[dim]) - order // 2 + order
+
+            if order == 0:
+                rel_image_i[dim] -= 1
+
+        # clip image coordinates to image extent
+        for dim, s in zip(range(n), image_shape):
+            rel_image_i[dim] = np.clip(rel_image_i[dim], 0, s - 1)
+            rel_image_f[dim] = np.clip(rel_image_f[dim], 0, s - 1)
+
+        rel_image_slice = tuple([slice(int(rel_image_i[dim]),
+                                       int(rel_image_f[dim]) + 1)
+                                 for dim in range(n)])
+
+        rel_image = image[rel_image_slice]
+
+        # Modify offset to point into cropped image.
+        # y = Mx + o
+        # Coordinate substitution:
+        # y' = y - y0(min_coord_px)
+        # x' = x - x0(chunk_offset)
+        # Then:
+        # y' = Mx' + o + Mx0 - y0
+        # M' = M
+        # o' = o + Mx0 - y0
+
+        offset_prime = offset + np.dot(matrix, out_chunk_offset) - rel_image_i
+
+        output_layer[(output_name,) + block_ind] = (
+                        ndimage_affine_transform,
+                        (da.core.concatenate3, rel_image.__dask_keys__()),
+                        np.asarray(matrix),
+                        offset_prime,
+                        tuple(out_chunk_shape),  # output_shape
+                        None,  # out
+                        order,
+                        'constant' if 'mode' not in kwargs else kwargs['mode'],
+                        0. if 'cval' not in kwargs else kwargs['cval'],
+                        False  # prefilter
+        )
+
+        rel_images.append(rel_image)
+
+    from dask.highlevelgraph import HighLevelGraph
+    graph = HighLevelGraph.from_collections(output_name, output_layer,
+                                            dependencies=[image] + rel_images)
+
+    meta = np.asarray([0]).astype(image.dtype)
+
+    transformed = da.Array(graph,
+                           output_name,
+                           shape=output_shape,
+                           # chunks=output_chunks,
+                           chunks=normalized_chunks,
+                           meta=meta)
+
+    return transformed
+
 
 import h5pickle as h5py # these objects can be pickled
 # import h5py
 def fuse_blockwise(fn,
-                   fns_tview,
+                   fns_view,
                    params,
                    stack_properties,
                    orig_stack_propertiess,
@@ -4469,78 +4158,69 @@ def fuse_blockwise(fn,
     if fusion_block_overlap is None:
         fusion_block_overlap = 0
 
-    nviews = len(fns_tview)
-
-    def overlap_from_sources(x, sources, depth, block_info=None):
-        nviews = len(sources)
-        #     print(block_info)
-        pads = []
-        srcshape = np.array(sources[0].shape)
-        slices = []
-        outside_of_src = False
-        for dim in range(1, 4):
-
-            l, u = block_info[0]['array-location'][dim]  # lower and upper coord
-            if l >= srcshape[dim - 1]:
-                outside_of_src = True
-                break
-
-            if l == 0:
-                padl = depth
-            else:
-                padl = 0
-
-            udiff = srcshape[dim - 1] - u
-            if udiff < depth:
-                padu = depth - udiff
-            else:
-                padu = 0
-
-            pads.append([padl, padu])
-
-            sl = slice(np.max([0, l - depth]), np.min([srcshape[dim - 1], u + depth]))
-            slices.append(sl)
-
-        ys = np.zeros([nviews] + [np.diff(block_info[0]['array-location'][dim])[0] + 2 * depth for dim in range(1, 4)],
-                      dtype=sources[0].dtype)
-        if outside_of_src:
-            return ys
-
-        pads = np.array(pads)
-        for iv in range(nviews):
-            y = np.array(sources[iv][tuple(slices)])
-            if pads.max() > 0:
-                y = np.pad(y, pads, mode='reflect')
-            ys[iv] = y
-        #   debug
-        #     if np.min(y.shape)<20:
-        #         print('loc:', block_info[0]['array-location'])
-        #         print(y.shape,pads,slices)
-        return ys
-
-    # tviews_dsets = [h5py.File(fn_tview)['array'] for fn_tview in fns_tview]
-    tviews_dsets = [h5py.File(fn_tview, 'r')['DataSet/ResolutionLevel 0/TimePoint 0/Channel 0/Data'] for fn_tview in fns_tview]
+    nviews = len(fns_view)
 
     depth = int(fusion_block_overlap)
-    # depth = 0
-    depth_dict = {0: 0, 1: depth, 2: depth, 3: depth}
+    # depth_dict = {0: 0, 1: depth, 2: depth, 3: depth}
 
     chunksize = 128
-    block_chunk_size = np.array([nviews,chunksize,chunksize,chunksize])
+    # views_dask = [da.from_array(h5py.File(fn_tview)['array'], chunks=[chunksize]*3) for fn_tview in fns_view]
+
+    def map_array(fn, block_info=None):
+        # iview = block_info[None]['array-location'][0][0]
+        slices = [slice(i[0], i[1]) for i in block_info[None]['array-location']]
+        return h5py.File(fn, 'r')['array'][tuple(slices)]
+
+    # block_chunk_size = np.array([nviews,chunksize,chunksize,chunksize])
+    # block_chunk_size = np.array([1,chunksize,chunksize,chunksize])
+    views_dask = [da.map_blocks(map_array,
+                                 chunks=da.core.normalize_chunks(tuple([chunksize]*3), tuple(orig_stack_propertiess[ifn]['size'])),
+                                dtype=np.uint16,
+                                fn=fn)
+                    for ifn, fn in enumerate(fns_view)]
+
+    tviews_dask = []
+    for iview in range(nviews):
+
+        # transform params into array space
+        p = np.array(params[iview])
+        matrix = p[:9].reshape(3,3)
+        offset = p[9:]
+
+        # spacing matrices
+        Sx = np.diag(stack_properties['spacing'])
+        Sy = np.diag(orig_stack_propertiess[iview]['spacing'])
+
+        matrix_prime = np.dot(np.linalg.inv(Sy), np.dot(matrix, Sx))
+        offset_prime = np.dot(np.linalg.inv(Sy),
+                              offset - orig_stack_propertiess[iview]['origin']
+                              + np.dot(matrix, stack_properties['origin']))
 
 
+        tview_dask = dask_affine_transform(
+            views_dask[iview],
+            matrix=matrix_prime,
+            offset=offset_prime,
+            output_shape=tuple(stack_properties['size']),
+            order=1,
+            output_chunks=tuple([chunksize]*3))
 
-    orig_shape = np.array(tviews_dsets[0].shape)
-    # expanded_shape = np.array(block_chunk_size[-3:]) * (np.array(tviews_dsets[0].shape) // chunksize) + np.array(tviews_dsets[0].shape) % chunksize
-    expanded_shape = np.array(block_chunk_size[-3:]) * (np.array(tviews_dsets[0].shape) // chunksize) \
-            + np.array([[0,chunksize][tviews_dsets[0].shape[dim] % chunksize > 0] for dim in range(3)])
-    # print('expanded_shape', expanded_shape)
+        if depth > 0:
+            tview_dask = da.overlap(tview_dask, {i:depth for i in range(3)})
 
-    array_template = da.empty((len(tviews_dsets),)+tuple(expanded_shape),chunks=block_chunk_size,dtype=np.uint16)
+        tviews_dask.append(tview_dask)
 
-    tviews_stack = array_template.map_blocks(overlap_from_sources, dtype=np.uint16, sources=tviews_dsets, depth=0, chunks=block_chunk_size)
+    tviews_dask = da.stack(tviews_dask, axis=0)
 
-    if weights_func == get_weights_dct:
+    tviews_dask = tviews_dask.map_blocks(lambda x: np.pad(x, [[0, 0]] + [[0, chunksize - s] for s in x.shape[1:]]),
+                                         dtype=tviews_dask.dtype, chunks=(1,) + tuple([chunksize] * 3))
+
+    tviews_dask = tviews_dask.rechunk((nviews,) + tviews_dask.chunksize[1:])
+
+    import dask
+    tviews_dask, = dask.optimize(tviews_dask)
+
+    if weights_func == get_weights_dct_dask:
         weights_kwargs['size'],weights_kwargs['max_kernel'],weights_kwargs['gaussian_kernel'] = get_dct_options(stack_properties['spacing'][0],
                                                             weights_kwargs['size'],
                                                             weights_kwargs['max_kernel'],
@@ -4548,13 +4228,10 @@ def fuse_blockwise(fn,
                                                             )
 
     # calc weights
-
-
     if weights_func == get_weights_simple:
         weights = None
     else:
-
-        weights = get_weights_dct_dask(tviews_stack,params,orig_stack_propertiess,stack_properties,depth=depth,**weights_kwargs)
+        weights = get_weights_dct_dask(tviews_dask, params, orig_stack_propertiess,stack_properties,depth=depth,**weights_kwargs)
 
     # print('compressing arrays')
     # from bcolz import carray
@@ -4573,11 +4250,15 @@ def fuse_blockwise(fn,
     #                                # boundary = {0: 'periodic', 1: 'periodic', 2: 'periodic', 3: 'periodic'})
     #                                boundary = {1: 'periodic', 2: 'periodic', 3: 'periodic'})
 
-    overlap_block_chunk_size = np.array([nviews,chunksize,chunksize,chunksize])
-    overlap_block_chunk_size[-3:] += 2*depth#*np.array(array_template.numblocks[1:])
-    tviews_stack_overlap = array_template.map_blocks(overlap_from_sources, dtype=np.uint16, sources=tviews_dsets, depth=depth, chunks=overlap_block_chunk_size)
+    # overlap_block_chunk_size = np.array([nviews,chunksize,chunksize,chunksize])
+    # overlap_block_chunk_size[-3:] += 2*depth#*np.array(array_template.numblocks[1:])
+    # tviews_stack_overlap = array_template.map_blocks(overlap_from_sources, dtype=np.uint16, sources=tviews_dsets, depth=depth, chunks=overlap_block_chunk_size)
 
-    result = da.map_blocks(fuse_block,tviews_stack_overlap, weights, drop_axis = [0], dtype=tviews_dsets[0].dtype,
+    # import dask
+    # weights, = dask.optimize(weights)
+    # tviews_dask, = dask.optimize(tviews_dask)
+
+    result = da.map_blocks(fuse_block,tviews_dask, weights, drop_axis = [0], dtype=tviews_dask[0].dtype,
                                                **{
                                                    'params': params,
                                                    'orig_stack_propertiess': orig_stack_propertiess,
@@ -4593,7 +4274,10 @@ def fuse_blockwise(fn,
         trim_dict = {i:depth for i in range(3)}
         result = da.overlap.trim_internal(result, trim_dict)
 
-    result = result[:orig_shape[0],:orig_shape[1],:orig_shape[2]]
+    out_shape = stack_properties['size']
+    result = result[:out_shape[0],:out_shape[1],:out_shape[2]]
+
+    # import pdb; pdb.set_trace()
 
     if os.path.exists(fn):
         logger.warning('WARNING: OVERWRITING %s' %fn)
@@ -4620,7 +4304,9 @@ def fuse_blockwise(fn,
     from dask.diagnostics import ProgressBar
     with ProgressBar():
         print('fusing views...')
-        da_to_ims(result, fn, scheduler=dask_scheduler)
+        # da_to_ims(result, fn, scheduler=dask_scheduler)
+        # result.to_hdf5(fn, 'array')#, scheduler=dask_scheduler)
+        da.to_zarr(result, fn[:-3] + 'zarr')# scheduler=dask_scheduler)
 
     return fn
     # return res
@@ -4629,13 +4315,6 @@ def fuse_blockwise(fn,
 def fuse_block(tviews_block,weights,params,stack_properties,orig_stack_propertiess,array_info,weights_func,fusion_func,weights_kwargs,fusion_kwargs,block_info=None):
 
     # return np.random.randint(0,100,tviews_block.shape[1:]).astype(tviews_block.dtype)
-
-    # contains information about the current block
-    # print(block_info[0]['array-location'])
-    # print(block_info[0]['chunk-location'])
-    # print(block_info[0]['num-chunks'])
-    # print(block_info[0]['shape'])
-    # print(block_info)
 
     max_vals = np.array([tview_block.max() for tview_block in tviews_block])
 
@@ -4841,6 +4520,98 @@ def scale_up_dask_array(a, b=3):
 
     return res
 
+def adapt_weights(ws,how_many_best_views,cumulative_weight_best_views):
+
+    # HEURISTIC to adapt weights to number of views
+    # idea: typically, 2-3 views carry good information at a given location
+    # and the rest should not contribute
+    # w**exp with exp>1 polarises the weights
+    # we want to find exp such that 90% of the quality contribution
+    # is given by the two best views
+    # this is overall and the analysis is limited to regions where the best view
+    # has at least double its baseline value 1/len(views)
+    # alternatively: best view should have 0.5
+
+    # ws = ws[:,0,0,0]
+
+    wsum = np.sum(ws, 0)
+    # wsum[wsum == 0] = 1
+    if wsum > 0:
+        ws = ws / wsum
+
+    # if not (len(ws) > 2): return ws[:,None,None,None]
+    if not (np.sum(ws>0) >= 2): return ws#[:,None,None,None]
+    else:
+
+        wf = ws.astype(np.float64) # important for optimization!
+        wfs = np.sort(wf, axis=0)
+
+
+        def energy(exp):
+            exp = exp[0]
+            tmpw = wfs ** exp
+            tmpsum = np.nansum(tmpw, 0)
+            tmpw = tmpw / tmpsum
+
+            nsum = np.nansum(tmpw[-int(how_many_best_views):], (-1))# / wfs.shape[-1]
+            energy = np.abs(np.nansum(nsum) - cumulative_weight_best_views)
+
+            return energy
+
+        from scipy import optimize
+        res = optimize.minimize(energy, [0.5], bounds=[[0.01, 100]], method='L-BFGS-B', options={'maxiter': 10})
+
+        exp = res.x[0]
+        # logging.debug('exponentiating weights')
+        ws = [ws[i] ** exp for i in range(len(ws))]
+
+        wsum = np.sum(ws, 0)
+        # wsum[wsum == 0] = 1
+        if wsum > 0:
+            ws = ws / wsum
+
+        logging.debug('aa: %s %s %s %s' % (exp, how_many_best_views, cumulative_weight_best_views, ws))
+
+        ws = np.array(ws)#[:,None,None,None]
+        # print('ws shape', ws.shape)
+
+        return ws
+
+def nan_to_zero(x):
+    y = np.copy(x)
+    y[np.isnan(x)] = 0
+    return y
+
+
+def map_determine_chunk_quality(x, size, origin, spacing, orig_stack_propertiess, params, block_info=None):
+
+    offset = np.array([i[0] for i in block_info[0]['array-location'][1:]])
+
+    quality_stack_properties = dict()
+    quality_stack_properties['spacing'] = spacing
+    quality_stack_properties['size'] = np.array([int(size)] * 3)
+    quality_stack_properties['origin'] = origin + offset * spacing
+
+    chunks = (len(x),) + tuple([size] * 3)
+    dx = da.from_array(x, chunks=chunks)
+
+    dx = dx.map_blocks(determine_chunk_quality,
+                       chunks=(len(x), 1, 1, 1),
+                       dtype=np.float32,
+                       **{'orig_stack_propertiess': orig_stack_propertiess,
+                          'params': params,
+                          'stack_properties': quality_stack_properties,
+                          }
+                       )
+
+    # optimise here?
+    #     dx = dx.map_blocks(adapt_weights, dtype=np.float32, how_many_best_views=how_many_best_views,
+    #                        cumulative_weight_best_views=cumulative_weight_best_views)
+
+    return dx.compute(scheduler='single-threaded')
+
+
+from dask_image import ndfilters
 def get_weights_dct_dask(tviews,
                          params,
                          orig_stack_propertiess,
@@ -4853,421 +4624,174 @@ def get_weights_dct_dask(tviews,
                          cumulative_weight_best_views=0.9,
                          ):
 
-    # assumes dask array with chunks 128 and a shape which is a multiple
-
     bin_factor = 1
     relspacing = 3. / stack_properties['spacing'][0]
 
     if relspacing > 1:
-
         # assuming chunk size of 128
-        possible_bin_factors = np.array([1,2,4,8,16])
-        bin_factor = possible_bin_factors[np.where(possible_bin_factors<relspacing)[0][-1]]
+        possible_bin_factors = np.array([1, 2, 4, 8, 16])
+        bin_factor = possible_bin_factors[np.where(possible_bin_factors < relspacing)[0][-1]]
 
         # # have resulting image not smaller than 15 pixels
         # bin_factor = np.min([bin_factor,np.min(np.array(stack_properties['size'])/15,0)],0)
 
-    logger.info('using bin_factor %s for calculating dct weights' %bin_factor)
-    binned_stack_properties = copy.deepcopy(stack_properties)
-    binned_stack_properties['spacing'] = np.array(stack_properties['spacing'])*bin_factor
+    # logger.info('using bin_factor %s for calculating dct weights' %bin_factor)
+    # binned_stack_properties = copy.deepcopy(stack_properties)
+    # binned_stack_properties['spacing'] = np.array(stack_properties['spacing'])*bin_factor
     # binned_stack_properties['size'] = np.array(tviews[0].shape)
 
-    tviews_binned = scale_down_dask_array(tviews,b=bin_factor)
+    # tviews_binned = scale_down_dask_array(tviews,b=bin_factor)
 
-    size = tviews_binned.chunksize[1]
+    size = int(tviews.chunksize[1] / bin_factor)
     # calculate dct on blocks smaller than 50 um but with no less than 4 pixels diameter
 
     # size = size/2
-    while size * binned_stack_properties['spacing'][0] > 100 and size >= 4: #um
+    while size * stack_properties['spacing'][0] * bin_factor > 100 and size >= 4:  # um
         size = size / 2
 
-    logger.info('DCT: choosing pixel size %s (in um: %s)' %(size,size * binned_stack_properties['spacing'][0]) )
+    size = int(size)
 
-    # optimise here?
-    tviews_binned_rechunked = tviews_binned.rechunk((tviews_binned.chunksize[0],)+(size,)*3)
+    print('size b', size, bin_factor)
 
-    logger.info('calculating dct weights...')
+    if bin_factor > 1:
+        tviews_binned = da.coarsen(np.mean, tviews, {i: bin_factor for i in range(1, 4)}, trim_excess=True)
+    else:
+        tviews_binned = tviews
 
-    quality_stack_properties = dict()
-    # quality_stack_properties['spacing'] = np.array(stack_properties['spacing']*size*bin_factor)
-    quality_stack_properties['spacing'] = np.array(stack_properties['spacing']*bin_factor)
-    quality_stack_properties['size'] = np.array([int(size)]*3)
-    quality_stack_properties['origin'] = stack_properties['origin']
-    # ws = tviews_binned_rechunked.map_blocks(determine_chunk_quality,dtype=np.float32,**{'how_many_best_views':how_many_best_views,'cumulative_weight_best_views':cumulative_weight_best_views})#,chunks=(tviews_binned.chunksize[0],1,1,1))
-    # ws = tviews_binned_rechunked.map_blocks(determine_chunk_quality,chunks = (tviews_binned.chunksize[0],1,1,1),dtype=np.float32,**{'how_many_best_views':how_many_best_views,'cumulative_weight_best_views':cumulative_weight_best_views})#,chunks=(tviews_binned.chunksize[0],1,1,1))
-    ws = tviews_binned_rechunked.map_blocks(determine_chunk_quality,
-                                            chunks = (tviews_binned.chunksize[0],1,1,1),
-                                            dtype=np.float32,
-                                            **{'orig_stack_propertiess': orig_stack_propertiess,
-                                               'params': params,
-                                               'stack_properties': quality_stack_properties,
-                                               # 'how_many_best_views': how_many_best_views,
-                                               # 'cumulative_weight_best_views':cumulative_weight_best_views
-                                            }
-                                            )
+    ws_chunk_size = [tviews_binned.chunks[0]]
+    for cs in tviews_binned.chunks[1:]:
+        print(cs)
+        ws_chunk_size.append([np.max([1, int(c / size)]) for c in cs])
+    ws_chunk_size = tuple(ws_chunk_size)
 
-    from dask.diagnostics import ProgressBar
-    with ProgressBar():
-        print('calculating DCT weights')
-        ws = ws.compute(scheduler='threads')#scheduler='single-threaded')
-        # ws = ws.compute(scheduler='single-threaded') # malbert
+    # da.core.normalize_chunks()
 
-    # weights = np.array(ws)
-    # print('writing weights...')
-    # fn = '/Users/marvin/data/dbspim/20140911_cxcr7_wt/test_weights_small/lala'
-    # for i in range(len(weights)):
-    #     tmpfn = fn[:-4] + '_weights_%03d.ims' % i
-    #     if os.path.exists(tmpfn): os.remove(tmpfn)
-    #     io_utils.process_output_element(weights[i], tmpfn)
-    #         # da_to_ims(weights[i], tmpfn, scheduler=dask_scheduler)
-
-    # size,max_kernel,gaussian_kernel = get_dct_options(
-    #                                                   # binned_stack_properties['spacing'][0],
-    #                                                   stack_properties['spacing'][0]*size*bin_factor,
-    #                                                   size,
-    #                                                   max_kernel,
-    #                                                   gaussian_kernel,
-    #                                                   )
-
-    # ws = np.array([ndimage.maximum_filter(ws[i],3) for i in range(len(ws))])
+    ws = tviews_binned.map_blocks(map_determine_chunk_quality,
+                                  chunks=ws_chunk_size,
+                                  dtype=np.float32,
+                                  **{'orig_stack_propertiess': orig_stack_propertiess,
+                                     'params': params,
+                                     'size': size,
+                                     'origin': stack_properties['origin'],
+                                     'spacing': np.array(stack_properties['spacing'] * bin_factor),
+                                     }
+                                  )
 
     if max_kernel is None:
-        max_kernel = 100 # in um
+        max_kernel = 100  # in um
 
-    filter_size = np.max([1, int(max_kernel / (stack_properties['spacing'][0]*size*bin_factor))]) # 100um
-    # size = np.max([4, int(100 / spacing)])
-    print('weight filter size: %s' %filter_size)
+    filter_size = np.max([1, int(max_kernel / (stack_properties['spacing'][0] * size * bin_factor))])  # 100um
+    print('weight filter size: %s' % filter_size)
 
-    # if logger.getEffectiveLevel() >= logging.DEBUG:
-    #     logging.debug('saving ws blocks')
-    #     io_utils.process_output_element(ws,'/Users/marvin/data/dbspim/20140911_cxcr7_wt/ws_blocks_1.image.h5')
+    ws = ndfilters.maximum_filter(ws, size=[1] + [int(filter_size)] * 3)
 
-    # ws = np.array([ndimage.generic_filter(ws[i],function=np.nanmax,size=3) for i in range(len(ws))])
+    # optimise here?
+    # ws = ws.map_blocks(adapt_weights, dtype=np.float32, how_many_best_views=how_many_best_views,
+    #                    cumulative_weight_best_views=cumulative_weight_best_views)
 
-    nanmask = np.isnan(ws)
-    ws = np.array([ndimage.generic_filter(ws[i],function=np.nanmax,size=int(filter_size)) for i in range(len(ws))])
+    ws = ndfilters.convolve(ws, weights=np.ones((3, 3, 3))[None, ...] / 3. ** 3)
 
-    # # wsmin = ws.min(0)
-    # wsmin = np.nanmin(ws,0)
-    # wsmax = np.nanmax(ws,0)
-    # ws = np.array([(w - wsmin)/(wsmax - wsmin + 0.01) for w in ws])
-    #
-    # single_view_mask = wsmin==wsmax
-    # ws[:,single_view_mask] += 1
-    # ws[:,single_view_mask] = ws[:,single_view_mask] / 1
+    ws = da.apply_along_axis(adapt_weights, 0, ws,
+                             how_many_best_views=how_many_best_views,
+                             cumulative_weight_best_views=cumulative_weight_best_views,
+                             shape=(len(ws),))
 
-    # wsum = np.nansum(ws,0)
-    # wsum[wsum==0] = 1
-    # for iw,w in enumerate(ws):
-    #     ws[iw] /= wsum
+    ws = dask_affine_transform(ws, np.diag([1.] + [1 / size / bin_factor] * 3), [0] + [-(size - 1) / size / 2.] * 3,
+                               output_chunks=tviews.chunks,
+                               output_shape=tviews.shape, mode='nearest')
 
-    # ws[np.isnan(ws)] = 0
-    ws[nanmask] = 0
+    ws_simple = da.map_blocks(
+        get_weights_simple_block,
+        chunks=ws.chunks,
+        dtype=ws.dtype,
+        stack_properties=stack_properties,
+        params=params,
+        orig_stack_propertiess=orig_stack_propertiess)
 
-    def adapt_weights(ws,how_many_best_views,cumulative_weight_best_views):
-
-        # HEURISTIC to adapt weights to number of views
-        # idea: typically, 2-3 views carry good information at a given location
-        # and the rest should not contribute
-        # w**exp with exp>1 polarises the weights
-        # we want to find exp such that 90% of the quality contribution
-        # is given by the two best views
-        # this is overall and the analysis is limited to regions where the best view
-        # has at least double its baseline value 1/len(views)
-        # alternatively: best view should have 0.5
-
-        ws = ws[:,0,0,0]
-
-        wsum = np.sum(ws, 0)
-        # wsum[wsum == 0] = 1
-        if wsum > 0:
-            ws = ws / wsum
-
-        # if not (len(ws) > 2): return ws[:,None,None,None]
-        if not (np.sum(ws>0) >= 2): return ws[:,None,None,None]
-        else:
-
-            wf = ws.astype(np.float64) # important for optimization!
-            wfs = np.sort(wf, axis=0)
-
-
-            def energy(exp):
-                exp = exp[0]
-                tmpw = wfs ** exp
-                tmpsum = np.nansum(tmpw, 0)
-                tmpw = tmpw / tmpsum
-
-                nsum = np.nansum(tmpw[-int(how_many_best_views):], (-1))# / wfs.shape[-1]
-                energy = np.abs(np.nansum(nsum) - cumulative_weight_best_views)
-
-                return energy
-
-            from scipy import optimize
-            # res = optimize.minimize(energy, [0.5], bounds=[[0.1, 10]], method='L-BFGS-B', options={'maxiter': 10})
-            res = optimize.minimize(energy, [0.5], bounds=[[0.01, 100]], method='L-BFGS-B', options={'maxiter': 10})
-
-            exp = res.x[0]
-            # logging.debug('exponentiating weights')
-            ws = [ws[i] ** exp for i in range(len(ws))]
-
-            wsum = np.sum(ws, 0)
-            # wsum[wsum == 0] = 1
-            if wsum > 0:
-                ws = ws / wsum
-
-            logging.debug('aa: %s %s %s %s' % (exp, how_many_best_views, cumulative_weight_best_views, ws))
-
-            ws = np.array(ws)[:,None,None,None]
-
-            return ws
-
-    ws = da.map_blocks(adapt_weights, da.from_array(ws,chunks=(len(ws),1,1,1)), dtype=np.float32, how_many_best_views=how_many_best_views, cumulative_weight_best_views=cumulative_weight_best_views)
-
-    from dask.diagnostics import ProgressBar
-    with ProgressBar():
-        print('adapting weights to %s views' %(len(ws)))
-        ws = ws.compute(scheduler='single-threaded')
-    # ws = np.array(ws)
-
-    def nan_gaussian_filter(U, sigma):
-
-        import scipy as sp
-        import scipy.ndimage
-
-        V = U.copy()
-        V[U != U] = 0
-        VV = sp.ndimage.gaussian_filter(V, sigma=sigma, mode='nearest')
-
-        W = 0 * U.copy() + 1
-        W[U != U] = 0
-        WW = sp.ndimage.gaussian_filter(W, sigma=sigma, mode='nearest')
-
-        Z = VV / WW
-
-        Z[U != U] = np.nan
-
-        return Z
-    # ws = np.array([ndimage.gaussian_filter(ws[i],1) for i in range(len(ws))])
-    # ws = np.array([nan_gaussian_filter(ws[i],1) for i in range(len(ws))])
-    # ws[nanmask] = np.nan
-    ws = np.array([nan_gaussian_filter(ws[i],filter_size/2.) for i in range(len(ws))])
-    ws[nanmask] = 0
-
-    # if logger.getEffectiveLevel() >= logging.DEBUG:
-    #     logging.debug('saving ws blocks')
-    #     io_utils.process_output_element(ws,'/Users/marvin/data/dbspim/20140911_cxcr7_wt/ws_blocks_2.image.h5')
-
-    # binned_origin = stack_properties['origin'] + (stack_properties['spacing']*(size*bin_factor - 1)) / 2.
-    binned_origin = stack_properties['origin'] + (stack_properties['spacing']*(size*bin_factor - 1)) / 2.
-
-    # binned_origin = origin + (binned_spacing - spacing) / 2.
-
-    weight_im = [ImageArray(w,origin=binned_origin,spacing=stack_properties['spacing']*size*bin_factor) for w in ws]
-    # weight_im = [ImageArray(w,origin=stack_properties['origin'],spacing=stack_properties['spacing']*size*bin_factor) for w in ws]
-
-    def construct_weights(x,
-                          ws,
-                          stack_properties,
-                          out_size,
-                          in_spacing,
-                          out_spacing,
-                          depth,
-                          params=params,
-                          orig_stack_propertiess=orig_stack_propertiess,
-                          block_info=None,
-                          ):
-
-        # sample up weights
-        # consider overlap here
-
-        curr_origin = []
-        # target_origin = []
-        for i in range(3):
-            # pixel_offset = block_info[0]['chunk-location'][i + 1] * array_info['chunksize'] - array_info['depth']
-            pixel_offset = block_info[0]['chunk-location'][i + 1]# * block_info[None]['chunk-shape'][i+1]# - array_info['depth']
-            # curr_origin.append(ws[0].origin[i] + pixel_offset * ws[0].spacing[i])
-            curr_origin.append(stack_properties['origin'][i] + pixel_offset * in_spacing)
-
-        # print('curr_origin', curr_origin)
-
-        block_stack_properties = dict()
-        # block_stack_properties['size'] = np.array([in_spacing/out_spacing]*3).astype(np.int64)#+2*array_info['depth'])
-        # block_stack_properties['size'] = np.array([in_spacing/out_spacing]*3).astype(np.int64)#+2*array_info['depth'])
-        block_stack_properties['size'] = np.array(out_size).astype(np.int64)#+2*array_info['depth'])
-        block_stack_properties['size'] += 2*depth#+2*array_info['depth'])
-        block_stack_properties['spacing'] = np.array([out_spacing] * 3)
-        block_stack_properties['origin'] = np.array(curr_origin) - depth * block_stack_properties['spacing']
-
-        # optimization possible: only transform non nan weights here
-
-        tmpws = get_weights_simple(orig_stack_propertiess, params, block_stack_properties)
-
-        # print('ws max: %s' %([w.max() for w in tmpws]))
-        res = []
-        for iw,w in enumerate(ws):
-            if tmpws[iw].max():
-                res.append(transform_stack_sitk(w, stack_properties=block_stack_properties, interp='linear'))
-            else:
-                # print('skipping construction')
-                res.append(np.zeros(block_stack_properties['size']).astype(np.float32))
-
-        res = np.array(res)
-
-        # res = np.array([transform_stack_sitk(w,stack_properties=block_stack_properties,interp='linear') for w in ws]).astype(np.float32)
-
-        # res = np.array([transform_stack_dipy(w,stack_properties=block_stack_properties,interp='linear') for w in ws]).astype(np.float32)
-
-        # curr_origin = []
-        # for i in range(3):
-        #     # pixel_offset = block_info[0]['chunk-location'][i + 1] * array_info['chunksize'] - array_info['depth']
-        #     pixel_offset = block_info[0]['chunk-location'][i + 1] * block_info[None]['chunk-shape'][i+1]# - array_info['depth']
-        #     curr_origin.append(stack_properties['origin'][i] + pixel_offset * stack_properties['spacing'][i])
-
-        # return res*tmpws
-        # logging.warning('ignoring dct weights')
-        # return tmpws
-        return res*tmpws
-
-    # ws = da.ones(tviews.numblocks,chunks=(tviews_binned.chunksize[0],)+tuple([1]*3))
-    ws = da.empty(tviews.numblocks,chunks=(tviews_binned.chunksize[0],)+tuple([1]*3))
-
-    chunksize = np.array(tviews.chunksize)
-    chunksize[-3:] += 2 * depth
-    ws = da.map_blocks(construct_weights,ws,dtype=np.float32,
-                       # chunks=tviews_binned_rechunked.chunksize,
-                       # chunks=tviews.chunksize,
-                       chunks=chunksize,
-                       ws=weight_im,
-                       # in_spacing=stack_properties['spacing'][0]*(tviews.chunksize[1]/size/bin_factor),
-                       in_spacing=stack_properties['spacing'][0]*tviews.chunksize[1],
-                       out_spacing=stack_properties['spacing'][0],
-                       out_size=np.array([tviews.chunksize[1]]*3),
-                       stack_properties=stack_properties,
-                       depth=depth,
-                       params=params,
-                       orig_stack_propertiess=orig_stack_propertiess,
-                       )
-
-    # da.map_blocks()
-    #
-    # ws = da.from_array(ws,chunks=(tviews_binned.chunksize[0],)+tuple([dct_chunks]*3))
-    # ws = ws.rechunk((tviews_binned.chunksize[0],)+tuple([dct_chunks]*3))
-
-    # def scale_up(x,b):
-    #     print('scaling up')
-    #     if x.max():
-    #         return ndimage.zoom(x,[1,b,b,b],order=1)
-    #     else:
-    #         return x
-    #
-    # ws = da.map_blocks(scale_up,ws,dtype=np.float32,chunks=(tviews.chunksize[0],)+tuple([size*bin_factor*dct_chunks]*3),**{'b':size*bin_factor})
-
-    # ws = ws.rechunk(tviews.chunksize)
-
-
-    # github issue to ask whether it makes sense to combine overlap with rechunk
-
-    # def normalise(ws):
-    #     wssum = np.sum(ws,0)
-    #     wssum[wssum==0] = 1
-    #     return ws/wssum
-    #
-    # ws = da.map_blocks(normalise,ws,dtype=np.float32)
-
-    # depth = int(max_kernel)//2
-    # # depth = 0
-    # depth_dict = {0: 0, 1: depth, 2: depth, 3: depth}
-
-    # ws = da.overlap.overlap(ws,
-    #                        depth=depth_dict,
-    #                        # boundary = {0: 'periodic', 1: 'periodic', 2: 'periodic', 3: 'periodic'})
-    #                        boundary = {1: 'periodic', 2: 'periodic', 3: 'periodic'})
-    #
-    # tviews_o = da.overlap.overlap(tviews_binned,
-    #                        depth=depth_dict,
-    #                        # boundary = {0: 'periodic', 1: 'periodic', 2: 'periodic', 3: 'periodic'})
-    #                        boundary = {1: 'periodic', 2: 'periodic', 3: 'periodic'})
-
-
-    # ws = da.overlap.trim_internal(ws, depth_dict)
-
-    # def calc_zero_mask(views):
-    #     res = []
-    #     for i in range(len(views)):
-    #         res.append( views[i] > 0)
-    #     return np.array(res)
-    #
-    # mask = da.map_blocks(calc_zero_mask,tviews_binned,dtype=np.float32)
-
-    # def apply_mask(view,mask):
-    #     return view*mask
-
-    # ws = da.map_blocks(apply_mask, ws, mask,dtype=np.float32)
-
-
-    """
-    - max
-    - 0
-    - norm
-    - gauss
-    - scale
-    - simple
-    - normalise
-    """
-
-    # ws = scale_up_dask_array(ws,b=bin_factor)
-
-    # def mult_simple_weights_chunk(ws,stack_properties,params,orig_stack_propertiess,block_info=None):
-    #     # approx. 2 sec on 8,128,128,128
-    #
-    #     curr_origin = []
-    #     for i in range(3):
-    #         # pixel_offset = block_info[0]['chunk-location'][i + 1] * array_info['chunksize'] - array_info['depth']
-    #         pixel_offset = block_info[0]['chunk-location'][i + 1] * block_info[None]['chunk-shape'][i+1]# - array_info['depth']
-    #         curr_origin.append(stack_properties['origin'][i] + pixel_offset * stack_properties['spacing'][i])
-    #
-    #     print('curr_origin', curr_origin)
-    #
-    #     block_stack_properties = stack_properties.copy()
-    #     block_stack_properties['size'] = np.array(block_info[None]['chunk-shape'][1:])#+2*array_info['depth'])
-    #     block_stack_properties['origin'] = np.array(curr_origin)
-    #     tmpws = get_weights_simple(orig_stack_propertiess,params,block_stack_properties)
-    #     # t = ImageArray(np.ones((1,1,1)),origin=orig_stack_propertiess[i]['origin'],spacing=orig_stack_propertiess[i]['spacing']*orig_stack_propertiess[i]['size'])
-    #     # transform_stack_sitk(t,stack_properties=block_stack_properties,interp='linear').max()
-    #     return tmpws*ws
-    #
-    # simple_weight_kwargs = {}
-    # simple_weight_kwargs['stack_properties'] = stack_properties
-    # simple_weight_kwargs['params'] = params
-    # simple_weight_kwargs['orig_stack_propertiess'] = orig_stack_propertiess
-    #
-    # ws = da.map_blocks(mult_simple_weights_chunk, ws, **simple_weight_kwargs, dtype=np.float32)
+    ws *= ws_simple
 
     def normalise(ws):
-        wssum = np.sum(ws,0)
-        wssum[wssum==0] = 1
-        res = ws/wssum
-        res[:,wssum==0] = 0
+        wssum = np.sum(ws, 0)
+        wssum[wssum == 0] = 1
+        res = ws / wssum
+        res[:, wssum == 0] = 0
         return res
 
-    # def normalise(ws):
-    #     wssum = np.nansum(ws,0)
-    #     wssum[wssum==0] = 1
-    #     res = ws/wssum
-    #     res[:,wssum==0] = 0
-    #     return res
+    ws = da.map_blocks(normalise, ws)  # ,dtype=np.float32)
+    return ws
 
-    ws = da.map_blocks(normalise, ws,dtype=np.float32)
+# from dask_image import ndfilters
+# def get_weights_dct_dask(tviews,
+#                          params,
+#                          orig_stack_propertiess,
+#                          stack_properties,
+#                          depth=0,
+#                          size=None,
+#                          max_kernel=None,
+#                          gaussian_kernel=None,
+#                          how_many_best_views=2,
+#                          cumulative_weight_best_views=0.9,
+#                          ):
+#     size_um = 50
+#     size_px = size_um / stack_properties['spacing'][0]
+#     size_px = np.min([size_px, stack_properties['size'].min() / 3.])
+#
+#     max_size_px = 64
+#     bin_factor = int(np.max([1, np.ceil(size_px / max_size_px)]))
+#     size = int(size_px / bin_factor)
+#
+#     print('size bin', size, bin_factor)
+#
+#     if bin_factor > 1:
+#         tviews_binned = da.coarsen(np.mean, tviews, {i: bin_factor for i in range(1, 4)}, trim_excess=True)
+#     else:
+#         tviews_binned = tviews
+#
+#     tviews_binned_rechunked = tviews_binned.rechunk((tviews_binned.chunksize[0],) + (size,) * 3)
+#
+#     quality_stack_properties = dict()
+#     quality_stack_properties['spacing'] = np.array(stack_properties['spacing'] * bin_factor)
+#     quality_stack_properties['size'] = np.array([int(size)] * 3)
+#     quality_stack_properties['origin'] = stack_properties['origin']
+#
+#     ws = tviews_binned_rechunked.map_blocks(determine_chunk_quality,
+#                                             chunks=(tviews_binned_rechunked.shape[0], 1, 1, 1),
+#                                             dtype=np.float32,
+#                                             **{'orig_stack_propertiess': orig_stack_propertiess,
+#                                                'params': params,
+#                                                'stack_properties': quality_stack_properties,
+#                                                }
+#                                             )
+#
+#     if max_kernel is None:
+#         max_kernel = 100  # in um
+#
+#     filter_size = np.max([1, int(max_kernel / (stack_properties['spacing'][0] * size * bin_factor))])  # 100um
+#     print('weight filter size: %s' % filter_size)
+#
+#     ws = ndfilters.maximum_filter(ws, size=[1] + [int(filter_size)] * 3)
+#
+#     # optimise here?
+#     ws = ws.map_blocks(adapt_weights, dtype=np.float32, how_many_best_views=how_many_best_views,
+#                        cumulative_weight_best_views=cumulative_weight_best_views)
+#
+#     ws = ndfilters.convolve(ws, weights=np.ones((3, 3, 3))[None, ...] / 3. ** 3)
+#
+#     ws = dask_affine_transform(ws, np.diag([1.] + [1. / size] * 3), [0, 0, 0, 0], output_chunks=tviews.chunks,
+#                                   output_shape=tviews.shape)
+#
+#     def normalise(ws):
+#         wssum = np.sum(ws, 0)
+#         wssum[wssum == 0] = 1
+#         res = ws / wssum
+#         res[:, wssum == 0] = 0
+#         return res
+#
+#     ws = da.map_blocks(normalise, ws)  # ,dtype=np.float32)
+#     return ws
 
-    # ws = ws.rechunk(tviews.chunksize)
 
-
-    # ws = ws.compute(scheduler = 'threads')
-    # ws = np.array(ws)
-
-
-    return ws#,ws_small
-
+from scipy.fftpack import dctn
 def determine_chunk_quality(vrs,
                             # how_many_best_views,
                             # cumulative_weight_best_views,
@@ -5308,16 +4832,12 @@ def determine_chunk_quality(vrs,
     view_inside_mask = blocks_inside(orig_stack_propertiess,params,block_stack_properties,n_points_per_dim=2)
     # print(view_inside_mask)
 
-    # no view inside
-    if not np.max(view_inside_mask):
-        ws = np.ones(len(view_inside_mask)).astype(np.float32)*np.nan
-        return ws[:,None,None,None]
-
-    # only one view at least partially inside
-    elif np.sum(view_inside_mask>0) == 1:
-        ws = np.ones(len(view_inside_mask)).astype(np.float32)*np.nan
-        ws[view_inside_mask>0] = 1.
-        return ws[:,None,None,None]
+    # less than two views inside
+    if np.sum(view_inside_mask>0) <= 1:
+        # ws = np.ones(len(view_inside_mask)).astype(np.float32)*np.nan
+        ws = np.zeros(len(view_inside_mask)).astype(np.float32)#*np.nan
+        ws[view_inside_mask > 0] = 1.
+        return ws[:, None, None, None]
 
     vrs = np.copy(vrs)
 
@@ -5367,580 +4887,13 @@ def determine_chunk_quality(vrs,
     # for iw in range(len(ws)):
     #     res[iw] = ws[iw]
     #
-    full_ws = np.ones(len(view_inside_mask))*np.nan
-    full_ws[view_inside_mask>0] = ws
+    # full_ws = np.ones(len(view_inside_mask))*np.nan
+    full_ws = np.zeros(len(view_inside_mask))
+    full_ws[view_inside_mask > 0] = ws
 
     return full_ws[:,None,None,None]
     # return res.astype(np.float32)
     # return ws
-
-from scipy.fftpack import dctn,idctn
-# from scipy.fftpack import dct,idct
-from scipy import ndimage
-import dask.array as da
-# @io_decorator
-def get_weights_dct(
-                    views,
-                    params,
-                    orig_stack_propertiess,
-                    stack_properties,
-                    size=None,
-                    max_kernel=None,
-                    gaussian_kernel=None,
-                    how_many_best_views = 1,
-                    cumulative_weight_best_views = 0.9,
-                    block_info = None,
-                    array_info = None,
-                    ):
-    """
-    DCT Shannon Entropy, as in:
-    Adaptive light-sheet microscopy for long-term, high-resolution imaging in living organisms
-    http://www.nature.com/articles/nbt.3708
-
-    Adaptations:
-    - consider the full bandwidth, so set r0=d0 in their equation
-    - calculate on blocks of size <size> and then interpolate to full grid
-    - run maximum filter
-    - run smoothing gaussian filter
-    - final sigmoidal blending at view transitions
-
-    :param vrs:
-    :return:
-    """
-    # print('lalala')
-    if block_info is not None:
-
-        curr_origin = []
-        for i in range(3):
-            pixel_offset = block_info[0]['chunk-location'][i + 1] * array_info['chunksize'] - array_info['depth']
-            curr_origin.append(stack_properties['origin'][i] + pixel_offset * stack_properties['spacing'][i])
-
-        print('weights curr_origin', curr_origin)
-
-        block_stack_properties = stack_properties.copy()
-        block_stack_properties['size'] = np.array(views[0].shape)
-        block_stack_properties['origin'] = np.array(curr_origin)
-
-        stack_properties = block_stack_properties.copy()
-
-        nviews = []
-        for iview,view in enumerate(views):
-            # views[iview] = ImageArray(view, spacing=stack_properties['spacing'],
-            #                             origin=stack_properties['origin'])
-            nviews.append(ImageArray(view, spacing=stack_properties['spacing'],
-                                        origin=stack_properties['origin']))
-
-        views = nviews
-
-    # max_vals = np.array([view.max() for view in views])
-    # inds = np.where(max_vals>0)[0]
-    #
-    # views = [view[i] for i in inds]
-    # params = np.array(params)[inds]
-    # orig_stack_propertiess = [orig_stack_propertiess[i] for i in inds]
-
-
-    w_stack_properties = stack_properties.copy()
-    minspacing = 3.
-    changed_stack_properties = False
-    if w_stack_properties['spacing'][0] < minspacing:
-        changed_stack_properties = True
-        print('using downsampled images for calculating weights..')
-        w_stack_properties['spacing'] = np.array([minspacing]*3)
-        w_stack_properties['size'] = (stack_properties['spacing'][0]/w_stack_properties['spacing'][0])*stack_properties['size']
-
-    vs = []
-    vdils = []
-    for iview,view in enumerate(views):
-
-        tmpvs = transform_stack_sitk(view, matrix_to_params(np.eye(4)),
-                                     out_origin=w_stack_properties['origin'],
-                                     out_shape=w_stack_properties['size'],
-                                     out_spacing=w_stack_properties['spacing'])
-
-        # mask = get_mask_in_target_space(orig_stack_propertiess[iview],
-        #                          w_stack_properties,
-        #                          params[iview]
-        #                          )
-
-        # mask = tmpvs > 0
-        mask = np.ones(tmpvs.shape,dtype=np.bool)
-
-        vdils.append(mask == 0)
-        vs.append(tmpvs*(mask>0))
-
-    size,max_kernel,gaussian_kernel = get_dct_options(stack_properties['spacing'][0],
-                                                      size,
-                                                      max_kernel,
-                                                      gaussian_kernel,
-                                                      )
-    # if size is None:
-    #     size = np.max([4,int(50 / vs[0].spacing[0])]) # 50um
-    #     print('dct: choosing size %s' %size)
-    # if max_kernel is None:
-    #     max_kernel = int(size/2.)
-    #     print('dct: choosing max_kernel %s' %max_kernel)
-    # if gaussian_kernel is None:
-    #     gaussian_kernel = int(max_kernel)
-    #     print('dct: choosing gaussian_kernel %s' %gaussian_kernel)
-
-    # print('calculating dct weights...')
-    def determine_quality(vrs):
-
-        """
-        DCT Shannon Entropy, as in:
-        Adaptive light-sheet microscopy for long-term, high-resolution imaging in living organisms
-        http://www.nature.com/articles/nbt.3708
-        Consider the full bandwidth, so set r0=d0 in their equation
-        :param vrs:
-        :return:
-        """
-        # print('dw...')
-
-        vrs = np.copy(vrs)
-
-        axes = [0,1,2]
-        ds = []
-        for v in vrs:
-
-            if np.sum(v==0) > np.product(v.shape) * (4/5.):
-                ds.append([0])
-                continue
-            elif v.min()<0.0001:
-                v[v==0] = v[v>0].min() # or nearest neighbor
-
-            d = dctn(v,norm='ortho',axes=axes)
-            # d = dct(dct(dct(v,axis=-1,norm='ortho'),axis=-2,norm='ortho'),axis=-3,norm='ortho')
-            # cut = size//2
-            # d[:cut,:cut,:cut] = 0
-            ds.append(d.flatten())
-
-        # l2 norm
-        dsl2 = np.array([np.sum(np.abs(d)) for d in ds])
-        # don't divide by zero below
-        dsl2[dsl2==0] = 1
-
-        def abslog(x):
-            res = np.zeros_like(x)
-            x = np.abs(x)
-            res[x==0] = 0
-            res[x>0] = np.log2(x[x>0])
-            return res
-
-        ws = np.array([-np.sum(np.abs(d)*abslog(d/dsl2[id])) for id,d in enumerate(ds)])
-
-        # simple weights in case everything is zero
-        if not ws.max():
-            ws = np.ones(len(ws))/float(len(ws))
-
-
-        # HEURISTIC to adapt weights to number of views
-        # idea: typically, 2-3 views carry good information at a given location
-        # and the rest should not contribute
-        # w**exp with exp>1 polarises the weights
-        # we want to find exp such that 90% of the quality contribution
-        # is given by the two best views
-        # this is overall and the analysis is limited to regions where the best view
-        # has at least double its baseline value 1/len(views)
-        # alternatively: best view should have 0.5
-
-        if len(ws) > 2 and ws.min() < ws.max():
-
-            # print('applying heuristic to adapt weights to N=%s views' % len(ws))
-            # print('criterion: weights**exp such that best two views > 0.9')
-
-            wsum = np.sum(ws, 0)
-            # wsum[wsum == 0] = 1
-            for iw, w in enumerate(ws):
-                ws[iw] /= wsum
-
-
-
-            # wf = ws[:, np.max(ws, 0) > (2 * (1 / len(ws)))]
-            wf = ws
-            # wf = wf[:,np.sum(wf,0)>0]
-            wfs = np.sort(wf, axis=0)
-
-            def energy(exp):
-                exp = exp[0]
-                tmpw = wfs ** exp
-                tmpsum = np.sum(tmpw, 0)
-                tmpw = tmpw / tmpsum
-
-                nsum = np.sum(tmpw[-int(how_many_best_views):], (-1))# / wfs.shape[-1]
-                energy = np.abs(np.sum(nsum) - cumulative_weight_best_views)
-
-                # nsum = np.sum(tmpw[-1:], (-1))# / wfs.shape[-1]
-                # energy = np.abs(np.sum(nsum) - 0.5)
-
-                return energy
-
-            from scipy import optimize
-            res = optimize.minimize(energy, [0.5], bounds=[[0.1, 10]], method='L-BFGS-B', options={'maxiter': 10})
-
-            exp = res.x[0]
-
-            # print('found exp=%s' % exp)
-
-            ws = [ws[i] ** exp for i in range(len(ws))]
-
-
-
-            ws = np.array(ws)
-
-        return ws[:,None,None,None]
-
-    x = da.from_array(np.array(vs), chunks=(len(vs),size,size,size))
-    # ws=x.map_blocks(determine_quality,dtype=np.float)
-    ws = x.map_blocks(determine_quality,dtype=np.float,chunks=(len(vs),1,1,1))
-
-    from dask.diagnostics import ProgressBar
-    with ProgressBar():
-        print('determining DCT weights')
-        ws = ws.compute(scheduler = 'threads')
-
-    ws = np.array(ws)
-
-    ws = ImageArray(ws,
-                    spacing= np.array([size]*3)*np.array(w_stack_properties['spacing']),
-                    origin = w_stack_properties['origin'] + ((size-1)*w_stack_properties['spacing'])/2.,
-                    )
-
-    newws = []
-    for iw in range(len(ws)):
-        newws.append(transform_stack_sitk(ws[iw],
-                            [1,0,0,0,1,0,0,0,1,0,0,0],
-                            # out_shape=stack_properties['size'],
-                            # out_origin=stack_properties['origin'],
-                            # out_spacing=stack_properties['spacing'],
-                               out_origin=w_stack_properties['origin'],
-                               out_shape=w_stack_properties['size'],
-                               out_spacing=w_stack_properties['spacing'],
-                            interp='linear',
-                             ))
-    ws = np.array(newws)
-
-
-    for iw,w in enumerate(ws):
-        # print('filtering')
-        ws[iw] = ndimage.maximum_filter(ws[iw],max_kernel)
-
-    for iw,w in enumerate(ws):
-        ws[iw][vdils[iw]] = 0
-
-    # wsmin = ws.min(0)
-    # wsmax = ws.max(0)
-    # ws = np.array([(w - wsmin)/(wsmax - wsmin + 0.01) for w in ws])
-
-    wsum = np.sum(ws,0)
-    wsum[wsum==0] = 1
-    for iw,w in enumerate(ws):
-        ws[iw] /= wsum
-
-    # tifffile.imshow(np.array([np.array(ts)*10,ws]).swapaxes(-3,-2),vmax=10000)
-    for iw,w in enumerate(ws):
-        # print('filtering')
-        # ws[iw] = ndimage.maximum_filter(ws[iw],10)
-        # ws[iw][vdils[iw]] = 0.00001
-        ws[iw] = ndimage.gaussian_filter(ws[iw],gaussian_kernel)
-        # zeros = ndimage.binary_dilation(vs[iw] == 0)
-        # ws[iw][zeros] = 0.00001
-        # ws[iw][vdils[iw]] = 0.00001
-        ws[iw][vdils[iw]] = 0
-
-    ws = list(ws)
-    for iw,w in enumerate(ws):
-        ws[iw] = ImageArray(ws[iw],
-                            origin=w_stack_properties['origin'],
-                            spacing=w_stack_properties['spacing'])
-
-
-
-
-    if changed_stack_properties:
-        for iview in range(len(ws)):
-            ws[iview] = transform_stack_sitk(ws[iview],[1,0,0,0,1,0,0,0,1,0,0,0],
-                                   out_origin=stack_properties['origin'],
-                                   out_shape=stack_properties['size'],
-                                   out_spacing=stack_properties['spacing'])
-
-    # # smooth edges
-    ws_simple = get_weights_simple(
-                    orig_stack_propertiess,
-                    params,
-                    stack_properties
-    )
-
-    ws = [ws[i]*ws_simple[i] for i in range(len(ws))]
-
-    wsum = np.sum(ws,0)
-    wsum[wsum==0] = 1
-    for iw,w in enumerate(ws):
-        ws[iw] /= wsum
-
-    if block_info is not None:
-        ws = np.array(ws).astype(np.float32)
-
-    return ws
-
-# from scipy.fftpack import dctn,idctn
-# from scipy import ndimage
-# import dask.array as da
-# @io_decorator
-# def get_weights_dct(
-#                     views,
-#                     params,
-#                     orig_stack_propertiess,
-#                     stack_properties,
-#                     size=None,
-#                     max_kernel=None,
-#                     gaussian_kernel=None,
-#                     how_many_best_views = 2,
-#                     cumulative_weight_best_views = 0.9,
-#                     ):
-#     """
-#     DCT Shannon Entropy, as in:
-#     Adaptive light-sheet microscopy for long-term, high-resolution imaging in living organisms
-#     http://www.nature.com/articles/nbt.3708
-#
-#     Adaptations:
-#     - consider the full bandwidth, so set r0=d0 in their equation
-#     - calculate on blocks of size <size> and then interpolate to full grid
-#     - run maximum filter
-#     - run smoothing gaussian filter
-#     - final sigmoidal blending at view transitions
-#
-#     :param vrs:
-#     :return:
-#     """
-#
-#     w_stack_properties = stack_properties.copy()
-#     minspacing = 3.
-#     changed_stack_properties = False
-#     if w_stack_properties['spacing'][0] < minspacing:
-#         changed_stack_properties = True
-#         print('using downsampled images for calculating weights..')
-#         w_stack_properties['spacing'] = np.array([minspacing]*3)
-#         w_stack_properties['size'] = (stack_properties['spacing'][0]/w_stack_properties['spacing'][0])*stack_properties['size']
-#
-#     vs = []
-#     vdils = []
-#     for iview,view in enumerate(views):
-#
-#         tmpvs = transform_stack_sitk(view,matrix_to_params(np.eye(4)),
-#                                out_origin=w_stack_properties['origin'],
-#                                out_shape=w_stack_properties['size'],
-#                                out_spacing=w_stack_properties['spacing'])
-#
-#         mask = get_mask_in_target_space(orig_stack_propertiess[iview],
-#                                  w_stack_properties,
-#                                  params[iview]
-#                                  )
-#
-#         vdils.append(mask == 0)
-#         vs.append(tmpvs*(mask>0))
-#
-#     if size is None:
-#         size = np.max([4,int(50 / vs[0].spacing[0])]) # 50um
-#         print('dct: choosing size %s' %size)
-#     if max_kernel is None:
-#         max_kernel = int(size/2.)
-#         print('dct: choosing max_kernel %s' %max_kernel)
-#     if gaussian_kernel is None:
-#         gaussian_kernel = int(max_kernel)
-#         print('dct: choosing gaussian_kernel %s' %gaussian_kernel)
-#
-#     print('calculating dct weights...')
-#     def determine_quality(vrs):
-#
-#         """
-#         DCT Shannon Entropy, as in:
-#         Adaptive light-sheet microscopy for long-term, high-resolution imaging in living organisms
-#         http://www.nature.com/articles/nbt.3708
-#         Consider the full bandwidth, so set r0=d0 in their equation
-#         :param vrs:
-#         :return:
-#         """
-#         # print('dw...')
-#
-#         vrs = np.copy(vrs)
-#
-#         axes = [0,1,2]
-#         ds = []
-#         for v in vrs:
-#
-#             if np.sum(v==0) > np.product(v.shape) * (4/5.):
-#                 ds.append([0])
-#                 continue
-#             elif v.min()<0.0001:
-#                 v[v==0] = v[v>0].min() # or nearest neighbor
-#
-#             d = dctn(v,norm='ortho',axes=axes)
-#             # cut = size//2
-#             # d[:cut,:cut,:cut] = 0
-#             ds.append(d.flatten())
-#
-#         # l2 norm
-#         dsl2 = np.array([np.sum(np.abs(d)) for d in ds])
-#         # don't divide by zero below
-#         dsl2[dsl2==0] = 1
-#
-#         def abslog(x):
-#             res = np.zeros_like(x)
-#             x = np.abs(x)
-#             res[x==0] = 0
-#             res[x>0] = np.log2(x[x>0])
-#             return res
-#
-#         ws = np.array([-np.sum(np.abs(d)*abslog(d/dsl2[id])) for id,d in enumerate(ds)])
-#
-#         # simple weights in case everything is zero
-#         if not ws.max():
-#             ws = np.ones(len(ws))/float(len(ws))
-#
-#
-#         # HEURISTIC to adapt weights to number of views
-#         # idea: typically, 2-3 views carry good information at a given location
-#         # and the rest should not contribute
-#         # w**exp with exp>1 polarises the weights
-#         # we want to find exp such that 90% of the quality contribution
-#         # is given by the two best views
-#         # this is overall and the analysis is limited to regions where the best view
-#         # has at least double its baseline value 1/len(views)
-#         # alternatively: best view should have 0.5
-#
-#         if len(ws) > 2 and ws.min() < ws.max():
-#
-#             # print('applying heuristic to adapt weights to N=%s views' % len(ws))
-#             # print('criterion: weights**exp such that best two views > 0.9')
-#
-#             wsum = np.sum(ws, 0)
-#             # wsum[wsum == 0] = 1
-#             for iw, w in enumerate(ws):
-#                 ws[iw] /= wsum
-#
-#
-#
-#             # # wf = ws[:, np.max(ws, 0) > (2 * (1 / len(ws)))]
-#             # wf = ws
-#             # # wf = wf[:,np.sum(wf,0)>0]
-#             # wfs = np.sort(wf, axis=0)
-#             #
-#             # def energy(exp):
-#             #     exp = exp[0]
-#             #     tmpw = wfs ** exp
-#             #     tmpsum = np.sum(tmpw, 0)
-#             #     tmpw = tmpw / tmpsum
-#             #
-#             #     nsum = np.sum(tmpw[-int(how_many_best_views):], (-1))# / wfs.shape[-1]
-#             #     energy = np.abs(np.sum(nsum) - cumulative_weight_best_views)
-#             #
-#             #     # nsum = np.sum(tmpw[-1:], (-1))# / wfs.shape[-1]
-#             #     # energy = np.abs(np.sum(nsum) - 0.5)
-#             #
-#             #     return energy
-#             #
-#             # from scipy import optimize
-#             # res = optimize.minimize(energy, [0.5], bounds=[[0.1, 10]], method='L-BFGS-B', options={'maxiter': 10})
-#             #
-#             # exp = res.x[0]
-#             #
-#             # # print('found exp=%s' % exp)
-#             #
-#             # ws = [ws[i] ** exp for i in range(len(ws))]
-#
-#
-#
-#             ws = np.array(ws)
-#
-#         return ws[:,None,None,None]
-#
-#     x = da.from_array(np.array(vs), chunks=(len(vs),size,size,size))
-#     # ws=x.map_blocks(determine_quality,dtype=np.float)
-#     ws = x.map_blocks(determine_quality,dtype=np.float,chunks=(len(vs),1,1,1))
-#
-#     ws = ws.compute(scheduler = 'threads')
-#     ws = np.array(ws)
-#
-#     ws = ImageArray(ws,
-#                     spacing= np.array([size]*3)*np.array(w_stack_properties['spacing']),
-#                     origin = w_stack_properties['origin'] + ((size-1)*w_stack_properties['spacing'])/2.,
-#                     )
-#
-#     newws = []
-#     for iw in range(len(ws)):
-#         newws.append(transform_stack_sitk(ws[iw],
-#                             [1,0,0,0,1,0,0,0,1,0,0,0],
-#                             # out_shape=stack_properties['size'],
-#                             # out_origin=stack_properties['origin'],
-#                             # out_spacing=stack_properties['spacing'],
-#                                out_origin=w_stack_properties['origin'],
-#                                out_shape=w_stack_properties['size'],
-#                                out_spacing=w_stack_properties['spacing'],
-#                             interp='linear',
-#                              ))
-#     ws = np.array(newws)
-#
-#
-#     for iw,w in enumerate(ws):
-#         print('filtering')
-#         ws[iw] = ndimage.maximum_filter(ws[iw],max_kernel)
-#
-#     for iw,w in enumerate(ws):
-#         ws[iw][vdils[iw]] = 0
-#
-#     wsmin = ws.min(0)
-#     wsmax = ws.max(0)
-#     ws = np.array([(w - wsmin)/(wsmax - wsmin + 0.01) for w in ws])
-#
-#     wsum = np.sum(ws,0)
-#     wsum[wsum==0] = 1
-#     for iw,w in enumerate(ws):
-#         ws[iw] /= wsum
-#
-#     # tifffile.imshow(np.array([np.array(ts)*10,ws]).swapaxes(-3,-2),vmax=10000)
-#     for iw,w in enumerate(ws):
-#         print('filtering')
-#         # ws[iw] = ndimage.maximum_filter(ws[iw],10)
-#         # ws[iw][vdils[iw]] = 0.00001
-#         ws[iw] = ndimage.gaussian_filter(ws[iw],gaussian_kernel)
-#         # zeros = ndimage.binary_dilation(vs[iw] == 0)
-#         # ws[iw][zeros] = 0.00001
-#         # ws[iw][vdils[iw]] = 0.00001
-#         ws[iw][vdils[iw]] = 0
-#
-#
-#     ws = list(ws)
-#     for iw,w in enumerate(ws):
-#         ws[iw] = ImageArray(ws[iw],
-#                             origin=w_stack_properties['origin'],
-#                             spacing=w_stack_properties['spacing'])
-#
-#
-#
-#
-#     if changed_stack_properties:
-#         for iview in range(len(ws)):
-#             ws[iview] = transform_stack_sitk(ws[iview],[1,0,0,0,1,0,0,0,1,0,0,0],
-#                                    out_origin=stack_properties['origin'],
-#                                    out_shape=stack_properties['size'],
-#                                    out_spacing=stack_properties['spacing'])
-#
-#     # smooth edges
-#     ws_simple = get_weights_simple(
-#                     orig_stack_propertiess,
-#                     params,
-#                     stack_properties
-#     )
-#
-#     ws = [ws[i]*ws_simple[i] for i in range(len(ws))]
-#
-#     wsum = np.sum(ws,0)
-#     wsum[wsum==0] = 1
-#     for iw,w in enumerate(ws):
-#         ws[iw] /= wsum
-#
-#     return ws
 
 
 # @io_decorator

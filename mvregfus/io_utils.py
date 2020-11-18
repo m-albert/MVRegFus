@@ -488,9 +488,10 @@ def io_decorator_local(func):
                     return args[0]
 
         nargs = []
-        for iarg,arg in enumerate(args):
+        for iarg, arg in enumerate(args):
+
             if is_io_path(args[0]) and not iarg: continue
-            res = recursive_func_application(arg,process_input_element)
+            res = recursive_func_application(arg, process_input_element)
 
             nargs.append(res)
 
@@ -501,10 +502,11 @@ def io_decorator_local(func):
         if is_io_path(args[0]):
             print('producing %s' %args[0])
 
-        result = func(*nargs,**kwargs)
+        result = func(*nargs, **kwargs)
 
         if is_io_path(args[0]):
-            result = process_output_element(result,args[0])
+            result = process_output_element(result, args[0])
+
         return result
 
     full_func.orig_name = func.__name__
