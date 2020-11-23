@@ -280,3 +280,24 @@ def transform_points(pts, p):
     c = p[9:]
     pts_t = np.array([np.dot(A, pt) + c for pt in pts]) # should vectorize this
     return pts_t
+
+
+def bin_stack(im,bin_factors=np.array([1,1,1])):
+    if np.allclose(bin_factors, [1, 1, 1]):
+        return im
+    bin_factors = np.array(bin_factors)
+    origin = im.origin
+    spacing = im.spacing
+    rotation = im.rotation
+    binned_spacing = spacing * bin_factors[::-1]
+    # binned_origin = origin + (spacing*bin_factors[::-1])/2
+    # binned_origin = origin
+    binned_origin = origin + (binned_spacing-spacing)/2.
+    # print('watch out with binning origin!')
+
+    im = sitk.GetImageFromArray(im)
+    im = sitk.BinShrink(im,[int(i) for i in bin_factors])
+    im = sitk.GetArrayFromImage(im)
+    # im = (im - background_level) * (view > background_level)
+    im = ImageArray(im, spacing=binned_spacing, origin=binned_origin, rotation=rotation)
+    return im

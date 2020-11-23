@@ -251,12 +251,12 @@ def process_output_element(element,path):
 
     # elif path.startswith('prealignment') and path.endswith('.h5') and type(element) == np.ndarray:
     elif 'prealignment' in path and path.endswith('.h5') and type(element) == np.ndarray:
-        tmpFile = h5py.File(path)
+        tmpFile = h5py.File(path, 'w')
         tmpFile.clear()
         tmpFile['prealignment'] = element
         tmpFile.close()
     elif path.endswith('dict.h5') and type(element) == dict:
-        tmpFile = h5py.File(path)
+        tmpFile = h5py.File(path, 'w')
         tmpFile.clear()
         for key,value in element.items():
             tmpFile[key] = value
@@ -514,3 +514,42 @@ def io_decorator_local(func):
 
 # io_decorator = io_decorator_distributed
 io_decorator = io_decorator_local
+
+import tifffile
+from mvregfus.mv_utils import bin_stack
+def read_stack_flexible(
+                filename,
+                channel,
+                origin,
+                spacing,
+                rotation,
+                background_level,
+                raw_input_binning=(1, 1, 1),
+                ):
+    """
+
+    :param filename: e.g. "stack_tp_001_ch_%(ch)03d.tif"
+    :param channel: e.g. 0
+    :param origin: e.g. np.array([10., 10., 0.])
+    :param spacing: in um e.g. np.array([1., 1., 1.])
+    :param rotation: view angle in radians e.g. np.pi/2.
+    :param background_level: e.g. 200
+    :param raw_input_binning: e.g. [1,1,1]
+    :return:
+    """
+
+    stack = tifffile.imread(filename %{'ch': channel}).squeeze().astype(np.uint16)
+
+    origin = np.array(origin)
+    spacing = np.array(spacing)
+
+    if raw_input_binning is not None:
+        stack = np.array(bin_stack(ImageArray(stack), raw_input_binning))
+
+    stack = (stack - np.array(background_level).astype(stack.dtype)) *\
+            (stack > background_level)
+
+    stack = ImageArray(stack, origin=origin, spacing=spacing, rotation=rotation)
+
+    return stack
+

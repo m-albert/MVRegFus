@@ -297,7 +297,7 @@ def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,
     if raw_input_binning is not None:
         print('Binning down raw input by xyz factors %s' %raw_input_binning)
         print('old shape: %s %s %s' %stack.shape)
-        stack = np.array(bin_stack(ImageArray(stack),raw_input_binning))
+        stack = np.array(mv_utils.bin_stack(ImageArray(stack),raw_input_binning))
         print('new shape: %s %s %s' %stack.shape)
 
     if do_despeckle: # try to supress vesicles
@@ -556,26 +556,6 @@ def clean_pixels(im):
     im = im - pixel_offset
     im = (im*(im>0)).astype(np.uint16)
 
-    return im
-
-@io_decorator
-def bin_stack(im,bin_factors=np.array([1,1,1])):
-    if np.allclose(bin_factors, [1, 1, 1]): return im
-    bin_factors = np.array(bin_factors)
-    origin = im.origin
-    spacing = im.spacing
-    rotation = im.rotation
-    binned_spacing = spacing * bin_factors[::-1]
-    # binned_origin = origin + (spacing*bin_factors[::-1])/2
-    # binned_origin = origin
-    binned_origin = origin + (binned_spacing-spacing)/2.
-    # print('watch out with binning origin!')
-
-    im = sitk.GetImageFromArray(im)
-    im = sitk.BinShrink(im,[int(i) for i in bin_factors])
-    im = sitk.GetArrayFromImage(im)
-    # im = (im - background_level) * (view > background_level)
-    im = ImageArray(im,spacing=binned_spacing,origin=binned_origin,rotation=rotation)
     return im
 
 def getStackFromMultiview(result,ichannel,iview):
@@ -1123,62 +1103,192 @@ def register_linear_elastix_seq(fixed,moving,t0=None,degree=2,elastix_dir=None,f
 
     return final_params
 
+# @io_decorator
+# def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None,
+#                             identifier_sample=None, identifier_fixed=None, identifier_moving=None, debug_dir=None):
+#
+#     """
+#     estimate t0 and crop images to intersection in y
+#     :param fixed:
+#     :param moving:
+#     :return:
+#     """
+#
+#     lower_y0 = fixed.origin[1]
+#     upper_y0 = fixed.origin[1] + fixed.shape[1]*fixed.spacing[1]
+#
+#     lower_y1 = moving.origin[1]
+#     upper_y1 = moving.origin[1] + moving.shape[1]*moving.spacing[1]
+#
+#     lower_overlap = np.max([lower_y0,lower_y1])
+#     upper_overlap = np.min([upper_y0,upper_y1])
+#
+#     yl0 = int((lower_overlap - lower_y0) / (upper_y0-lower_y0) * fixed.shape[1])
+#     yu0 = int((upper_overlap - lower_y0) / (upper_y0-lower_y0) * fixed.shape[1])
+#     yl1 = int((lower_overlap - lower_y1) / (upper_y1-lower_y1) * moving.shape[1])
+#     yu1 = int((upper_overlap - lower_y1) / (upper_y1-lower_y1) * moving.shape[1])
+#
+#     # images can have different overlaps because of rounding to integer
+#
+#     origin_overlap0 = np.zeros(3)
+#     origin_overlap1 = np.zeros(3)
+#
+#     origin_overlap0[:] = fixed.origin
+#     origin_overlap1[:] = moving.origin
+#
+#     origin_overlap0[1] = lower_y0 + yl0 * fixed.spacing[1]
+#     origin_overlap1[1] = lower_y1 + yl1 * moving.spacing[1]
+#
+#     # static = ImageArray(fixed[:,yl0:yu0,:],spacing=fixed.spacing,origin=origin_overlap0)
+#     # mov = ImageArray(moving[:,yl1:yu1,:],spacing=moving.spacing,origin=origin_overlap1)
+#
+#     c0 = clahe(fixed,10,clip_limit=0.02)
+#     c1 = clahe(moving,10,clip_limit=0.02)
+#
+#     # print('warning: not performing clahe')
+#     # c0 = fixed
+#     # c1 = moving
+#
+#     static = ImageArray(c0[:,yl0:yu0,:],spacing=fixed.spacing,origin=origin_overlap0)
+#     mov = ImageArray(c1[:,yl1:yu1,:],spacing=moving.spacing,origin=origin_overlap1)
+#
+#     static_mask = get_mask_using_otsu(static)
+#     static_mask = ImageArray(static_mask, spacing=fixed.spacing, origin=origin_overlap0)
+#
+#     t00 = mv_utils.euler_matrix(0, + fixed.rotation - moving.rotation, 0)
+#     center_static = np.array(static.shape)/2.*static.spacing + static.origin
+#     center_mov = np.array(mov.shape)/2.*mov.spacing + mov.origin
+#     t00offset = center_mov - np.dot(t00[:3,:3],center_static)
+#     t00[:3,3] = t00offset
+#     t00 = matrix_to_params(t00)
+#
+#     # reg_spacing = np.array([fixed.spacing[0]*4]*3)
+#     # print('WARNING: 20180614: changed fft registration spacing')
+#     reg_iso_spacing = np.min([np.array(im.spacing)*np.array(im.shape)/160. for im in [static,mov]])
+#     reg_iso_spacing = np.max([[reg_iso_spacing]+list(static.spacing)+list(mov.spacing)])
+#     reg_spacing = np.array([reg_iso_spacing]*3)
+#
+#     stack_properties = calc_stack_properties_from_views_and_params([static.get_info(), mov.get_info()],
+#                                                                    [matrix_to_params(np.eye(4)), t00],
+#                                                                    spacing=reg_spacing, mode='union')
+#
+#     static_t = transform_stack_sitk(static,
+#                                     matrix_to_params(np.eye(4)),
+#                                     out_shape=stack_properties['size'],
+#                                     out_origin=stack_properties['origin'],
+#                                     out_spacing=stack_properties['spacing']
+#                                     )
+#
+#     mov_t = transform_stack_sitk(mov,
+#                                     t00,
+#                                     out_shape=stack_properties['size'],
+#                                     out_origin=stack_properties['origin'],
+#                                     out_spacing=stack_properties['spacing']
+#                                     )
+#
+#     im0 = static_t
+#     im1 = mov_t
+#
+#     offset = translation3d(im1,im0)
+#
+#     # offset = np.array([-offset[2],0,offset[0]]) * reg_spacing
+#     # offset = np.array([offset[0],0,offset[2]]) * reg_spacing
+#     # print('WARNING: add complete FFT offset (also y component), 20181109')
+#     offset = np.array([offset[0],offset[1],offset[2]]) * reg_spacing
+#
+#     t0 = np.copy(t00)
+#     t0[9:] += np.dot(t0[:9].reshape((3,3)), offset)
+#     # return t0
+#
+#     # use raw intensities for elastix
+#     static = ImageArray(fixed[:,yl0:yu0,:],spacing=fixed.spacing,origin=origin_overlap0)
+#     mov = ImageArray(moving[:,yl1:yu1,:],spacing=moving.spacing,origin=origin_overlap1)
+#
+#     import tifffile
+#     if debug_dir is not None:
+#         movt0 = transform_stack_sitk(mov, t0, stack_properties=static.get_info())
+#         tifffile.imsave(os.path.join(debug_dir, 'mv_reginfo_000_%03d_pair_%s_%s_view_%s.tif'
+#                                      % (identifier_sample, identifier_fixed, identifier_moving, identifier_fixed)), static)
+#         tifffile.imsave(os.path.join(debug_dir, 'mv_reginfo_000_%03d_pair_%s_%s_view_%s.tif'
+#                                      % (identifier_sample, identifier_fixed, identifier_moving, identifier_moving)), mov)
+#         tifffile.imsave(os.path.join(debug_dir, 'mv_reginfo_000_%03d_pair_%s_%s_view_%s_pretransformed.tif'
+#                                      % (identifier_sample, identifier_fixed, identifier_moving, identifier_moving)), movt0)
+#
+#
+#     if degree is None or degree < 0: return t0
+#
+#     try:
+#         parameters = register_linear_elastix_seq(static, mov, t0,
+#                                                  degree=degree,
+#                                                  elastix_dir=elastix_dir,
+#                                                  fixed_mask=static_mask)
+#
+#         if debug_dir is not None:
+#             movt = transform_stack_sitk(mov, parameters, stack_properties=static.get_info())
+#             tifffile.imsave(os.path.join(debug_dir, 'mv_reginfo_000_%03d_pair_%s_%s_view_%s_transformed.tif'
+#                                          %(identifier_sample, identifier_fixed, identifier_moving, identifier_moving)), movt)
+#
+#     except:
+#
+#         raise(Exception('Could not register view pair (%s, %s)' %(identifier_fixed, identifier_moving)))
+#
+#     return parameters
+
+
 @io_decorator
 def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None,
                             identifier_sample=None, identifier_fixed=None, identifier_moving=None, debug_dir=None):
 
     """
-    estimate t0 and crop images to intersection in y
+    register a pair of stacks using their overlap as given by the metadata
     :param fixed:
     :param moving:
     :return:
     """
 
-    lower_y0 = fixed.origin[1]
-    upper_y0 = fixed.origin[1] + fixed.shape[1]*fixed.spacing[1]
+    lower_f_phys = fixed.origin
+    upper_f_phys = fixed.origin + fixed.shape*fixed.spacing
 
-    lower_y1 = moving.origin[1]
-    upper_y1 = moving.origin[1] + moving.shape[1]*moving.spacing[1]
+    lower_m_phys = moving.origin
+    upper_m_phys = moving.origin + moving.shape*moving.spacing
 
-    lower_overlap = np.max([lower_y0,lower_y1])
-    upper_overlap = np.min([upper_y0,upper_y1])
+    lower_phys = np.max([lower_f_phys, lower_m_phys], 0)
+    upper_phys = np.min([upper_f_phys, upper_m_phys], 0)
 
-    yl0 = int((lower_overlap - lower_y0) / (upper_y0-lower_y0) * fixed.shape[1])
-    yu0 = int((upper_overlap - lower_y0) / (upper_y0-lower_y0) * fixed.shape[1])
-    yl1 = int((lower_overlap - lower_y1) / (upper_y1-lower_y1) * moving.shape[1])
-    yu1 = int((upper_overlap - lower_y1) / (upper_y1-lower_y1) * moving.shape[1])
+    lower_f = ((lower_phys - lower_f_phys) / fixed.spacing).astype(np.uint64)
+    upper_f = ((upper_phys - lower_f_phys) / fixed.spacing).astype(np.uint64)
 
-    # images can have different overlaps because of rounding to integer
+    lower_m = ((lower_phys - lower_m_phys) / moving.spacing).astype(np.uint64)
+    upper_m = ((upper_phys - lower_m_phys) / moving.spacing).astype(np.uint64)
 
-    origin_overlap0 = np.zeros(3)
-    origin_overlap1 = np.zeros(3)
+    slices_f = [slice(lower_f[dim], upper_f[dim]) for dim in range(3)]
+    slices_m = [slice(lower_m[dim], upper_m[dim]) for dim in range(3)]
 
-    origin_overlap0[:] = fixed.origin
-    origin_overlap1[:] = moving.origin
+    lower_f_phys = np.copy(lower_phys)
+    lower_m_phys = np.copy(lower_phys)
 
-    origin_overlap0[1] = lower_y0 + yl0 * fixed.spacing[1]
-    origin_overlap1[1] = lower_y1 + yl1 * moving.spacing[1]
+    # only restrict to overlap in y in case of different rotations
+    if fixed.rotation != moving.rotation:
+        for dim in [0, 2]:
+            slices_f[dim] = slice(None, None)
+            slices_m[dim] = slice(None, None)
 
-    # static = ImageArray(fixed[:,yl0:yu0,:],spacing=fixed.spacing,origin=origin_overlap0)
-    # mov = ImageArray(moving[:,yl1:yu1,:],spacing=moving.spacing,origin=origin_overlap1)
+            lower_f_phys[dim] = fixed.origin[dim]
+            lower_m_phys[dim] = moving.origin[dim]
 
-    c0 = clahe(fixed,10,clip_limit=0.02)
-    c1 = clahe(moving,10,clip_limit=0.02)
+    c0 = clahe(fixed, 10, clip_limit=0.02)
+    c1 = clahe(moving, 10, clip_limit=0.02)
 
-    # print('warning: not performing clahe')
-    # c0 = fixed
-    # c1 = moving
-
-    static = ImageArray(c0[:,yl0:yu0,:],spacing=fixed.spacing,origin=origin_overlap0)
-    mov = ImageArray(c1[:,yl1:yu1,:],spacing=moving.spacing,origin=origin_overlap1)
+    static = ImageArray(c0[tuple(slices_f)],spacing=fixed.spacing,origin=lower_f_phys)
+    mov = ImageArray(c1[tuple(slices_m)],spacing=moving.spacing,origin=lower_m_phys)
 
     static_mask = get_mask_using_otsu(static)
-    static_mask = ImageArray(static_mask, spacing=fixed.spacing, origin=origin_overlap0)
+    static_mask = ImageArray(static_mask, spacing=fixed.spacing, origin=lower_f_phys)
 
     t00 = mv_utils.euler_matrix(0, + fixed.rotation - moving.rotation, 0)
     center_static = np.array(static.shape)/2.*static.spacing + static.origin
     center_mov = np.array(mov.shape)/2.*mov.spacing + mov.origin
-    t00offset = center_mov - np.dot(t00[:3,:3],center_static)
+    t00offset = center_mov - np.dot(t00[:3,:3], center_static)
     t00[:3,3] = t00offset
     t00 = matrix_to_params(t00)
 
@@ -1217,12 +1327,12 @@ def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None,
     offset = np.array([offset[0],offset[1],offset[2]]) * reg_spacing
 
     t0 = np.copy(t00)
-    t0[9:] += np.dot(t0[:9].reshape((3,3)),offset)
+    t0[9:] += np.dot(t0[:9].reshape((3,3)), offset)
     # return t0
 
     # use raw intensities for elastix
-    static = ImageArray(fixed[:,yl0:yu0,:],spacing=fixed.spacing,origin=origin_overlap0)
-    mov = ImageArray(moving[:,yl1:yu1,:],spacing=moving.spacing,origin=origin_overlap1)
+    static = ImageArray(fixed[tuple(slices_f)],spacing=fixed.spacing,origin=lower_f_phys)
+    mov = ImageArray(moving[tuple(slices_m)],spacing=moving.spacing,origin=lower_m_phys)
 
     import tifffile
     if debug_dir is not None:
@@ -1233,6 +1343,7 @@ def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None,
                                      % (identifier_sample, identifier_fixed, identifier_moving, identifier_moving)), mov)
         tifffile.imsave(os.path.join(debug_dir, 'mv_reginfo_000_%03d_pair_%s_%s_view_%s_pretransformed.tif'
                                      % (identifier_sample, identifier_fixed, identifier_moving, identifier_moving)), movt0)
+
 
     if degree is None or degree < 0: return t0
 
@@ -1283,6 +1394,7 @@ def translation3d(im0, im1):
 
     # print('WARNING: FILTERING IN FFT REGISTRATION (added 20181109)')
     ir_gauss = ndimage.gaussian_filter(ir,1)
+    # ir_gauss=ir
 
     # t0, t1, t2 = np.unravel_index(np.argmax(ir), shape)
     t0, t1, t2 = np.unravel_index(np.argmax(ir_gauss), shape)
@@ -1297,6 +1409,9 @@ def translation3d(im0, im1):
     if t0 > shape[0] // 2: t0 -= shape[0]
     if t1 > shape[1] // 2: t1 -= shape[1]
     if t2 > shape[2] // 2: t2 -= shape[2]
+
+    # import pdb;
+    # pdb.set_trace()
 
     return [t0, t1, t2]
 
@@ -2218,7 +2333,7 @@ def get_params_from_pairs(ref_view,pairs,params,time_alignment_params=None):
             paths = networkx.all_shortest_paths(g,ref_view,view)
             paths_params = []
             for ipath,path in enumerate(paths):
-                if ipath > 0: break # is it ok to take mean affine params?
+                # if ipath > 0: break # is it ok to take mean affine params?
                 path_pairs = [[path[i],path[i+1]] for i in range(len(path)-1)]
                 print(path_pairs)
                 path_params = np.eye(4)
@@ -3666,14 +3781,35 @@ def get_stack_properties_from_view_dict(view_dict, stack_info, raw_input_binning
     stack_info = copy.deepcopy(stack_info)
 
     stack_props = dict()
-    stack_props['spacing'] = stack_info['spacing'][::-1]
-    stack_props['origin'] = stack_info['origins'][view_dict['view']][::-1]
-    stack_props['size'] = stack_info['sizes'][view_dict['view']][::-1].astype(np.int64)
-    for i in range(3):
-        if raw_input_binning[::-1][i] > 1:
-            stack_props['size'][i] = stack_props['size'][i] // raw_input_binning[::-1][i]
-            stack_props['spacing'][i] = stack_props['spacing'][i] * raw_input_binning[::-1][i]
-            stack_props['origin'][i] = stack_props['origin'][i] + (stack_props['spacing'][i]-stack_info['spacing'][::-1][i])/2.
+    if view_dict is not None and 'spacing' in view_dict:
+        stack_props['spacing'] = view_dict['spacing']
+    else:
+        stack_props['spacing'] = stack_info['spacing'][::-1]
+        for i in range(3):
+            if raw_input_binning[::-1][i] > 1:
+                stack_props['spacing'][i] = stack_props['spacing'][i] * raw_input_binning[::-1][i]
+
+    if view_dict is not None and 'origin' in view_dict:
+        stack_props['origin'] = view_dict['origin']
+    else:
+        stack_props['origin'] = stack_info['origins'][view_dict['view']][::-1]
+        for i in range(3):
+            if raw_input_binning[::-1][i] > 1:
+                stack_props['origin'][i] = stack_props['origin'][i] + (stack_props['spacing'][i]-stack_info['spacing'][::-1][i])/2.
+
+    if view_dict is not None and 'shape' in view_dict:
+        stack_props['size'] = view_dict['shape']
+    else:
+        stack_props['size'] = stack_info['sizes'][view_dict['view']][::-1].astype(np.int64)
+        for i in range(3):
+            if raw_input_binning[::-1][i] > 1:
+                stack_props['size'][i] = stack_props['size'][i] // raw_input_binning[::-1][i]
+
+    # for i in range(3):
+    #     if raw_input_binning[::-1][i] > 1:
+    #         stack_props['size'][i] = stack_props['size'][i] // raw_input_binning[::-1][i]
+    #         stack_props['spacing'][i] = stack_props['spacing'][i] * raw_input_binning[::-1][i]
+    #         stack_props['origin'][i] = stack_props['origin'][i] + (stack_props['spacing'][i]-stack_info['spacing'][::-1][i])/2.
 
     return stack_props
 
@@ -4528,8 +4664,6 @@ def fuse_blockwise(fn,
     chunksize = 128
     block_chunk_size = np.array([nviews,chunksize,chunksize,chunksize])
 
-
-
     orig_shape = np.array(tviews_dsets[0].shape)
     # expanded_shape = np.array(block_chunk_size[-3:]) * (np.array(tviews_dsets[0].shape) // chunksize) + np.array(tviews_dsets[0].shape) % chunksize
     expanded_shape = np.array(block_chunk_size[-3:]) * (np.array(tviews_dsets[0].shape) // chunksize) \
@@ -4784,7 +4918,6 @@ def scale_down_dask_array(a, b=3):
             # out_shape = (np.array(x.shape[1:]) / b).astype(np.int64)
             # tmp = transform_stack_sitk(ImageArray(x[i]), None, out_spacing=[b, b, b], out_shape=out_shape,
             #                            out_origin=[0., 0, 0],interp='linear')
-            # tmp = bin_stack(ImageArray(x[i]),[b,b,b])
             tmp = x[i,::b,::b,::b]
             # tmp = transform_stack_sitk(ImageArray(x[i]), None, out_spacing=[b, b, b], out_shape=out_shape,
             #                            out_origin=[0., 0, 0],interp='linear')
