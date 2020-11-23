@@ -56,27 +56,27 @@ class ImageArray(np.ndarray):
         meta['size'] = np.array(self.shape)
         return meta
 
-# http://distributed.dask.org/en/latest/serialization.html
-try:
-    # from distributed.protocol import register_generic
-    # register_generic(ImageArray)
-
-    from distributed.protocol import dask_serialize, dask_deserialize, serialize
-
-    @dask_serialize.register(ImageArray)
-    def serialize(imar):
-        meta = imar.get_meta_dict()
-        ar = np.array(imar)
-        header, frames = serialize.serialize([meta,ar])
-        return header, frames
-
-    @dask_deserialize.register(ImageArray)
-    def deserialize(header, frames):
-        [meta,ar] = serialize.deserialize(header,frames)
-        return ImageArray(ar,meta=meta)
-
-    print('INFO: successfully registered image array for dask distributed serialization')
-
-except:
-    # http://distributed.dask.org/en/latest/serialization.html
-    print('WARNING: could not register image array for dask distributed serialization')
+# # http://distributed.dask.org/en/latest/serialization.html
+# try:
+#     # from distributed.protocol import register_generic
+#     # register_generic(ImageArray)
+#
+#     from distributed.protocol import dask_serialize, dask_deserialize, serialize
+#
+#     @dask_serialize.register(ImageArray)
+#     def serialize(imar):
+#         meta = imar.get_meta_dict()
+#         ar = np.array(imar)
+#         header, frames = serialize.serialize([meta,ar])
+#         return header, frames
+#
+#     @dask_deserialize.register(ImageArray)
+#     def deserialize(header, frames):
+#         [meta,ar] = serialize.deserialize(header,frames)
+#         return ImageArray(ar,meta=meta)
+#
+#     print('INFO: successfully registered image array for dask distributed serialization')
+#
+# except:
+#     # http://distributed.dask.org/en/latest/serialization.html
+#     print('WARNING: could not register image array for dask distributed serialization')

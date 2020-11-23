@@ -3972,7 +3972,8 @@ def get_weights_simple(
 
         # sigN = 200
         sigN = 200
-        sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-2)/(sigN-1)*orig_stack_propertiess[iview]['spacing']
+        sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-2)/(sigN)*orig_stack_propertiess[iview]['spacing']
+        # sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-2)/(sigN-1)*orig_stack_propertiess[iview]['spacing']
         # sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-1)/(sigN-1)*orig_stack_propertiess[iview]['spacing']
 
         b_in_um = 40.
@@ -4687,7 +4688,6 @@ def fuse_blockwise(fn,
     if weights_func == get_weights_simple:
         weights = None
     else:
-
         weights = get_weights_dct_dask(tviews_stack,params,orig_stack_propertiess,stack_properties,depth=depth,**weights_kwargs)
 
     # print('compressing arrays')
@@ -4727,7 +4727,7 @@ def fuse_blockwise(fn,
         trim_dict = {i:depth for i in range(3)}
         result = da.overlap.trim_internal(result, trim_dict)
 
-    result = result[:orig_shape[0],:orig_shape[1],:orig_shape[2]]
+    result = result[:orig_shape[0], :orig_shape[1], :orig_shape[2]]
 
     if os.path.exists(fn):
         logger.warning('WARNING: OVERWRITING %s' %fn)
