@@ -27,7 +27,8 @@ elif sys.platform.startswith("lin") or sys.platform.startswith("dar"):
 # multiview_fused_label               = 'mv_%03d_%03d_c%02d.imagear.h5'
 # multiview_fused_label               = 'mv_%03d_%03d_c%02d.mhd'
 multiview_fused_label               = 'mv_%03d_%03d_c%02d.zarr'
-multiview_input_view_label          = 'mv_input_view_%03d_%03d_v%03d_c%02d.imagear.h5'
+# multiview_input_view_label          = 'mv_input_view_%03d_%03d_v%03d_c%02d.imagear.h5'
+multiview_input_view_label          = 'mv_input_view_%03d_%03d_v%03d_c%02d.zarr'
 multiview_fusion_seg_label          = 'mv_fusion_seg_%03d_%03d_c%02d.imagear.h5'
 multiview_view_reg_label            = 'view_reg_%03d_%03d_v%03d_c%02d'
 multiview_view_fullres_label        = 'view_fullres_%03d_%03d_v%03d_c%02d'
@@ -88,7 +89,7 @@ def build_multiview_graph(
     clean_pixels = False,
     elastix_dir = '/scratch/malbert/dependencies_linux/elastix_linux64_v4.8',
     pairwise_registration_mode = 2,
-    debug_pairwise_registration = True,
+    debug_pairwise_registration=False,
     ):
 
     if input_graph is None:
@@ -401,7 +402,7 @@ def build_multiview_graph(
             raise(Exception("can't understand fusion mode"))
 
         graph[multiview_fused_label %(ds,sample,ch)] = (
-            multiview.fuse_blockwise,
+            multiview.fuse_blockwise_and_write_out,
             os.path.join(out_dir,multiview_fused_label %(ds,sample,ch)),
             [multiview_view_corr_label %(ds,sample,view,ch) for view in all_views],
             fusion_params_label % (ds, sample),
@@ -471,7 +472,7 @@ def build_multiview_graph(
             #                                                     )
             graph[multiview_view_reg_label %(ds,sample,view,ch)] = (
                                                                 # lambda x,c,v: x[c][v],
-                multiview.bin_stack,
+                io_utils.io_decorator(multiview.bin_stack, False),
                 multiview_view_fullres_label % (ds,sample,view,ch),
                 mv_registration_bin_factors,
                                                                 )

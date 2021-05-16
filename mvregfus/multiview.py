@@ -9,6 +9,7 @@ logger.setLevel(logging.WARNING)
 
 import os,tempfile, sys,copy
 import numpy as np
+from scipy import ndimage
 from mvregfus import czifile
 from mvregfus import io_utils, mv_utils
 
@@ -26,65 +27,6 @@ from dipy.align.transforms import (TranslationTransform2D,
 io_decorator = io_utils.io_decorator_local
 
 
-def get_number_of_zplanes(self, view=None, ch=None, ill=None, resize=True, order=1):
-    """Return image data from file(s) as numpy array.
-
-    modified by malbert
-    example:
-    - to extract view 0, channel 0 from multiview, channel file
-    get axes from self.filtered_subblock_directory[-1].axes
-
-    Parameters
-    ----------
-    bgr2rgb : bool
-        If True, exchange red and blue samples if applicable.
-    resize : bool
-        If True (default), resize sub/supersampled subblock data.
-    order : int
-        The order of spline interpolation used to resize sub/supersampled
-        subblock data. Default is 1 (bilinear).
-
-    resize : bool
-        If True (default), resize sub/supersampled subblock data.
-    order : int
-        The order of spline interpolation used to resize sub/supersampled
-        subblock data. Default is 0 (nearest neighbor).
-    out : numpy.ndarray, str, or file-like object; optional
-        Buffer where image data will be saved.
-        If numpy.ndarray, a writable array of compatible dtype and shape.
-        If str or open file, the file name or file object used to
-        create a memory-map to an array stored in a binary file on disk.
-    max_workers : int
-        Maximum number of threads to read and decode subblock data.
-        By default up to half the CPU cores are used.
-
-
-    """
-
-
-    image = []
-    for directory_entry in self.filtered_subblock_directory:
-        plane_is_wanted = True
-        for dim in directory_entry.dimension_entries:
-
-            if dim.dimension == 'V':
-                if view is not None and not dim.start == view:
-                    plane_is_wanted = False
-                    break
-
-            if dim.dimension == 'C':
-                if ch is not None and not dim.start == ch:
-                    plane_is_wanted = False
-                    break
-
-            if dim.dimension == 'I':
-                if ill is not None and not dim.start == ill:
-                    plane_is_wanted = False
-                    break
-
-        if not plane_is_wanted: continue
-
-import warnings
 def asarray_random_access(self, view=None, ch=None, ill=None, resize=True, order=1):
     """Return image data from file(s) as numpy array.
 
@@ -156,69 +98,6 @@ def asarray_random_access(self, view=None, ch=None, ill=None, resize=True, order
 # monkey patch czifile.py
 czifile.CziFile.asarray_random_access = asarray_random_access
 
-# import warnings
-# def asarray_view_ch(self, view, ch, resize=True, order=1):
-#     """Return image data from file(s) as numpy array.
-#
-#     modified by malbert
-#     example:
-#     - to extract view 0, channel 0 from multiview, channel file
-#     get axes from self.filtered_subblock_directory[-1].axes
-#
-#     Parameters
-#     ----------
-#     bgr2rgb : bool
-#         If True, exchange red and blue samples if applicable.
-#     resize : bool
-#         If True (default), resize sub/supersampled subblock data.
-#     order : int
-#         The order of spline interpolation used to resize sub/supersampled
-#         subblock data. Default is 1 (bilinear).
-#
-#     resize : bool
-#         If True (default), resize sub/supersampled subblock data.
-#     order : int
-#         The order of spline interpolation used to resize sub/supersampled
-#         subblock data. Default is 0 (nearest neighbor).
-#     out : numpy.ndarray, str, or file-like object; optional
-#         Buffer where image data will be saved.
-#         If numpy.ndarray, a writable array of compatible dtype and shape.
-#         If str or open file, the file name or file object used to
-#         create a memory-map to an array stored in a binary file on disk.
-#     max_workers : int
-#         Maximum number of threads to read and decode subblock data.
-#         By default up to half the CPU cores are used.
-#
-#
-#     """
-#
-#     nonZeroDims = []
-#     for idim in range(len(self.shape)):
-#         if self.shape[idim]>1: nonZeroDims.append(idim)
-#
-#     image = []
-#
-#     ndims = len(self.start)
-#     for directory_entry in self.filtered_subblock_directory:
-#
-#         index_start = [directory_entry.start[i] - self.start[i] for i in range(ndims)]
-#         if index_start[0] != view or index_start[5] != ch: continue
-#
-#         # print(index_start[0],directory_entry.start)
-#         subblock = directory_entry.data_segment()
-#         tile = subblock.data(resize=resize, order=order)
-#         # index = [slice(i-j, i-j+k) for i, j, k in
-#         #          zip(directory_entry.start, self.start, tile.shape)]
-#
-#         try:
-#             image.append(tile)
-#         except ValueError as e:
-#             warnings.warn(str(e))
-#
-#     return np.array(image)
-#
-# # monkey patch czifile.py
-# czifile.CziFile.asarray_view_ch = asarray_view_ch
 
 @io_decorator
 def readStackFromMultiviewMultiChannelCzi(filepath,view=0,ch=0,
@@ -558,7 +437,7 @@ def clean_pixels(im):
 
     return im
 
-@io_decorator
+# @io_decorator
 def bin_stack(im,bin_factors=np.array([1,1,1])):
     if np.allclose(bin_factors, [1, 1, 1]): return im
     bin_factors = np.array(bin_factors)
@@ -3644,7 +3523,7 @@ def get_mask_in_target_space(orig_stack_props,
     tmpspacing = (orig_stack_props['size']-2)*orig_stack_props['spacing']
 #     reducedview_shape[0] -= badplanes
 #     reducedview = np.ones(reducedview_shape,dtype=np.uint16)
-    reducedview = np.ones((1,get_weights_dct1,1),dtype=np.uint16)
+    reducedview = np.ones((1,1,1),dtype=np.uint16)
     reducedview = ImageArray(reducedview + 1, spacing=tmpspacing, origin=tmporigin)
     mask = transform_stack_sitk(reducedview, param,
                                 out_origin=target_stack_props['origin'],
@@ -3735,11 +3614,28 @@ def blocks_inside(
 
     return np.array(ws)
 
+def get_weights_simple(tviews_dask, stack_properties, params, orig_stack_propertiess, depth):
 
-def get_weights_simple_block(stack_properties, params, orig_stack_propertiess, block_info=None):
+    weights = da.map_blocks(get_weights_simple_block,
+                            da.empty_like(tviews_dask),
+                            stack_properties,
+                            params,
+                            orig_stack_propertiess,
+                            depth,
+                            dtype=np.float32,
+                            )
+    return weights
 
 
-    offset = np.array([i[0] for i in block_info[None]['array-location'][1:]])
+def get_weights_simple_block(x, stack_properties, params, orig_stack_propertiess, depth, block_info=None):
+
+    # offset = np.array([i[0] for i in block_info[None]['array-location'][1:]])
+
+    # determine chunk offset considering depth from overlap
+    # print('depth', depth)
+    offset = np.array([al[0] - (2*cl + 1) * depth for al, cl in zip(block_info[None]['array-location'][1:],
+                                                  block_info[None]['chunk-location'][1:])])
+
     size = np.array(block_info[None]['chunk-shape'][1:])
 
     weight_stack_properties = copy.deepcopy(stack_properties)
@@ -3747,12 +3643,13 @@ def get_weights_simple_block(stack_properties, params, orig_stack_propertiess, b
     weight_stack_properties['origin'] = weight_stack_properties['origin']\
                                         + offset * weight_stack_properties['spacing']
 
-    block_ws = get_weights_simple(orig_stack_propertiess, params, weight_stack_properties)
+    block_ws = get_weights_simple_single_block(orig_stack_propertiess, params, weight_stack_properties)
+
     return np.array(block_ws)
 
 
 # @io_decorator
-def get_weights_simple(
+def get_weights_simple_single_block(
                     orig_stack_propertiess,
                     params,
                     stack_properties,
@@ -3761,26 +3658,32 @@ def get_weights_simple(
     sigmoid on borders
     """
 
-    # w_stack_properties = stack_properties.copy()
-    # minspacing = 3.
-    # changed_stack_properties = False
-    # if w_stack_properties['spacing'][0] < minspacing:
-    #     changed_stack_properties = True
-    #     print('using downsampled images for calculating simple weights..')
-    #     w_stack_properties['spacing'] = np.array([minspacing]*3)
-    #     w_stack_properties['size'] = (stack_properties['spacing'][0]/w_stack_properties['spacing'][0])*stack_properties['size']
-
     ws = []
 
-    border_points = []
-    rel_coords = np.linspace(0,1,5)
-    for point in [[i,j,k] for i in rel_coords for j in rel_coords for k in rel_coords]:
-        phys_point = stack_properties['origin'] + np.array(point)*stack_properties['size']*stack_properties['spacing']
-        border_points.append(phys_point)
+    # improve this by checking whether source box is inside target or not,
+    # and if not check whether target is inside source
+    # border_points = []
+    # rel_coords = np.linspace(0,1,5)
+    # # rel_coords = np.linspace(1e-5,1-1e-5,5)
+    # for point in [[i,j,k] for i in rel_coords for j in rel_coords for k in rel_coords]:
+    #     phys_point = stack_properties['origin'] + np.array(point)*stack_properties['size']*stack_properties['spacing']
+    #     border_points.append(phys_point)
 
-    # for iview,view in enumerate(views):
-    # import time
-    # times = []
+    rel_coords = np.linspace(0, 1, 5)
+    border_points = np.array([[i,j,k] for i in rel_coords
+                              for j in rel_coords for k in rel_coords])
+    border_points = stack_properties['origin'] + np.array(border_points)*\
+                    stack_properties['size']*stack_properties['spacing']
+
+    # a = 200
+    # x, y, z = np.mgrid[:a, :a, :a]
+    # border_dist_template = np.min([x / 4., y, z, a - x / 4., a - y, a - z], 0)
+
+    def sigmoid(x, borderwidth):
+        x0 = float(borderwidth) / 2.
+        a = 12. / borderwidth
+        return 1 / (1 + np.exp(-a * (x - x0)))
+
     for iview in range(len(params)):
 
         # start = time.time()
@@ -3800,51 +3703,44 @@ def get_weights_simple(
                     break
             t_border_points_inside.append(inside)
 
+        # # import pdb; pdb.set_trace()
+        # t_points = np.dot(border_points, params[iview][:9].reshape((3,3))) + params[iview][9:]
+        # t_points_pix = (t_points - osp['origin']) / osp['spacing']
+        # t_border_points_inside = ~np.any([(t_points_pix < 0) ^ ((t_points_pix - osp['size']) > 0)], axis=(0, 2))
+
+        # print(iview, 'heyho')
+        # import pdb;
+        # pdb.set_trace()
+
         # if all borders inside it could be that the border is close to the edge,
         # meaning it has to be considered
 
-        # if np.all(t_border_points_inside):
-        #     ws.append(np.ones(stack_properties['size'],dtype=np.float32))
-        #     # print('all borders inside')
-        #     continue
+        if np.all(t_border_points_inside):
+            ws.append(np.ones(stack_properties['size'], dtype=np.float32))
+            # print('all borders inside')
+            continue
         #
 
         if not np.any(t_border_points_inside):
+
             # print(print(t_border_points_inside))
             ws.append(np.zeros(stack_properties['size'], dtype=np.float32))
             # print('all borders outside')
             continue
 
-        # else:
-        # print('block lies partially inside')
-
-
-        # tmporigin = views[iview].origin+views[iview].spacing/2.
-        # badplanes = int(0/views[iview].spacing[0]) # in microns
-        # tmporigin[0]+= views[iview].spacing[0]*badplanes
-        # # print('WATCH OUT! simple_weights: disregarding %s bad planes at the end of the stack' % badplanes)
-        # # sig =
-        #
-        # # x,y,z = np.mgrid[:sig.shape[0],:sig.shape[1],:sig.shape[2]]
-        # # dists = np.ones(sig.shape)*np.max(sig.shape)
-        # # for d in range(3):
-        # #     ddists =
-        # #     dists = np.min([dists,ddists])
-        # reducedview = view[badplanes:-1,:-1,:-1]
-        # tmp_view = ImageArray(reducedview+1,spacing=views[iview].spacing,origin=tmporigin,rotation=views[iview].rotation)
-        # # tmp_view = ImageArray(view[:-1,:-1,:-1]+1,spacing=views[iview].spacing,origin=views[iview].origin+views[iview].spacing/2.,rotation=views[iview].rotation)
-        # mask = transform_stack_sitk(tmp_view,params[iview],
-        #                        out_origin=w_stack_properties['origin'],
-        #                        out_shape=w_stack_properties['size'],
-        #                        out_spacing=w_stack_properties['spacing'],
-        #                         interp='nearest')
-
-        def sigmoid(x,borderwidth):
-            x0 = float(borderwidth)/2.
-            a = 12./borderwidth
-            return 1/(1+np.exp(-a*(x-x0)))
+        # print('onborder')
 
         # determine boundary using the psf? alternatively, um
+
+        ##########
+        # optimize this
+        # e.g. calculate block only once: calc block containing distances to boundary,
+        # then apply different sigmoid based on spacing
+        ##########
+
+        # a = 200
+        # x, y, z = np.mgrid[:a, :a, :a]
+        # d = np.min([x / 4., y, z, a - x / 4., a - y, a - z], 0)
 
         # sigN = 200
         sigN = 200
@@ -3853,6 +3749,8 @@ def get_weights_simple(
 
         b_in_um = 40.
         b_in_pixels = int(b_in_um / sigspacing[0])
+
+        # sig = sigmoid(border_dist_template, b_in_pixels)
         # print('blending weights: border width: %s um, %s pixels' %(b_in_um,b_in_pixels))
 
         # r = 0.05 # relative border width
@@ -3892,27 +3790,164 @@ def get_weights_simple(
                                interp='linear',
                                      )
 
-        # mask = get_mask_in_target_space(orig_stack_propertiess[iview],
-        #                          stack_properties,
-        #                          params[iview]
-        #                          )
-        # times.append(time.time()-start)
-        # mask = mask > 0
-        # print('WARNING; 1 ITERATIONS FOR MASK DILATION (DCT WEIGHTS')
-        # mask = ndimage.binary_dilation(mask == 0,iterations=1)
-        # ws.append(tmpvs*mask)
-        # ws.append(mask)
         ws.append(tmpvs)
 
-    # print('times',times)
 
     wsum = np.sum(ws,0)
     wsum[wsum==0] = 1
     for iw,w in enumerate(ws):
-        # ws[iw] /= wsum
         ws[iw] = ws[iw] / wsum
 
     return ws
+
+
+# # @io_decorator
+# def get_weights_simple(
+#                     orig_stack_propertiess,
+#                     params,
+#                     stack_properties,
+#                     ):
+#     """
+#     sigmoid on borders
+#     """
+#
+#     # w_stack_properties = stack_properties.copy()
+#     # minspacing = 3.
+#     # changed_stack_properties = False
+#     # if w_stack_properties['spacing'][0] < minspacing:
+#     #     changed_stack_properties = True
+#     #     print('using downsampled images for calculating simple weights..')
+#     #     w_stack_properties['spacing'] = np.array([minspacing]*3)
+#     #     w_stack_properties['size'] = (stack_properties['spacing'][0]/w_stack_properties['spacing'][0])*stack_properties['size']
+#
+#     ws = []
+#
+#     border_points = []
+#     rel_coords = np.linspace(0,1,5)
+#     for point in [[i,j,k] for i in rel_coords for j in rel_coords for k in rel_coords]:
+#         phys_point = stack_properties['origin'] + np.array(point)*stack_properties['size']*stack_properties['spacing']
+#         border_points.append(phys_point)
+#
+#
+#     for iview in range(len(params)):
+#
+#         # start = time.time()
+#
+#         # quick check if stack_properties inside orig volume
+#         osp = orig_stack_propertiess[iview]
+#
+#         # transform border points into orig view space (pixel coords)
+#         t_border_points_inside = []
+#         for point in border_points:
+#             t_point = np.dot(params[iview][:9].reshape((3,3)),point) + params[iview][9:]
+#             t_point_pix = (t_point - osp['origin']) / osp['spacing']
+#             inside = True
+#             for icoord,coord in enumerate(t_point_pix):
+#                 if coord < 0 or coord >= osp['size'][icoord]:
+#                     inside = False
+#                     break
+#             t_border_points_inside.append(inside)
+#
+#         # if all borders inside it could be that the border is close to the edge,
+#         # meaning it has to be considered
+#
+#         # if np.all(t_border_points_inside):
+#         #     ws.append(np.ones(stack_properties['size'],dtype=np.float32))
+#         #     # print('all borders inside')
+#         #     continue
+#         #
+#
+#         if not np.any(t_border_points_inside):
+#             # print(print(t_border_points_inside))
+#             ws.append(np.zeros(stack_properties['size'], dtype=np.float32))
+#             # print('all borders outside')
+#             continue
+#
+#
+#         def sigmoid(x,borderwidth):
+#             x0 = float(borderwidth)/2.
+#             a = 12./borderwidth
+#             return 1/(1+np.exp(-a*(x-x0)))
+#
+#         # determine boundary using the psf? alternatively, um
+#
+#         ##########
+#         # optimize this
+#         # e.g. calculate block only once: calc block containing distances to boundary,
+#         # then apply different sigmoid based on spacing
+#         ##########
+#
+#         # a = 200
+#         # x, y, z = np.mgrid[:a, :a, :a]
+#         # d = np.min([x / 4., y, z, a - x / 4., a - y, a - z], 0)
+#
+#         # sigN = 200
+#         sigN = 200
+#         sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-2)/(sigN-1)*orig_stack_propertiess[iview]['spacing']
+#         # sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-1)/(sigN-1)*orig_stack_propertiess[iview]['spacing']
+#
+#         b_in_um = 40.
+#         b_in_pixels = int(b_in_um / sigspacing[0])
+#         # print('blending weights: border width: %s um, %s pixels' %(b_in_um,b_in_pixels))
+#
+#         # r = 0.05 # relative border width
+#         # sig = np.ones(reducedview.shape,dtype=np.float32)
+#         # sigN = 200
+#         sig = np.ones([sigN]*3,dtype=np.float32)
+#
+#         for d in range(3):
+#             # borderwidth = int(r * sig.shape[d])
+#             # blend bad part of stack more:
+#             borderwidth = b_in_pixels
+#             if d == 0: borderwidth = b_in_pixels*4
+#             # print(borderwidth)
+#             slices = [slice(0, sig.shape[i]) for i in range(3)]
+#             for bx in range(borderwidth):
+#                 slices[d] = slice(bx, bx + 1)
+#                 sig[tuple(slices)] = np.min([sig[tuple(slices)] * 0 + sigmoid(bx, borderwidth), sig[tuple(slices)]], 0)
+#
+#             # don't blend best part of the image (assuming that is true for high zs)
+#             # if d == 0: borderwidth = int(0.02 * sig.shape[d])
+#             # if d == 0: borderwidth = int(0.05 * sig.shape[d])
+#             borderwidth = b_in_pixels
+#             for bx in range(borderwidth):
+#                 slices[d] = slice(sig.shape[d] - bx - 1, sig.shape[d] - bx)
+#                 sig[tuple(slices)] = np.min([sig[tuple(slices)] * 0 + sigmoid(bx, borderwidth), sig[tuple(slices)]], 0)
+#
+#         # sig = ImageArray(sig,spacing=views[iview].spacing,origin=views[iview].origin)
+#
+#         # sigspacing = (np.array(views[iview].shape)-1)/(sigN-1)*views[iview].spacing
+#         # sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-3)/(sigN-1)*orig_stack_propertiess[iview]['spacing']
+#         sig2 = ImageArray(sig,spacing=sigspacing,origin=orig_stack_propertiess[iview]['origin']+1*orig_stack_propertiess[iview]['spacing'])
+#
+#         tmpvs = transform_stack_sitk(sig2,params[iview],
+#                                out_origin=stack_properties['origin'],
+#                                out_shape=stack_properties['size'],
+#                                out_spacing=stack_properties['spacing'],
+#                                interp='linear',
+#                                      )
+#
+#         # mask = get_mask_in_target_space(orig_stack_propertiess[iview],
+#         #                          stack_properties,
+#         #                          params[iview]
+#         #                          )
+#         # times.append(time.time()-start)
+#         # mask = mask > 0
+#         # print('WARNING; 1 ITERATIONS FOR MASK DILATION (DCT WEIGHTS')
+#         # mask = ndimage.binary_dilation(mask == 0,iterations=1)
+#         # ws.append(tmpvs*mask)
+#         # ws.append(mask)
+#         ws.append(tmpvs)
+#
+#     # print('times',times)
+#
+#     wsum = np.sum(ws,0)
+#     wsum[wsum==0] = 1
+#     for iw,w in enumerate(ws):
+#         # ws[iw] /= wsum
+#         ws[iw] = ws[iw] / wsum
+#
+#     return ws
 
 
 from itertools import product
@@ -3934,7 +3969,11 @@ def dask_affine_transform(
         depth=None,
         **kwargs
 ):
-    """Apply an affine transform using Dask. For every
+    """
+
+    MODIFIED VERSION TO PRODUCE OVERLAP
+
+    Apply an affine transform using Dask. For every
     output chunk, only the slice containing the relevant part
     of the image is processed. Chunkwise processing is performed
     either using `ndimage.affine_transform` or
@@ -3983,6 +4022,9 @@ def dask_affine_transform(
 
     if output_chunks is None:
         output_chunks = image.shape
+
+    if depth is None:
+        depth = {dim: 0 for dim in range(image.ndim)}
 
     # Perform test run to ensure parameter validity.
     ndimage_affine_transform(np.zeros([0] * image.ndim),
@@ -4045,9 +4087,9 @@ def dask_affine_transform(
                             for dim in range(n)]
 
         if depth is not None:
-            for k, v in depth:
+            for k, v in depth.items():
                 out_chunk_offset[k] -= v
-                out_chunk_shape[k] += v
+                out_chunk_shape[k] += 2 * v
 
         out_chunk_edges = np.array([i for i in np.ndindex(tuple([2] * n))])\
             * np.array(out_chunk_shape) + np.array(out_chunk_offset)
@@ -4125,6 +4167,11 @@ def dask_affine_transform(
 
     meta = np.asarray([0]).astype(image.dtype)
 
+    # adapt to depth (overlap)
+    normalized_chunks = tuple([tuple([c + 2 * depth[dim] for c in nc])
+                               for dim, nc in enumerate(normalized_chunks)])
+    output_shape = tuple([sum(nc) for nc in normalized_chunks])
+
     transformed = da.Array(graph,
                            output_name,
                            shape=output_shape,
@@ -4132,21 +4179,94 @@ def dask_affine_transform(
                            chunks=normalized_chunks,
                            meta=meta)
 
+    # import pdb; pdb.set_trace()
+
     return transformed
+
+
+# @io_decorator
+def fuse_views_weights(views,
+                       # params,
+                       # stack_properties,
+                       weights=None,
+                       # views_in_target_space = True,
+                       ):
+
+    # if spacing is None:
+    #     spacing = np.max([view.spacing for view in views],0)
+
+    # volume = get_union_volume(views,params)
+    # stack_properties = calc_stack_properties_from_volume(volume,spacing)
+
+    # if not views_in_target_space:
+    #     transformed = []
+    #     for iview,view in enumerate(views):
+    #         tmp = transform_stack_sitk(view,params[iview],
+    #                                out_origin=stack_properties['origin'],
+    #                                out_shape=stack_properties['size'],
+    #                                out_spacing=stack_properties['spacing'])
+    #
+    #         transformed.append(np.array(tmp))
+    # else:
+    transformed = views
+
+    if weights is not None:
+        f = np.zeros_like(transformed[0])
+        for iw in range(len(transformed)):
+                f += (weights[iw]*transformed[iw].astype(np.float)).astype(np.uint16)
+    else:
+        f = np.mean(transformed, 0)
+
+    f = np.clip(f, 0, 2**16-1)
+    # f = ImageArray(f.astype(np.uint16),spacing=stack_properties['spacing'],origin=stack_properties['origin'])
+    f = f.astype(np.uint16)
+    return f
+
+
+def map_array(fn, block_info=None):
+    # iview = block_info[None]['array-location'][0][0]
+    slices = [slice(i[0], i[1]) for i in block_info[None]['array-location']]
+    return h5py.File(fn, 'r')['array'][tuple(slices)]
+
+
+def read_h5_into_da(fn):
+
+
+    # views_dask = [da.from_array(h5py.File(fn_tview)['array'], chunks=[chunksize]*3) for fn_tview in fns_view]
+
+    f = h5py.File(fn)
+    size = f['array'].shape
+    chunksize = f['array'].chunks
+    # f.close()
+    # size = h5py.File()
+
+    return da.map_blocks(map_array,
+                        chunks=da.core.normalize_chunks(chunksize, size),
+                        dtype=np.uint16,
+                        fn=fn)
+
+    # # block_chunk_size = np.array([nviews,chunksize,chunksize,chunksize])
+    # # block_chunk_size = np.array([1,chunksize,chunksize,chunksize])
+    # views_dask = [da.map_blocks(map_array,
+    #                             chunks=da.core.normalize_chunks(tuple([chunksize]*3), tuple(orig_stack_propertiess[ifn]['size'])),
+    #                             dtype=np.uint16,
+    #                             fn=fn)
+    #                 for ifn, fn in enumerate(fns_view)]
 
 
 import h5pickle as h5py # these objects can be pickled
 # import h5py
-def fuse_blockwise(fn,
-                   fns_view,
+@io_decorator
+def fuse_blockwise(views_dask,
                    params,
                    stack_properties,
                    orig_stack_propertiess,
                    fusion_block_overlap=None,
                    weights_func=None,
-                   fusion_func=None,
-                   weights_kwargs=None,
-                   fusion_kwargs=None,
+                   fusion_func=fuse_views_weights,
+                   weights_kwargs={},
+                   fusion_kwargs={},
+                   output_chunks=(128, 128, 128),
                    ):
 
     print('fusion block overlap: ', fusion_block_overlap)
@@ -4158,26 +4278,13 @@ def fuse_blockwise(fn,
     if fusion_block_overlap is None:
         fusion_block_overlap = 0
 
-    nviews = len(fns_view)
+    nviews = len(views_dask)
 
     depth = int(fusion_block_overlap)
     # depth_dict = {0: 0, 1: depth, 2: depth, 3: depth}
 
-    chunksize = 128
-    # views_dask = [da.from_array(h5py.File(fn_tview)['array'], chunks=[chunksize]*3) for fn_tview in fns_view]
-
-    def map_array(fn, block_info=None):
-        # iview = block_info[None]['array-location'][0][0]
-        slices = [slice(i[0], i[1]) for i in block_info[None]['array-location']]
-        return h5py.File(fn, 'r')['array'][tuple(slices)]
-
-    # block_chunk_size = np.array([nviews,chunksize,chunksize,chunksize])
-    # block_chunk_size = np.array([1,chunksize,chunksize,chunksize])
-    views_dask = [da.map_blocks(map_array,
-                                 chunks=da.core.normalize_chunks(tuple([chunksize]*3), tuple(orig_stack_propertiess[ifn]['size'])),
-                                dtype=np.uint16,
-                                fn=fn)
-                    for ifn, fn in enumerate(fns_view)]
+    # views_dask = [read_h5_into_da(fn_view)#, orig_stack_propertiess[ifn]['size'])
+    #               for ifn, fn_view in enumerate(fns_view)]
 
     tviews_dask = []
     for iview in range(nviews):
@@ -4196,92 +4303,128 @@ def fuse_blockwise(fn,
                               offset - orig_stack_propertiess[iview]['origin']
                               + np.dot(matrix, stack_properties['origin']))
 
-
+        # chunksize = 256
         tview_dask = dask_affine_transform(
             views_dask[iview],
             matrix=matrix_prime,
             offset=offset_prime,
             output_shape=tuple(stack_properties['size']),
             order=1,
-            output_chunks=tuple([chunksize]*3))
+            output_chunks=tuple(output_chunks),
+            depth={dim: depth for dim in range(3)},
+        )
 
-        if depth > 0:
-            tview_dask = da.overlap(tview_dask, {i:depth for i in range(3)})
+        # if depth > 0:
+        #     tview_dask = da.overlap.overlap(tview_dask, {i:depth for i in range(3)},
+        #                                     boundary='reflect')
 
         tviews_dask.append(tview_dask)
 
     tviews_dask = da.stack(tviews_dask, axis=0)
-
-    tviews_dask = tviews_dask.map_blocks(lambda x: np.pad(x, [[0, 0]] + [[0, chunksize - s] for s in x.shape[1:]]),
-                                         dtype=tviews_dask.dtype, chunks=(1,) + tuple([chunksize] * 3))
-
     tviews_dask = tviews_dask.rechunk((nviews,) + tviews_dask.chunksize[1:])
 
     import dask
     tviews_dask, = dask.optimize(tviews_dask)
 
-    if weights_func == get_weights_dct_dask:
-        weights_kwargs['size'],weights_kwargs['max_kernel'],weights_kwargs['gaussian_kernel'] = get_dct_options(stack_properties['spacing'][0],
-                                                            weights_kwargs['size'],
-                                                            weights_kwargs['max_kernel'],
-                                                            weights_kwargs['gaussian_kernel'],
-                                                            )
-
-    # calc weights
-    if weights_func == get_weights_simple:
-        weights = None
+    if weights_func is not None:
+        # weights =
+        weights = get_weights_simple(tviews_dask,
+                                     stack_properties,
+                                     params,
+                                     orig_stack_propertiess,
+                                     depth)
     else:
-        weights = get_weights_dct_dask(tviews_dask, params, orig_stack_propertiess,stack_properties,depth=depth,**weights_kwargs)
+        weights = None
 
-    # print('compressing arrays')
-    # from bcolz import carray
-    # weights = weights.map_blocks(carray).persist().map_blocks(np.asarray)
+    # import pdb; pdb.set_trace()
 
-    # if depth > 0:
+    if weights_func == get_weights_dct_dask:
+
+        def normalise(ws):
+            wssum = np.sum(ws, 0)
+            wssum[wssum == 0] = 1
+            res = ws / wssum
+            res[:, wssum == 0] = 0
+            return res
+
+        weights_dct = get_weights_dct_dask(tviews_dask,
+                           stack_properties,
+                           how_many_best_views=weights_kwargs['how_many_best_views'],
+                           cumulative_weight_best_views=weights_kwargs['cumulative_weight_best_views'],
+                           depth=depth,
+                           )
+
+        weights = da.map_blocks(normalise, weights * weights_dct)
+
+
+    # return weights_dct
+    # weights_kwargs['orig_stack_propertiess'] = orig_stack_propertiess
     #
-    #     tviews_stack_rechunked = da.overlap.overlap(tviews_stack_rechunked,
-    #                            depth=depth_dict,
-    #                            # boundary = {0: 'periodic', 1: 'periodic', 2: 'periodic', 3: 'periodic'})
-    #                            boundary = {1: 'periodic', 2: 'periodic', 3: 'periodic'})
+    # if weights_func == get_weights_dct_dask:
+    #     weights_kwargs['size'], weights_kwargs['max_kernel'], weights_kwargs['gaussian_kernel'] =\
+    #         get_dct_options(stack_properties['spacing'][0],
+    #             weights_kwargs['size'],
+    #             weights_kwargs['max_kernel'],
+    #             weights_kwargs['gaussian_kernel'],
+    #             )
     #
-    #     if weights is not None:
-    #         weights = da.overlap.overlap(weights,
-    #                                depth=depth_dict,
-    #                                # boundary = {0: 'periodic', 1: 'periodic', 2: 'periodic', 3: 'periodic'})
-    #                                boundary = {1: 'periodic', 2: 'periodic', 3: 'periodic'})
+    # # elif weights_func == get_weights_dct_dask:
+    # #     weights_kwargs
+    #
+    # weights = weights_func(**weights_kwargs)
+    #
+    # # calc weights
+    # if weights_func == get_weights_simple or weights_func is None:
+    #     weights = weights_func(**weights_kwargs)
+    # else:
+    #     weights = get_weights_dct_dask(tviews_dask, params, orig_stack_propertiess, stack_properties, depth=depth, **weights_kwargs)
 
-    # overlap_block_chunk_size = np.array([nviews,chunksize,chunksize,chunksize])
-    # overlap_block_chunk_size[-3:] += 2*depth#*np.array(array_template.numblocks[1:])
-    # tviews_stack_overlap = array_template.map_blocks(overlap_from_sources, dtype=np.uint16, sources=tviews_dsets, depth=depth, chunks=overlap_block_chunk_size)
+    # if fusion_func == fuse_LR_with_weights_np:
+    # fusion_kwargs['weights'] = weights
 
-    # import dask
-    # weights, = dask.optimize(weights)
-    # tviews_dask, = dask.optimize(tviews_dask)
+    # fusion_kwargs = {
+    #             'params': params,
+    #             'orig_stack_propertiess': orig_stack_propertiess,
+    #             'stack_properties': stack_properties,
+    #             'array_info': {'depth': depth, 'chunksize': chunksize},
+    #             'weights_func': weights_func,
+    #             'fusion_func': fusion_func,
+    #             'weights_kwargs': weights_kwargs,
+    #             'fusion_kwargs': fusion_kwargs,
+    #         }
 
-    result = da.map_blocks(fuse_block,tviews_dask, weights, drop_axis = [0], dtype=tviews_dask[0].dtype,
-                                               **{
-                                                   'params': params,
-                                                   'orig_stack_propertiess': orig_stack_propertiess,
-                                                   'stack_properties': stack_properties,
-                                                   'array_info': {'depth': depth, 'chunksize': chunksize},
-                                                   'weights_func': weights_func,
-                                                   'fusion_func': fusion_func,
-                                                   'weights_kwargs': weights_kwargs,
-                                                   'fusion_kwargs': fusion_kwargs,
-                                                  })
+    if fusion_func == fuse_LR_with_weights_np:
+        fusion_kwargs['spacing'] = stack_properties['spacing']
+        fusion_kwargs['params'] = params
+
+
+    result = da.map_blocks(fusion_func, tviews_dask, weights,
+                           drop_axis = [0],
+                           dtype=tviews_dask[0].dtype,
+                           **fusion_kwargs)
 
     if depth > 0:
-        trim_dict = {i:depth for i in range(3)}
+        trim_dict = {i: depth for i in range(3)}
         result = da.overlap.trim_internal(result, trim_dict)
 
     out_shape = stack_properties['size']
     result = result[:out_shape[0],:out_shape[1],:out_shape[2]]
 
-    # import pdb; pdb.set_trace()
+    return result
+
+
+def fuse_blockwise_and_write_out(*args, **kwargs):
+
+    result = fuse_blockwise(*args[1:], **kwargs)
+
+    fn = args[0]
 
     if os.path.exists(fn):
         logger.warning('WARNING: OVERWRITING %s' %fn)
-        os.remove(fn)
+        if fn.endswith('zarr'):
+            os.system('mv -r %s' %fn)
+        else:
+            os.remove(fn)
 
         # result.to_hdf5(fn, 'array', compression='gzip')  # ,scheduler = "single-threaded")
 
@@ -4306,25 +4449,33 @@ def fuse_blockwise(fn,
         print('fusing views...')
         # da_to_ims(result, fn, scheduler=dask_scheduler)
         # result.to_hdf5(fn, 'array')#, scheduler=dask_scheduler)
-        da.to_zarr(result, fn[:-3] + 'zarr')# scheduler=dask_scheduler)
+        # da.to_zarr(result, fn[:-3] + 'zarr')# scheduler=dask_scheduler)
+        da.to_zarr(result, fn, overwrite=True)#, scheduler=dask_scheduler)
 
     return fn
-    # return res
-    # return res, dsk, keys, result
 
-def fuse_block(tviews_block,weights,params,stack_properties,orig_stack_propertiess,array_info,weights_func,fusion_func,weights_kwargs,fusion_kwargs,block_info=None):
 
-    # return np.random.randint(0,100,tviews_block.shape[1:]).astype(tviews_block.dtype)
+def fuse_block(tviews_block,
+               weights,
+               params,
+               stack_properties,
+               orig_stack_propertiess,
+               array_info,
+               weights_func=None,
+               fusion_func=fuse_views_weights,
+               weights_kwargs={},
+               fusion_kwargs={},
+               block_info=None):
 
-    max_vals = np.array([tview_block.max() for tview_block in tviews_block])
+    max_vals = np.array([tview_block.any() for tview_block in tviews_block])
 
-    inds = np.where(max_vals>0)[0]
+    inds = np.where(max_vals > 0)[0]
 
     # abort in trivial case
     if len(inds) == 0:
         return tviews_block[0]
-    elif len(inds) == 1:
-        return tviews_block[inds[0]]
+    # elif len(inds) == 1:
+    #     return tviews_block[inds[0]]
 
     tviews_block = tviews_block[inds]
     params = np.array(params)[inds]
@@ -4351,85 +4502,43 @@ def fuse_block(tviews_block,weights,params,stack_properties,orig_stack_propertie
 
     import inspect
 
-    members = dict(inspect.getmembers(weights_func.__code__))
-    var_names = members['co_varnames']
-    #
-    if 'orig_stack_propertiess' in var_names:
-        weights_kwargs['orig_stack_propertiess'] = orig_stack_propertiess
+    if weights_func is not None:
+        members = dict(inspect.getmembers(weights_func.__code__))
+        var_names = members['co_varnames']
+        #
+        if 'orig_stack_propertiess' in var_names:
+            weights_kwargs['orig_stack_propertiess'] = orig_stack_propertiess
 
     members = dict(inspect.getmembers(fusion_func.__code__))
     var_names = members['co_varnames']
-    #
+
     if 'orig_stack_propertiess' in var_names:
         fusion_kwargs['orig_stack_propertiess'] = orig_stack_propertiess
 
     if weights is None and weights_func == get_weights_simple:
         weights = weights_func(**weights_kwargs)
-    else:
+    elif weights_func == get_weights_dct_dask:
         # weights = [ImageArray(w, spacing=block_stack_properties['spacing'], origin=block_stack_properties['origin']) for iw,w in enumerate(weights) if iw in inds]
         weights = [ImageArray(w, spacing=block_stack_properties['spacing'], origin=block_stack_properties['origin']) for iw,w in enumerate(weights) if iw in inds]
 
-    # else:
-    #     weights = weights_func(tviews,
-    #                               **weights_kwargs)
-    #                           # params,
-    #                           # orig_stack_propertiess,
-    #                           # stack_properties,
-    #                           # )
+    print(weights_func, weights)
+
+    # # weights could be all zero despite tviews nonzero (border effects?)
+    # max_vals = np.array([w.max() for w in weights])
     #
-    #                           # views,
-    #                           # params,
-    #                           # orig_stack_propertiess,
-    #                           # stack_properties,
-    #                           # size=None,
-    #                           # max_kernel=None,
-    #                           # gaussian_kernel=None,
-    #                           # how_many_best_views=1,
-    #                           # cumulative_weight_best_views=0.9,
-
-    # weights could be all zero despite tviews nonzero (border effects?)
-    max_vals = np.array([w.max() for w in weights])
-
-    inds = np.where(max_vals>0)[0]
-
-    # abort in trivial case
-    if len(inds) == 0:
-        return tviews_block[0]
-    elif len(inds) == 1:
-        return tviews_block[inds[0]]
+    # inds = np.where(max_vals>0)[0]
+    #
+    # # abort in trivial case
+    # if len(inds) == 0:
+    #     return tviews_block[0]
+    # elif len(inds) == 1:
+    #     return tviews_block[inds[0]]
 
     fused = fusion_func(tviews,weights=weights,
-            **fusion_kwargs)
-
-    # print('fused block with origin: %s' %block_stack_properties)
+                        **fusion_kwargs)
 
     return fused
 
-        # tviews,
-        # params,
-        # stack_properties,
-        # weights = weights,
-        # blur_func = blur_view_in_target_space,
-        # orig_prop_list=orig_stack_propertiess,
-    # )
-
-    # views,
-    # params,
-    # stack_properties,
-    # num_iterations = 25,
-    # sz = 4,
-    # sxy = 0.5,
-    # tol = 5e-5,
-    # weights = None,
-    # regularisation = False,
-    # blur_func = blur_view_in_view_space,
-    # orig_prop_list = None,
-    # views_in_target_space = True,
-
-    # return fused
-
-    # fused_block = np.random.randint(0,100,block.shape[1:]).astype(block.dtype)
-    # return fused_block
 
 def get_dct_options(spacing,size=None,max_kernel=None,gaussian_kernel=None):
 
@@ -4583,46 +4692,146 @@ def nan_to_zero(x):
     return y
 
 
-def map_determine_chunk_quality(x, size, origin, spacing, orig_stack_propertiess, params, block_info=None):
+# def map_determine_chunk_quality(x, size, origin, spacing, orig_stack_propertiess, params, block_info=None):
+#
+#     offset = np.array([i[0] for i in block_info[0]['array-location'][1:]])
+#
+#     quality_stack_properties = dict()
+#     quality_stack_properties['spacing'] = spacing
+#     quality_stack_properties['size'] = np.array([int(size)] * 3)
+#     quality_stack_properties['origin'] = origin + offset * spacing
+#
+#     chunks = (len(x),) + tuple([size] * 3)
+#     dx = da.from_array(x, chunks=chunks)
+#
+#     dx = dx.map_blocks(determine_chunk_quality,
+#                        chunks=(len(x), 1, 1, 1),
+#                        dtype=np.float32,
+#                        **{'orig_stack_propertiess': orig_stack_propertiess,
+#                           'params': params,
+#                           'stack_properties': quality_stack_properties,
+#                           }
+#                        )
+#
+#     # optimise here?
+#     #     dx = dx.map_blocks(adapt_weights, dtype=np.float32, how_many_best_views=how_many_best_views,
+#     #                        cumulative_weight_best_views=cumulative_weight_best_views)
+#
+#     return dx.compute(scheduler='single-threaded')
 
-    offset = np.array([i[0] for i in block_info[0]['array-location'][1:]])
 
-    quality_stack_properties = dict()
-    quality_stack_properties['spacing'] = spacing
-    quality_stack_properties['size'] = np.array([int(size)] * 3)
-    quality_stack_properties['origin'] = origin + offset * spacing
-
-    chunks = (len(x),) + tuple([size] * 3)
-    dx = da.from_array(x, chunks=chunks)
-
-    dx = dx.map_blocks(determine_chunk_quality,
-                       chunks=(len(x), 1, 1, 1),
-                       dtype=np.float32,
-                       **{'orig_stack_propertiess': orig_stack_propertiess,
-                          'params': params,
-                          'stack_properties': quality_stack_properties,
-                          }
-                       )
-
-    # optimise here?
-    #     dx = dx.map_blocks(adapt_weights, dtype=np.float32, how_many_best_views=how_many_best_views,
-    #                        cumulative_weight_best_views=cumulative_weight_best_views)
-
-    return dx.compute(scheduler='single-threaded')
-
+# from dask_image import ndfilters
+# def get_weights_dct_dask(tviews,
+#                          params,
+#                          orig_stack_propertiess,
+#                          stack_properties,
+#                          depth=0,
+#                          size=None,
+#                          max_kernel=None,
+#                          gaussian_kernel=None,
+#                          how_many_best_views=2,
+#                          cumulative_weight_best_views=0.9,
+#                          ):
+#
+#     bin_factor = 1
+#     relspacing = 3. / stack_properties['spacing'][0]
+#
+#     if relspacing > 1:
+#         # assuming chunk size of 128
+#         possible_bin_factors = np.array([1, 2, 4, 8, 16])
+#         bin_factor = possible_bin_factors[np.where(possible_bin_factors < relspacing)[0][-1]]
+#
+#     size = int(tviews.chunksize[1] / bin_factor)
+#     # calculate dct on blocks smaller than 50 um but with no less than 4 pixels diameter
+#
+#     # size = size/2
+#     while size * stack_properties['spacing'][0] * bin_factor > 100 and size >= 4:  # um
+#         size = size / 2
+#
+#     size = int(size)
+#
+#     print('size b', size, bin_factor)
+#
+#     if bin_factor > 1:
+#         tviews_binned = da.coarsen(np.mean, tviews, {i: bin_factor for i in range(1, 4)}, trim_excess=True)
+#     else:
+#         tviews_binned = tviews
+#
+#     ws_chunk_size = [tviews_binned.chunks[0]]
+#     for cs in tviews_binned.chunks[1:]:
+#         print(cs)
+#         ws_chunk_size.append([np.max([1, int(c / size)]) for c in cs])
+#     ws_chunk_size = tuple(ws_chunk_size)
+#
+#     # da.core.normalize_chunks()
+#
+#     ws = tviews_binned.map_blocks(map_determine_chunk_quality,
+#                                   chunks=ws_chunk_size,
+#                                   dtype=np.float32,
+#                                   **{'orig_stack_propertiess': orig_stack_propertiess,
+#                                      'params': params,
+#                                      'size': size,
+#                                      'origin': stack_properties['origin'],
+#                                      'spacing': np.array(stack_properties['spacing'] * bin_factor),
+#                                      }
+#                                   )
+#
+#     if max_kernel is None:
+#         max_kernel = 100  # in um
+#
+#     filter_size = np.max([1, int(max_kernel / (stack_properties['spacing'][0] * size * bin_factor))])  # 100um
+#     print('weight filter size: %s' % filter_size)
+#
+#     ws = ndfilters.maximum_filter(ws, size=[1] + [int(filter_size)] * 3)
+#
+#     # optimise here?
+#     # ws = ws.map_blocks(adapt_weights, dtype=np.float32, how_many_best_views=how_many_best_views,
+#     #                    cumulative_weight_best_views=cumulative_weight_best_views)
+#
+#     ws = ndfilters.convolve(ws, weights=np.ones((3, 3, 3))[None, ...] / 3. ** 3)
+#
+#     ws = da.apply_along_axis(adapt_weights, 0, ws,
+#                              how_many_best_views=how_many_best_views,
+#                              cumulative_weight_best_views=cumulative_weight_best_views,
+#                              shape=(len(ws),))
+#
+#     ws = dask_affine_transform(ws, np.diag([1.] + [1 / size / bin_factor] * 3), [0] + [-(size - 1) / size / 2.] * 3,
+#                                output_chunks=tviews.chunks,
+#                                output_shape=tviews.shape, mode='nearest')
+#
+#     ws_simple = da.map_blocks(
+#         get_weights_simple_block,
+#         chunks=ws.chunks,
+#         dtype=ws.dtype,
+#         stack_properties=stack_properties,
+#         params=params,
+#         orig_stack_propertiess=orig_stack_propertiess)
+#
+#     ws *= ws_simple
+#
+#     def normalise(ws):
+#         wssum = np.sum(ws, 0)
+#         wssum[wssum == 0] = 1
+#         res = ws / wssum
+#         res[:, wssum == 0] = 0
+#         return res
+#
+#     ws = da.map_blocks(normalise, ws)  # ,dtype=np.float32)
+#     return ws
 
 from dask_image import ndfilters
 def get_weights_dct_dask(tviews,
-                         params,
-                         orig_stack_propertiess,
                          stack_properties,
-                         depth=0,
-                         size=None,
                          max_kernel=None,
-                         gaussian_kernel=None,
+                         # gaussian_kernel=None,
                          how_many_best_views=2,
                          cumulative_weight_best_views=0.9,
+                         depth=0,
                          ):
+
+    if depth > 0:
+        trim_dict = {0: 0, 1: depth, 2: depth, 3: depth}
+        tviews = da.overlap.trim_internal(tviews, trim_dict)
 
     bin_factor = 1
     relspacing = 3. / stack_properties['spacing'][0]
@@ -4632,21 +4841,11 @@ def get_weights_dct_dask(tviews,
         possible_bin_factors = np.array([1, 2, 4, 8, 16])
         bin_factor = possible_bin_factors[np.where(possible_bin_factors < relspacing)[0][-1]]
 
-        # # have resulting image not smaller than 15 pixels
-        # bin_factor = np.min([bin_factor,np.min(np.array(stack_properties['size'])/15,0)],0)
-
-    # logger.info('using bin_factor %s for calculating dct weights' %bin_factor)
-    # binned_stack_properties = copy.deepcopy(stack_properties)
-    # binned_stack_properties['spacing'] = np.array(stack_properties['spacing'])*bin_factor
-    # binned_stack_properties['size'] = np.array(tviews[0].shape)
-
-    # tviews_binned = scale_down_dask_array(tviews,b=bin_factor)
-
     size = int(tviews.chunksize[1] / bin_factor)
     # calculate dct on blocks smaller than 50 um but with no less than 4 pixels diameter
 
     # size = size/2
-    while size * stack_properties['spacing'][0] * bin_factor > 100 and size >= 4:  # um
+    while size * stack_properties['spacing'][0] * bin_factor > 200 and size >= 8:  # um
         size = size / 2
 
     size = int(size)
@@ -4658,24 +4857,32 @@ def get_weights_dct_dask(tviews,
     else:
         tviews_binned = tviews
 
-    ws_chunk_size = [tviews_binned.chunks[0]]
-    for cs in tviews_binned.chunks[1:]:
-        print(cs)
-        ws_chunk_size.append([np.max([1, int(c / size)]) for c in cs])
-    ws_chunk_size = tuple(ws_chunk_size)
+    # ws_chunk_size = [tviews_binned.chunks[0]]
+    # for cs in tviews_binned.chunks[1:]:
+    #     print(cs)
+    #     ws_chunk_size.append([np.max([1, int(c / size)]) for c in cs])
+    # ws_chunk_size = tuple(ws_chunk_size)
 
     # da.core.normalize_chunks()
 
-    ws = tviews_binned.map_blocks(map_determine_chunk_quality,
-                                  chunks=ws_chunk_size,
+    tviews_binned_rechunked = tviews_binned.rechunk((len(tviews), size, size, size))
+
+    ws = tviews_binned_rechunked.map_blocks(determine_chunk_quality,
+                                  chunks = (len(tviews_binned), 1, 1, 1),
+                                  # chunks=da.core.normalize_chunks((len(tviews_binned), 1, 1, 1),
+                                  #                                 tuple([len(c) for c in ws_chunk_size])),
                                   dtype=np.float32,
-                                  **{'orig_stack_propertiess': orig_stack_propertiess,
-                                     'params': params,
-                                     'size': size,
-                                     'origin': stack_properties['origin'],
-                                     'spacing': np.array(stack_properties['spacing'] * bin_factor),
-                                     }
+                                  # **{'orig_stack_propertiess': orig_stack_propertiess,
+                                  #    'params': params,
+                                  #    'size': size,
+                                  #    'origin': stack_properties['origin'],
+                                  #    'spacing': np.array(stack_properties['spacing'] * bin_factor),
+                                  #    }
                                   )
+    # print(ws)
+
+    # import pdb;
+    # pdb.set_trace()
 
     if max_kernel is None:
         max_kernel = 100  # in um
@@ -4683,41 +4890,48 @@ def get_weights_dct_dask(tviews,
     filter_size = np.max([1, int(max_kernel / (stack_properties['spacing'][0] * size * bin_factor))])  # 100um
     print('weight filter size: %s' % filter_size)
 
-    ws = ndfilters.maximum_filter(ws, size=[1] + [int(filter_size)] * 3)
+    # import pdb;
+    # pdb.set_trace()
 
+    ws = ndfilters.maximum_filter(ws, size=[1] + [int(filter_size)] * 3)
+    # print(ws)
     # optimise here?
     # ws = ws.map_blocks(adapt_weights, dtype=np.float32, how_many_best_views=how_many_best_views,
     #                    cumulative_weight_best_views=cumulative_weight_best_views)
 
     ws = ndfilters.convolve(ws, weights=np.ones((3, 3, 3))[None, ...] / 3. ** 3)
+    # print(ws)
+    # tmp = ws.compute()
+    # print('min here', tmp.min(), tmp.max())
 
     ws = da.apply_along_axis(adapt_weights, 0, ws,
                              how_many_best_views=how_many_best_views,
                              cumulative_weight_best_views=cumulative_weight_best_views,
                              shape=(len(ws),))
 
+
+    # tmp = ws.compute()
+    # print('min here', tmp.min(), tmp.max())
+
+
+    # da.to_zarr(ws, '/tmp/0.zarr', overwrite=True)
+
     ws = dask_affine_transform(ws, np.diag([1.] + [1 / size / bin_factor] * 3), [0] + [-(size - 1) / size / 2.] * 3,
                                output_chunks=tviews.chunks,
-                               output_shape=tviews.shape, mode='nearest')
+                               output_shape=tviews.shape, mode='nearest', order=1,
+                               depth={0: 0, 1: depth, 2: depth, 3: depth})
 
-    ws_simple = da.map_blocks(
-        get_weights_simple_block,
-        chunks=ws.chunks,
-        dtype=ws.dtype,
-        stack_properties=stack_properties,
-        params=params,
-        orig_stack_propertiess=orig_stack_propertiess)
-
-    ws *= ws_simple
-
-    def normalise(ws):
-        wssum = np.sum(ws, 0)
-        wssum[wssum == 0] = 1
-        res = ws / wssum
-        res[:, wssum == 0] = 0
-        return res
-
-    ws = da.map_blocks(normalise, ws)  # ,dtype=np.float32)
+    # tmp = ws.compute()
+    # da.to_zarr(ws, '/tmp/1.zarr')
+    # print('min here', tmp.min(), tmp.max())
+    # def normalise(ws):
+    #     wssum = np.sum(ws, 0)
+    #     wssum[wssum == 0] = 1
+    #     res = ws / wssum
+    #     res[:, wssum == 0] = 0
+    #     return res
+    #
+    # ws = da.map_blocks(normalise, ws)  # ,dtype=np.float32)
     return ws
 
 # from dask_image import ndfilters
@@ -4790,16 +5004,8 @@ def get_weights_dct_dask(tviews,
 #     ws = da.map_blocks(normalise, ws)  # ,dtype=np.float32)
 #     return ws
 
-
 from scipy.fftpack import dctn
-def determine_chunk_quality(vrs,
-                            # how_many_best_views,
-                            # cumulative_weight_best_views,
-                            orig_stack_propertiess,
-                            params,
-                            stack_properties,
-                            block_info=None,
-                            ):
+def determine_chunk_quality(vrs):
 
     """
     DCT Shannon Entropy, as in:
@@ -4811,25 +5017,7 @@ def determine_chunk_quality(vrs,
     """
     # print('dw...')
 
-    curr_origin = []
-    # target_origin = []
-    for i in range(3):
-        # pixel_offset = block_info[0]['chunk-location'][i + 1] * array_info['chunksize'] - array_info['depth']
-        pixel_offset = block_info[0]['array-location'][i + 1][0]
-        # pixel_offset = block_info[0]['chunk-location'][i + 1]  # * block_info[None]['chunk-shape'][i+1]# - array_info['depth']
-        # curr_origin.append(ws[0].origin[i] + pixel_offset * ws[0].spacing[i])
-        curr_origin.append(stack_properties['origin'][i] + pixel_offset * stack_properties['spacing'][i])
-
-    # print('curr_origin', curr_origin)
-
-    block_stack_properties = dict()
-    # block_stack_properties['size'] = np.array([in_spacing/out_spacing]*3).astype(np.int64)#+2*array_info['depth'])
-    # block_stack_properties['size'] = np.array([in_spacing/out_spacing]*3).astype(np.int64)#+2*array_info['depth'])
-    block_stack_properties['size'] = np.array(vrs[0].shape).astype(np.int64)  # +2*array_info['depth'])
-    block_stack_properties['spacing'] = np.array(stack_properties['spacing'])
-    block_stack_properties['origin'] = np.array(curr_origin)# - depth * block_stack_properties['spacing']
-
-    view_inside_mask = blocks_inside(orig_stack_propertiess,params,block_stack_properties,n_points_per_dim=2)
+    view_inside_mask = np.array([np.any(v) for v in vrs])
     # print(view_inside_mask)
 
     # less than two views inside
@@ -4890,49 +5078,115 @@ def determine_chunk_quality(vrs,
     # full_ws = np.ones(len(view_inside_mask))*np.nan
     full_ws = np.zeros(len(view_inside_mask))
     full_ws[view_inside_mask > 0] = ws
+    # print(full_ws.min(), full_ws.max())
 
     return full_ws[:,None,None,None]
-    # return res.astype(np.float32)
-    # return ws
 
 
-# @io_decorator
-def fuse_views_weights(views,
-                       params,
-                       stack_properties,
-                       weights=None,
-                       views_in_target_space = True,
-                       ):
+# from scipy.fftpack import dctn
+# def determine_chunk_quality(vrs,
+#                             # how_many_best_views,
+#                             # cumulative_weight_best_views,
+#                             orig_stack_propertiess,
+#                             params,
+#                             stack_properties,
+#                             block_info=None,
+#                             ):
+#
+#     """
+#     DCT Shannon Entropy, as in:
+#     Adaptive light-sheet microscopy for long-term, high-resolution imaging in living organisms
+#     http://www.nature.com/articles/nbt.3708
+#     Consider the full bandwidth, so set r0=d0 in their equation
+#     :param vrs:
+#     :return:
+#     """
+#     # print('dw...')
+#
+#     curr_origin = []
+#     # target_origin = []
+#     for i in range(3):
+#         # pixel_offset = block_info[0]['chunk-location'][i + 1] * array_info['chunksize'] - array_info['depth']
+#         pixel_offset = block_info[0]['array-location'][i + 1][0]
+#         # pixel_offset = block_info[0]['chunk-location'][i + 1]  # * block_info[None]['chunk-shape'][i+1]# - array_info['depth']
+#         # curr_origin.append(ws[0].origin[i] + pixel_offset * ws[0].spacing[i])
+#         curr_origin.append(stack_properties['origin'][i] + pixel_offset * stack_properties['spacing'][i])
+#
+#     # print('curr_origin', curr_origin)
+#
+#     block_stack_properties = dict()
+#     # block_stack_properties['size'] = np.array([in_spacing/out_spacing]*3).astype(np.int64)#+2*array_info['depth'])
+#     # block_stack_properties['size'] = np.array([in_spacing/out_spacing]*3).astype(np.int64)#+2*array_info['depth'])
+#     block_stack_properties['size'] = np.array(vrs[0].shape).astype(np.int64)  # +2*array_info['depth'])
+#     block_stack_properties['spacing'] = np.array(stack_properties['spacing'])
+#     block_stack_properties['origin'] = np.array(curr_origin)# - depth * block_stack_properties['spacing']
+#
+#     view_inside_mask = blocks_inside(orig_stack_propertiess,params,block_stack_properties,n_points_per_dim=2)
+#     # print(view_inside_mask)
+#
+#     # less than two views inside
+#     if np.sum(view_inside_mask>0) <= 1:
+#         # ws = np.ones(len(view_inside_mask)).astype(np.float32)*np.nan
+#         ws = np.zeros(len(view_inside_mask)).astype(np.float32)#*np.nan
+#         ws[view_inside_mask > 0] = 1.
+#         return ws[:, None, None, None]
+#
+#     vrs = np.copy(vrs)
+#
+#     vrs = vrs[view_inside_mask>0]
+#
+#     axes = [0,1,2]
+#     ds = []
+#     for v in vrs:
+#
+#         if np.sum(v==0) > np.product(v.shape) * (4/5.):
+#             ds.append([0])
+#             continue
+#         elif v.min()<0.0001:
+#             v[v==0] = v[v>0].min() # or nearest neighbor
+#
+#         d = dctn(v,norm='ortho',axes=axes)
+#         # d = dct(dct(dct(v,axis=-1,norm='ortho'),axis=-2,norm='ortho'),axis=-3,norm='ortho')
+#         # cut = size//2
+#         # d[:cut,:cut,:cut] = 0
+#         ds.append(d.flatten())
+#
+#     # l2 norm
+#     dsl2 = np.array([np.sum(np.abs(d)) for d in ds])
+#     # don't divide by zero below
+#     dsl2[dsl2==0] = 1
+#
+#     def abslog(x):
+#         res = np.zeros_like(x)
+#         x = np.abs(x)
+#         res[x==0] = 0
+#         res[x>0] = np.log2(x[x>0])
+#         return res
+#
+#     ws = np.array([-np.sum(np.abs(d)*abslog(d/dsl2[id])) for id,d in enumerate(ds)])
+#     logging.debug('ws: %s' %ws)
+#     # ws = np.array([np.sum(np.abs(d)) for d in ds])
+#
+#     # simple weights in case everything is zero
+#     # if not ws.max():
+#     #     ws = np.ones(len(ws))/float(len(ws))
+#
+#     # ws = np.array(ws)
+#     wssum = np.sum(ws)
+#     if wssum>0:
+#         ws = ws/wssum
+#     # res = np.zeros(orig_shape,dtype=np.float32)
+#     # for iw in range(len(ws)):
+#     #     res[iw] = ws[iw]
+#     #
+#     # full_ws = np.ones(len(view_inside_mask))*np.nan
+#     full_ws = np.zeros(len(view_inside_mask))
+#     full_ws[view_inside_mask > 0] = ws
+#
+#     return full_ws[:,None,None,None]
+#     # return res.astype(np.float32)
+#     # return ws
 
-    # if spacing is None:
-    #     spacing = np.max([view.spacing for view in views],0)
-
-    # volume = get_union_volume(views,params)
-    # stack_properties = calc_stack_properties_from_volume(volume,spacing)
-
-    if not views_in_target_space:
-        transformed = []
-        for iview,view in enumerate(views):
-            tmp = transform_stack_sitk(view,params[iview],
-                                   out_origin=stack_properties['origin'],
-                                   out_shape=stack_properties['size'],
-                                   out_spacing=stack_properties['spacing'])
-
-            transformed.append(np.array(tmp))
-    else:
-        transformed = views
-
-    if weights is not None:
-        f = np.zeros_like(transformed[0])
-        for iw in range(len(transformed)):
-                f += (weights[iw]*transformed[iw].astype(np.float)).astype(np.uint16)
-    else:
-        f = np.mean(transformed,0)
-
-    f = np.clip(f,0,2**16-1)
-    f = ImageArray(f.astype(np.uint16),spacing=stack_properties['spacing'],origin=stack_properties['origin'])
-
-    return f
 
 @io_decorator
 def calc_stack_properties_from_views_and_params(views_props, params, spacing=None, mode='sample'):
@@ -5394,12 +5648,56 @@ def get_lambda_weights(
 #
 #     return conv
 
+# def get_psf(p,
+#             stack_properties,
+#             sz,
+#             sxy):
+#
+#     psf_shape=(np.array([np.max([1, np.max([sz, sxy, sxy]) * 3])]) / stack_properties['spacing']).astype(np.int64)
+#     ## make shape odd
+#     psf_shape = np.array([ps + [1, 0][int(ps % 2)] for ps in psf_shape]).astype(np.int64)
+#
+#
+#     # print('psf with sigma %s has shape %s' %([sxy,sxy,sz],list(psf_shape)))
+#     psf_orig = np.zeros(psf_shape, dtype=np.float32)
+#     psf_orig[psf_shape[0] // 2, psf_shape[1] // 2, psf_shape[2] // 2] = 1
+#
+#     ## blur
+#     psf_orig = ndimage.gaussian_filter(psf_orig, np.array([sz, sxy, sxy]) / stack_properties['spacing'])
+#     ## assign metadata
+#     psf_orig = ImageArray(psf_orig)
+#     psf_orig.spacing = stack_properties['spacing']
+#     psf_orig.origin = -stack_properties['spacing'] * (psf_shape // 2)
+#     # psf_orig_sitk = image_to_sitk(psf_orig)
+#
+#     psf_stack_properties = dict()
+#     psf_stack_properties['spacing'] = stack_properties['spacing']
+#     psf_stack_properties['origin'] = psf_orig.origin
+#     # psf_stack_properties['origin']  = np.zeros(3)
+#     psf_stack_properties['size'] = psf_shape
+#
+#     # eliminate translation component from parameters
+#     tmpp = np.copy(p)
+#     tmpp[-3:] = 0
+#
+#     psf_target = transform_stack_sitk(psf_orig, tmpp,
+#                                       out_origin=psf_stack_properties['origin'],
+#                                       out_shape=psf_stack_properties['size'],
+#                                       out_spacing=psf_stack_properties['spacing'],
+#                                       interp='linear')
+#
+#     # normalise
+#     psf_target = psf_target / np.sum(psf_target)
+#     psf_target = psf_target.astype(np.float32)
+#
+#     return psf_target
+
 def get_psf(p,
-            stack_properties,
+            spacing,
             sz,
             sxy):
 
-    psf_shape=(np.array([np.max([1, np.max([sz, sxy, sxy]) * 3])]) / stack_properties['spacing']).astype(np.int64)
+    psf_shape=(np.array([np.max([1, np.max([sz, sxy, sxy]) * 3])]) / spacing).astype(np.int64)
     ## make shape odd
     psf_shape = np.array([ps + [1, 0][int(ps % 2)] for ps in psf_shape]).astype(np.int64)
 
@@ -5409,15 +5707,15 @@ def get_psf(p,
     psf_orig[psf_shape[0] // 2, psf_shape[1] // 2, psf_shape[2] // 2] = 1
 
     ## blur
-    psf_orig = ndimage.gaussian_filter(psf_orig, np.array([sz, sxy, sxy]) / stack_properties['spacing'])
+    psf_orig = ndimage.gaussian_filter(psf_orig, np.array([sz, sxy, sxy]) / spacing)
     ## assign metadata
     psf_orig = ImageArray(psf_orig)
-    psf_orig.spacing = stack_properties['spacing']
-    psf_orig.origin = -stack_properties['spacing'] * (psf_shape // 2)
+    psf_orig.spacing = spacing
+    psf_orig.origin = -spacing * (psf_shape // 2)
     # psf_orig_sitk = image_to_sitk(psf_orig)
 
     psf_stack_properties = dict()
-    psf_stack_properties['spacing'] = stack_properties['spacing']
+    psf_stack_properties['spacing'] = spacing
     psf_stack_properties['origin'] = psf_orig.origin
     # psf_stack_properties['origin']  = np.zeros(3)
     psf_stack_properties['size'] = psf_shape
@@ -5565,13 +5863,14 @@ def get_image_from_list_of_images(ims,ind):
 
 def fuse_LR_with_weights_np(
         views,
+        weights,
         params,
-        stack_properties,
+        spacing,
         num_iterations = 25,
         sz = 4,
         sxy = 0.5,
         tol = 5e-5,
-        weights = None,
+        # weights = None,
         # orig_prop_list = None,
 ):
     """
@@ -5632,7 +5931,7 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
         print('no GPU acceleration for deconv')
         pass
 
-    psfs =  np.array([get_psf(params[ip], stack_properties, sz, sxy) for ip in range(len(params))])
+    psfs =  np.array([get_psf(params[ip], spacing, sz, sxy) for ip in range(len(params))])
     noisy_multiview_data = np.array(views)
     
     psfs = np.asarray(psfs)
@@ -5765,189 +6064,190 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
     except:
         pass
 
-    estimate = ImageArray(estimate.astype(np.uint16),spacing=stack_properties['spacing'],origin=stack_properties['origin'])
+    # estimate = ImageArray(estimate.astype(np.uint16),spacing=stack_properties['spacing'],origin=stack_properties['origin'])
+    estimate = estimate.astype(np.uint16)
 
     return estimate
 
-def fuse_LR_with_weights_np_old(
-        views,
-        params,
-        stack_properties,
-        num_iterations = 25,
-        sz = 4,
-        sxy = 0.5,
-        tol = 5e-5,
-        weights = None,
-        # orig_prop_list = None,
-):
-    """
-    Combine
-    - LR multiview fusion
-      (adapted from python code given in https://code.google.com/archive/p/iterative-fusion/
-       from publication https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3986040/)
-    - DCT weights
-
-    This addresses the problems that
-    1) multi-view deconvolution is highly dependent on high precision registration
-    between views. However, an affine transformation is often not enough due to
-    optical aberrations and results in poor overlap.
-    2) due to scattering, the psf strongly varies within each view
-
-    In the case of highly scattering samples, FFT+elastix typically results in good
-    registration accuracy in regions of good image quality (those with small psfs
-    and short optical paths through the sample). These regions are found using a DCT
-    quality measure and weighted accordingly. Therefore, to reduce the contribution
-    to multi-view LR of unwanted regions in the individual views, the weights are
-    applied in each iteration during convolution with the psf.
-
-    Adaptations and details:
-    - convolve views in original space
-     - recapitulates imaging process and trivially deals with view parameters
-     - allows for iterative raw data reconstruction without deconvolution
-     - disadvantage: slow in current implementation
-    - apply DCT weights in each blurring iteration to account for strong scattering
-    - simulate convolution by psf with gaussian blurring
-    - TV regularisation not working yet, to be optimised (Multiview Deblurring for 3-D Images from
-Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/6112225)
-
-    Interesting case: sz,sxy=0
-    - formally no deconvolution but iterative multi-view raw data reconstruction
-
-    works well:
-    - sz6 it 10, some rings
-    - sz5 it 20, looks good (good compromise between sz and its)
-    - sz4 it 30, good and no rings
-
-    :param views: original views
-    :param params: parameters mapping views into target space
-    :param stack_properties: properties of target space
-    :param num_iterations: max number of deconvolution iterations
-    :param sz: sigma z
-    :param sxy: sigma xy
-    :param tol: convergence threshold
-    :return:
-    """
-
-    psfs =  np.array([get_psf(params[ip], stack_properties, sz, sxy) for ip in range(len(params))])
-
-    noisy_multiview_data = np.array(views)
-
-    """
-    Time for deconvolution!!!
-    """
-
-    estimate = np.sum([weights[i]*views[i] for i in range(len(params))],0).astype(np.float32)
-
-    curr_imsum = np.sum(estimate)
-
-    masks = np.array([weights[ip]>1e-5 for ip in range(len(params))])
-
-    # # erode weights to produce final weights
-    # pixels = int(sz*4/stack_properties['spacing'][0])
-    # weights = np.array([ndimage.grey_erosion(w,size=pixels) for w in weights])
-
-    # masks = np.array([ndimage.binary_erosion(mask,iterations=2) for mask in masks])
-
-    from numpy import fft
-    shape = estimate.shape
-
-    psfs_ft = []
-    for ip in range(len(psfs)):
-        kernel_pad = np.pad(psfs[ip], [[0, shape[i]+1] for i in range(3)], mode='constant')
-        psfs_ft.append(fft.rfftn(kernel_pad))
-
-    kshape = psfs[0].shape
-
-    def blur_with_ftpsfind(img,iview):
-
-        # manual convolution is faster and better than signal.fftconvolve
-        # - kernels can be computed before
-        # - image padding can be done using reflection
-        # - probably also: no additional checking involved
-        # https://dsp.stackexchange.com/questions/43953/looking-for-fastest-2d-convolution-in-python-on-a-cpu
-        # https://github.com/scipy/scipy/pull/10518
-
-        img_ft = np.pad(img, [[0, kshape[i]+1] for i in range(3)], mode='reflect')
-        out_shape = img_ft.shape
-        img_ft = fft.rfftn(img_ft)
-        img_ft = psfs_ft[iview] * img_ft
-        img_ft = fft.irfftn(img_ft,s=out_shape)
-        # img_ft = img_ft[kshape[0] // 2:-kshape[0] // 2, kshape[1] // 2:-kshape[1] // 2, kshape[2] // 2:-kshape[2] // 2]
-        img_ft = img_ft[kshape[0] // 2:-kshape[0] // 2 - 1, kshape[1] // 2:-kshape[1] // 2 - 1, kshape[2] // 2:-kshape[2] // 2 - 1]
-
-        img_ft[img_ft<0] = 0
-
-        return img_ft
-
-    expected_data = np.zeros(noisy_multiview_data.shape,dtype=np.float32)
-
-    i = 0
-    while 1:
-        print("Iteration", i)
-
-        """
-        Construct the expected data from the estimate
-        """
-
-        # expected_data = []
-        for ip, p in enumerate(psfs):
-            expected_data[ip] = blur_with_ftpsfind(estimate, ip)
-
-
-        "Done constructing."
-        """
-        Take the ratio between the measured data and the expected data.
-        Store this ratio in 'expected_data'
-        """
-        expected_data = noisy_multiview_data / (expected_data + 1e-6)
-
-        # multiply with mask to reduce border artifacts
-
-        expected_data *= masks
-
-        # for ip in range(len(params)):
-        #     expected_data[ip] = expected_data[ip] * sitk.Cast(weights[ip]>0,sitk.sitkFloat32)
-        """
-        Apply the transpose of the expected data operation to the correction factor
-        """
-        correction_factor = expected_data[0] * 0.
-        for ip, p in enumerate(psfs):
-
-            # o = blur_func(multiview_data[ip],p,orig_prop_list[ip],stack_properties,sz,sxy)
-            o = blur_with_ftpsfind(expected_data[ip], ip)
-
-            if weights is not None:
-                o = o * weights[ip]
-
-            correction_factor += o
-
-        """
-        Multiply the old estimate by the correction factor to get the new estimate
-        """
-
-        estimate = estimate * correction_factor
-
-        estimate = np.clip(estimate,0,2**16-1)
-
-        # if num_iterations < 1:
-        new_imsum = np.sum(estimate)
-        conv = np.abs(1-new_imsum/curr_imsum)
-        print('convergence: %s' %conv)
-
-        if conv < tol and i>=10: break
-        if i >= num_iterations-1: break
-
-        curr_imsum = new_imsum
-        i += 1
-
-        """
-        Update the history
-        """
-    print("Done deconvolving")
-
-    estimate = ImageArray(estimate.astype(np.uint16),spacing=stack_properties['spacing'],origin=stack_properties['origin'])
-
-    return estimate
+# def fuse_LR_with_weights_np_old(
+#         views,
+#         params,
+#         stack_properties,
+#         num_iterations = 25,
+#         sz = 4,
+#         sxy = 0.5,
+#         tol = 5e-5,
+#         weights = None,
+#         # orig_prop_list = None,
+# ):
+#     """
+#     Combine
+#     - LR multiview fusion
+#       (adapted from python code given in https://code.google.com/archive/p/iterative-fusion/
+#        from publication https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3986040/)
+#     - DCT weights
+#
+#     This addresses the problems that
+#     1) multi-view deconvolution is highly dependent on high precision registration
+#     between views. However, an affine transformation is often not enough due to
+#     optical aberrations and results in poor overlap.
+#     2) due to scattering, the psf strongly varies within each view
+#
+#     In the case of highly scattering samples, FFT+elastix typically results in good
+#     registration accuracy in regions of good image quality (those with small psfs
+#     and short optical paths through the sample). These regions are found using a DCT
+#     quality measure and weighted accordingly. Therefore, to reduce the contribution
+#     to multi-view LR of unwanted regions in the individual views, the weights are
+#     applied in each iteration during convolution with the psf.
+#
+#     Adaptations and details:
+#     - convolve views in original space
+#      - recapitulates imaging process and trivially deals with view parameters
+#      - allows for iterative raw data reconstruction without deconvolution
+#      - disadvantage: slow in current implementation
+#     - apply DCT weights in each blurring iteration to account for strong scattering
+#     - simulate convolution by psf with gaussian blurring
+#     - TV regularisation not working yet, to be optimised (Multiview Deblurring for 3-D Images from
+# Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/6112225)
+#
+#     Interesting case: sz,sxy=0
+#     - formally no deconvolution but iterative multi-view raw data reconstruction
+#
+#     works well:
+#     - sz6 it 10, some rings
+#     - sz5 it 20, looks good (good compromise between sz and its)
+#     - sz4 it 30, good and no rings
+#
+#     :param views: original views
+#     :param params: parameters mapping views into target space
+#     :param stack_properties: properties of target space
+#     :param num_iterations: max number of deconvolution iterations
+#     :param sz: sigma z
+#     :param sxy: sigma xy
+#     :param tol: convergence threshold
+#     :return:
+#     """
+#
+#     psfs =  np.array([get_psf(params[ip], stack_properties, sz, sxy) for ip in range(len(params))])
+#
+#     noisy_multiview_data = np.array(views)
+#
+#     """
+#     Time for deconvolution!!!
+#     """
+#
+#     estimate = np.sum([weights[i]*views[i] for i in range(len(params))],0).astype(np.float32)
+#
+#     curr_imsum = np.sum(estimate)
+#
+#     masks = np.array([weights[ip]>1e-5 for ip in range(len(params))])
+#
+#     # # erode weights to produce final weights
+#     # pixels = int(sz*4/stack_properties['spacing'][0])
+#     # weights = np.array([ndimage.grey_erosion(w,size=pixels) for w in weights])
+#
+#     # masks = np.array([ndimage.binary_erosion(mask,iterations=2) for mask in masks])
+#
+#     from numpy import fft
+#     shape = estimate.shape
+#
+#     psfs_ft = []
+#     for ip in range(len(psfs)):
+#         kernel_pad = np.pad(psfs[ip], [[0, shape[i]+1] for i in range(3)], mode='constant')
+#         psfs_ft.append(fft.rfftn(kernel_pad))
+#
+#     kshape = psfs[0].shape
+#
+#     def blur_with_ftpsfind(img,iview):
+#
+#         # manual convolution is faster and better than signal.fftconvolve
+#         # - kernels can be computed before
+#         # - image padding can be done using reflection
+#         # - probably also: no additional checking involved
+#         # https://dsp.stackexchange.com/questions/43953/looking-for-fastest-2d-convolution-in-python-on-a-cpu
+#         # https://github.com/scipy/scipy/pull/10518
+#
+#         img_ft = np.pad(img, [[0, kshape[i]+1] for i in range(3)], mode='reflect')
+#         out_shape = img_ft.shape
+#         img_ft = fft.rfftn(img_ft)
+#         img_ft = psfs_ft[iview] * img_ft
+#         img_ft = fft.irfftn(img_ft,s=out_shape)
+#         # img_ft = img_ft[kshape[0] // 2:-kshape[0] // 2, kshape[1] // 2:-kshape[1] // 2, kshape[2] // 2:-kshape[2] // 2]
+#         img_ft = img_ft[kshape[0] // 2:-kshape[0] // 2 - 1, kshape[1] // 2:-kshape[1] // 2 - 1, kshape[2] // 2:-kshape[2] // 2 - 1]
+#
+#         img_ft[img_ft<0] = 0
+#
+#         return img_ft
+#
+#     expected_data = np.zeros(noisy_multiview_data.shape,dtype=np.float32)
+#
+#     i = 0
+#     while 1:
+#         print("Iteration", i)
+#
+#         """
+#         Construct the expected data from the estimate
+#         """
+#
+#         # expected_data = []
+#         for ip, p in enumerate(psfs):
+#             expected_data[ip] = blur_with_ftpsfind(estimate, ip)
+#
+#
+#         "Done constructing."
+#         """
+#         Take the ratio between the measured data and the expected data.
+#         Store this ratio in 'expected_data'
+#         """
+#         expected_data = noisy_multiview_data / (expected_data + 1e-6)
+#
+#         # multiply with mask to reduce border artifacts
+#
+#         expected_data *= masks
+#
+#         # for ip in range(len(params)):
+#         #     expected_data[ip] = expected_data[ip] * sitk.Cast(weights[ip]>0,sitk.sitkFloat32)
+#         """
+#         Apply the transpose of the expected data operation to the correction factor
+#         """
+#         correction_factor = expected_data[0] * 0.
+#         for ip, p in enumerate(psfs):
+#
+#             # o = blur_func(multiview_data[ip],p,orig_prop_list[ip],stack_properties,sz,sxy)
+#             o = blur_with_ftpsfind(expected_data[ip], ip)
+#
+#             if weights is not None:
+#                 o = o * weights[ip]
+#
+#             correction_factor += o
+#
+#         """
+#         Multiply the old estimate by the correction factor to get the new estimate
+#         """
+#
+#         estimate = estimate * correction_factor
+#
+#         estimate = np.clip(estimate,0,2**16-1)
+#
+#         # if num_iterations < 1:
+#         new_imsum = np.sum(estimate)
+#         conv = np.abs(1-new_imsum/curr_imsum)
+#         print('convergence: %s' %conv)
+#
+#         if conv < tol and i>=10: break
+#         if i >= num_iterations-1: break
+#
+#         curr_imsum = new_imsum
+#         i += 1
+#
+#         """
+#         Update the history
+#         """
+#     print("Done deconvolving")
+#
+#     estimate = ImageArray(estimate.astype(np.uint16),spacing=stack_properties['spacing'],origin=stack_properties['origin'])
+#
+#     return estimate
 
 # @io_decorator
 # def fuse_LR_with_weights_np(
@@ -6820,13 +7120,19 @@ def transformStack(p,stack,outShape=None,outSpacing=None,outOrigin=None,interp='
     # 20140326: added outOrigin option
 
     # handle arguments
-    transf = sitk.Transform(3,sitk.sitkIdentity) #!!!
+    # transf = sitk.Transform(3,sitk.sitkIdentity) #!!!
+    transfs = [sitk.Transform(3,sitk.sitkIdentity)]
     if not (p is None):
         for i in range(len(p)//12):
-            transf.AddTransform(sitk.Transform(3,sitk.sitkAffine))
+            # transf.AddTransform(sitk.Transform(3,sitk.sitkAffine))
+            transf = sitk.Transform(3,sitk.sitkAffine)
+            transf.SetParameters(np.array(p[i * 12:(i + 1) * 12], dtype=np.float64))
+            transfs.append(transf)
+
         #p = np.array(p)
         #p = np.concatenate([p[:9].reshape((3,3))[::-1,::-1].flatten(),p[9:][::-1]])
-        transf.SetParameters(np.array(p,dtype=np.float64))
+        # transf.SetParameters(np.array(p,dtype=np.float64))
+    transf = sitk.CompositeTransform(transfs)
     if outShape is None: shape = stack.GetSize()
     else:
         shape = np.ceil(np.array(outShape))

@@ -96,6 +96,10 @@ def process_input_element(path):
         ar.origin = np.array(s.GetOrigin()[::-1])
         res = ar
 
+    elif path.endswith('.zarr'):
+        import dask.array as da
+        res = da.from_zarr(path)
+
     elif path.endswith('ims'):
         res = h5py.File(path, mode='r')['DataSet/ResolutionLevel 0/TimePoint 0/Channel 0/Data'][()]
 
@@ -203,7 +207,12 @@ def process_output_element(element,path):
     # elif type(element) == DiffeomorphicMap:
     #     diffmap = diffmap_on_disk(path)
     #     diffmap.save(element)
-    if path.endswith('.ims'):
+
+    elif path.endswith('.zarr'):
+        import dask.array as da
+        da.to_zarr(da.from_array(element, chunks=[128]*3), path, overwrite=True)
+
+    elif path.endswith('.ims'):
         if os.path.exists(path):
             print('removing existing imaris file')
             os.remove(path)
@@ -224,13 +233,13 @@ def process_output_element(element,path):
                          origin=origin,
                          )
     elif path.endswith('.image.h5') and type(element) == np.ndarray:
-        tmpFile = h5py.File(path)
+        tmpFile = h5py.File(path, 'w')
         tmpFile.clear()
         tmpFile['image'] = element
         tmpFile.close()
     #image_array.ImageArray
     elif path.endswith('.imagear.h5') and type(element) == ImageArray:
-        tmpFile = h5py.File(path)
+        tmpFile = h5py.File(path, 'w')
         tmpFile.clear()
         chunks = np.min([[128]*3,element.shape],0)
         chunks = tuple(chunks)
@@ -251,12 +260,12 @@ def process_output_element(element,path):
 
     # elif path.startswith('prealignment') and path.endswith('.h5') and type(element) == np.ndarray:
     elif 'prealignment' in path and path.endswith('.h5') and type(element) == np.ndarray:
-        tmpFile = h5py.File(path)
+        tmpFile = h5py.File(path, 'w')
         tmpFile.clear()
         tmpFile['prealignment'] = element
         tmpFile.close()
     elif path.endswith('dict.h5') and type(element) == dict:
-        tmpFile = h5py.File(path)
+        tmpFile = h5py.File(path, 'w')
         tmpFile.clear()
         for key,value in element.items():
             tmpFile[key] = value
@@ -457,7 +466,7 @@ def process_graph(graph):
     return new_graph
 
 
-def io_decorator_local(func):
+def io_decorator_local(func, first_arg_is_result=True):
 
     """
     decorator to use for io handling
@@ -478,7 +487,7 @@ def io_decorator_local(func):
         # if not is_io_path(args[0]):
         #     return func(*args,**kwargs)
 
-        if is_io_path(args[0]):
+        if first_arg_is_result and is_io_path(args[0]):
             mtimes = recursive_func_application_with_list_output(list(args),get_mtime_from_path)
 
             highest_mtime = np.array([i for i in mtimes[1:]]).max()
@@ -490,7 +499,7 @@ def io_decorator_local(func):
         nargs = []
         for iarg, arg in enumerate(args):
 
-            if is_io_path(args[0]) and not iarg: continue
+            if first_arg_is_result and is_io_path(args[0]) and not iarg: continue
             res = recursive_func_application(arg, process_input_element)
 
             nargs.append(res)
@@ -499,12 +508,12 @@ def io_decorator_local(func):
         # #     print(args)
         # #     print(mtimes)
 
-        if is_io_path(args[0]):
+        if first_arg_is_result and is_io_path(args[0]):
             print('producing %s' %args[0])
 
         result = func(*nargs, **kwargs)
 
-        if is_io_path(args[0]):
+        if first_arg_is_result and is_io_path(args[0]):
             result = process_output_element(result, args[0])
 
         return result

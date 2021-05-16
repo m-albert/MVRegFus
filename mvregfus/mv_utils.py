@@ -222,7 +222,6 @@ def stackpmaps_to_pmaps(stackpmaps,n_subtransforms=4):
             # pmap['CenterOfRotation'] = tuple([str(i) for i in [0, 0, 0]])
             pmap['CenterOfRotationPoint'] = tuple([str(i) for i in [0, 0, 0]])
 
-
             stpmaps.append(pmap)
         pmaps.append(stpmaps)
 
