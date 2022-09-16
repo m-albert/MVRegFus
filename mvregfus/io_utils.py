@@ -540,6 +540,10 @@ def read_stack_flexible(
 
     stack = tifffile.imread(filename %{'ch': channel}).squeeze().astype(np.uint16)
 
+    if len(stack.shape) < 3:
+        print('prepending dummy z dimension')
+        stack = np.array([stack]*10)
+
     origin = np.array(origin)
     spacing = np.array(spacing)
 
@@ -550,6 +554,8 @@ def read_stack_flexible(
             (stack > background_level)
 
     stack = ImageArray(stack, origin=origin, spacing=spacing, rotation=rotation)
+
+    
 
     return stack
 

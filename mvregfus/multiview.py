@@ -984,7 +984,7 @@ def register_linear_elastix_seq(fixed,moving,t0=None,degree=2,elastix_dir=None,f
     image_pyramid_line = "\n(ImagePyramidSchedule"
     number_of_iterations_line = "\n(MaximumNumberOfIterations"
 
-    for i in range(1+int(np.trunc(np.log2(np.min(list(moving.shape)+list(fixed.shape))/20.))))[::-1]:
+    for i in range(max(1, 1+int(np.trunc(np.log2(np.min(list(moving.shape)+list(fixed.shape))/20.)))))[::-1]:
         f = int(2**i)
         factors.append(f)
         image_pyramid_line +=" %s %s %s" %(f,f,f)
@@ -1005,7 +1005,7 @@ def register_linear_elastix_seq(fixed,moving,t0=None,degree=2,elastix_dir=None,f
     image_pyramid_line = "\n(ImagePyramidSchedule"
     number_of_iterations_line = "\n(MaximumNumberOfIterations"
 
-    for i in range(1+int(np.trunc(np.log2(np.min(list(moving.shape)+list(fixed.shape))/20.))))[::-1]:
+    for i in range(max(1, 1+int(np.trunc(np.log2(np.min(list(moving.shape)+list(fixed.shape))/20.)))))[::-1]:
         f = int(2**i)
         factors.append(f)
         image_pyramid_line +=" %s %s %s" %(f,f,f)
@@ -1027,7 +1027,7 @@ def register_linear_elastix_seq(fixed,moving,t0=None,degree=2,elastix_dir=None,f
     image_pyramid_line = "\n(ImagePyramidSchedule"
     number_of_iterations_line = "\n(MaximumNumberOfIterations"
 
-    for i in range(1+int(np.trunc(np.log2(np.min(list(moving.shape)+list(fixed.shape))/20.))))[::-1][-1:]:
+    for i in range(max(1, 1+int(np.trunc(np.log2(np.min(list(moving.shape)+list(fixed.shape))/20.)))))[::-1][-1:]:
         f = int(2**i)
         factors.append(f)
         image_pyramid_line +=" %s %s %s" %(f,f,f)
@@ -1054,6 +1054,8 @@ def register_linear_elastix_seq(fixed,moving,t0=None,degree=2,elastix_dir=None,f
         open(param_paths[i],'w').write(param_strings[i])
     # open(param_path_similarity,'w').write(mod_params_similarity)
     # open(param_path_affine,'w').write(mod_params_affine)
+
+    # import pdb; pdb.set_trace()
 
     fixed_path = os.path.join(temp_dir,'fixed.mhd')
     moving_path = os.path.join(temp_dir,'moving.mhd')
@@ -1316,10 +1318,17 @@ def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None,
                                     out_spacing=stack_properties['spacing']
                                     )
 
+    # print('t00', t00)
+    # print(mov_t.shape, moving.shape)
+    # print('ident', np.sum(np.abs(fixed - static_t)))
+    # print('mask', static_mask.max())
+
+    # import pdb; pdb.set_trace()
+
     im0 = static_t
     im1 = mov_t
 
-    offset = translation3d(im1,im0)
+    offset = translation3d(im0,im1)
 
     # offset = np.array([-offset[2],0,offset[0]]) * reg_spacing
     # offset = np.array([offset[0],0,offset[2]]) * reg_spacing
@@ -1365,10 +1374,45 @@ def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None,
     return parameters
 
 
-from numpy.fft import fftn, ifftn
-
-
+import skimage
 def translation3d(im0, im1):
+
+    t = skimage.registration.phase_cross_correlation(im0, im1,
+            upsample_factor=10, normalization=None)[0]
+
+    from scipy import stats
+    corrs = []
+    t_candidates = []
+    for s1 in range(4):
+        for s2 in range(4):
+            for s3 in range(4):
+                # t_candidates.append([[-1,1][s1]*t[0], [-1,1][s2]*t[1], [-1,1][s3]*t[2]])
+                t_candidate = []
+                for d in range(3):
+                    if [s1,s2,s3][d] == 0: t_candidate.append(t[d])
+                    elif [s1,s2,s3][d] == 1: t_candidate.append(-t[d])
+                    elif [s1,s2,s3][d] == 2: t_candidate.append(-(t[d]-im1.shape[d]))
+                    elif [s1,s2,s3][d] == 3: t_candidate.append(-t[d]-im1.shape[d])
+                t_candidates.append(t_candidate)
+                        
+    for t_ in t_candidates:
+        im1t = ndimage.affine_transform(im1+1, params_to_matrix([1,0,0,0,1,0,0,0,1]+list(t_)),
+                                        order=1, mode='constant', cval=0)
+        mask = im1t > 0
+        if float(np.sum(mask)) / np.product(im1.shape) < 0.1:
+            corr = -1
+        else:
+            corr = stats.spearmanr(im0[mask], im1t[mask]).correlation
+        # print('corr', t_, corr, np.sum(mask))
+        corrs.append(corr)
+        
+    t = t_candidates[np.argmax(corrs)]
+
+    return t
+
+
+from numpy.fft import fftn, ifftn
+def translation3d_old(im0, im1):
     """Return translation vector to register images."""
 
     # fill zeros with noise
@@ -1413,7 +1457,19 @@ def translation3d(im0, im1):
     # import pdb;
     # pdb.set_trace()
 
-    return [t0, t1, t2]
+    t = np.array([t0, t1, t2])
+
+    from scipy import stats
+    corrs = []
+    t_candidates = [t, -t]
+    for t_ in t_candidates:
+        im1t = ndimage.affine_transform(im1+1, params_to_matrix([1,0,0,0,1,0,0,0,1]+list(t_)))
+        mask = im1t > 0
+        corrs.append(stats.spearmanr(im0[mask], im1t[mask]).correlation)
+    print('CORRRRS', corrs)
+    t = t_candidates[np.argmax(corrs)]
+
+    return t
 
 # import transformations
 def get_affine_parameters_from_elastix_output(filepath_or_params,t0=None):
@@ -2005,19 +2061,19 @@ def transform_view_dask_and_save_chunked(fn, view, params, iview, stack_properti
     res = transform_stack_dask_numpy(view, params[iview], stack_properties=stack_properties, interp='linear',
                                chunksize=chunksize)
 
-    from dask.diagnostics import ProgressBar
-    with ProgressBar():
+    # from dask.diagnostics import ProgressBar
+    # with ProgressBar():
 
-        try:
-            import cupy
-            scheduler = 'single-threaded'
-        except:
-            scheduler = 'threads'
+    #     try:
+    #         import cupy
+    #         scheduler = 'single-threaded'
+    #     except:
+    #         scheduler = 'threads'
 
-        print('transforming and streaming to file: %s' % fn)
-        da_to_ims(res, fn, scheduler=scheduler)
-        # da_to_ims(res, fn, scheduler='single-threaded')
-    # res.to_hdf5(fn, 'Data')#, chunks=(128, 128, 128))#, **{'scheduler':'single-threaded'})
+    #     print('transforming and streaming to file: %s' % fn)
+    #     da_to_ims(res, fn, scheduler=scheduler)
+    #     # da_to_ims(res, fn, scheduler='single-threaded')
+    res.to_hdf5(fn, 'Data')#, chunks=(128, 128, 128))#, **{'scheduler':'single-threaded'})
     #
     return fn
 
@@ -2308,7 +2364,7 @@ def get_mask_using_otsu(im):
     return seg.astype(np.uint16)
 
 @io_decorator
-def get_params_from_pairs(ref_view,pairs,params,time_alignment_params=None):
+def get_params_from_pairs(ref_view,pairs,params,time_alignment_params=None,consider_reg_quality=False,views=None):
     """
     time_alignment_params: single params from longitudinal registration to be concatenated with view params
     """
@@ -2317,8 +2373,26 @@ def get_params_from_pairs(ref_view,pairs,params,time_alignment_params=None):
     g = networkx.DiGraph()
     for ipair,pair in enumerate(pairs):
         # g.add_edge(pair[0],pair[1],{'p': params[ipair]})
-        g.add_edge(pair[0],pair[1], p = params[ipair]) # after update 201809 networkx seems to have changed
-        g.add_edge(pair[1], pair[0], p = invert_params(params[ipair])) # after update 201809 networkx seems to have changed
+
+        # import pdb; pdb.set_trace()
+        if consider_reg_quality and views is not None:
+            from scipy import stats
+            imf = views[pair[0]] + 1
+            imm = views[pair[1]] + 1
+            immt = transform_stack_sitk(imm, params[ipair],
+                                        out_origin=imf.origin,
+                                        out_spacing=imf.spacing,
+                                        out_shape=imf.shape,
+                                        )
+            mask = (imf > 0) * (immt > 0)
+            weight = 5 - stats.spearmanr(imf[mask], immt[mask]).correlation
+            print('weights: ', pair, weight, params[ipair])
+            # if pair[0] == 0 and pair[1] == 7: import pdb; pdb.set_trace()
+        else:
+            weight = 1
+
+        g.add_edge(pair[0],pair[1], p = params[ipair], weight=weight) # after update 201809 networkx seems to have changed
+        g.add_edge(pair[1], pair[0], p = invert_params(params[ipair]), weight=weight) # after update 201809 networkx seems to have changed
 
     all_views = np.unique(np.array(pairs).flatten())
     # views_to_transform = np.sort(np.array(list(set(all_views).difference(set([ref_view])))))
@@ -2330,9 +2404,12 @@ def get_params_from_pairs(ref_view,pairs,params,time_alignment_params=None):
             final_view_params = matrix_to_params(np.eye(4))
 
         else:
-            paths = networkx.all_shortest_paths(g,ref_view,view)
+            #import pdb; pdb.set_trace()
+            paths = networkx.all_shortest_paths(g,ref_view,view, weight='weight')
+            # print('PATHs for view %s: ' %view, [p for p in paths])
             paths_params = []
             for ipath,path in enumerate(paths):
+                print('processing PATH for view %s: ' %view, path)
                 # if ipath > 0: break # is it ok to take mean affine params?
                 path_pairs = [[path[i],path[i+1]] for i in range(len(path)-1)]
                 print(path_pairs)
@@ -3973,6 +4050,7 @@ def get_weights_simple(
         # sigN = 200
         sigN = 200
         sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-2)/(sigN)*orig_stack_propertiess[iview]['spacing']
+        # sigspacing = np.min([])
         # sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-2)/(sigN-1)*orig_stack_propertiess[iview]['spacing']
         # sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-1)/(sigN-1)*orig_stack_propertiess[iview]['spacing']
 
@@ -4655,8 +4733,8 @@ def fuse_blockwise(fn,
         #         print(y.shape,pads,slices)
         return ys
 
-    # tviews_dsets = [h5py.File(fn_tview)['array'] for fn_tview in fns_tview]
-    tviews_dsets = [h5py.File(fn_tview, 'r')['DataSet/ResolutionLevel 0/TimePoint 0/Channel 0/Data'] for fn_tview in fns_tview]
+    tviews_dsets = [h5py.File(fn_tview)['Data'] for fn_tview in fns_tview]
+    #tviews_dsets = [h5py.File(fn_tview, 'r')['DataSet/ResolutionLevel 0/TimePoint 0/Channel 0/Data'] for fn_tview in fns_tview]
 
     depth = int(fusion_block_overlap)
     # depth = 0
@@ -4749,14 +4827,14 @@ def fuse_blockwise(fn,
         dask_scheduler = 'threads'
         # dask_scheduler = 'single-threaded'
 
-    from .imaris import da_to_ims
+    # from .imaris import da_to_ims
 
-    from dask.diagnostics import ProgressBar
-    with ProgressBar():
-        print('fusing views...')
-        da_to_ims(result, fn, scheduler=dask_scheduler)
+    # from dask.diagnostics import ProgressBar
+    # with ProgressBar():
+    #     print('fusing views...')
+    #     da_to_ims(result, fn, scheduler=dask_scheduler)
 
-    return fn
+    return result
     # return res
     # return res, dsk, keys, result
 
@@ -8000,13 +8078,27 @@ def transformStack(p,stack,outShape=None,outSpacing=None,outOrigin=None,interp='
     # 20140326: added outOrigin option
 
     # handle arguments
-    transf = sitk.Transform(3,sitk.sitkIdentity) #!!!
+    # transf = sitk.Transform(3,sitk.sitkIdentity) #!!!
     if not (p is None):
-        for i in range(len(p)//12):
-            transf.AddTransform(sitk.Transform(3,sitk.sitkAffine))
-        #p = np.array(p)
-        #p = np.concatenate([p[:9].reshape((3,3))[::-1,::-1].flatten(),p[9:][::-1]])
-        transf.SetParameters(np.array(p,dtype=np.float64))
+
+        p = np.array(p)
+        p = p.reshape((-1,12))
+
+        txs = []
+        for i in range(len(p)):
+            tx = sitk.Transform(3,sitk.sitkAffine)
+            tx.SetParameters(np.array(p[i],dtype=np.float64))
+            txs.append(tx)
+
+        transf = sitk.CompositeTransform(txs)
+
+        # for i in range(len(p)//12):
+        #     transf.AddTransform(sitk.Transform(3,sitk.sitkAffine))
+        # #p = np.array(p)
+        # #p = np.concatenate([p[:9].reshape((3,3))[::-1,::-1].flatten(),p[9:][::-1]])
+        # transf.SetParameters(np.array(p,dtype=np.float64))
+
+
     if outShape is None: shape = stack.GetSize()
     else:
         shape = np.ceil(np.array(outShape))

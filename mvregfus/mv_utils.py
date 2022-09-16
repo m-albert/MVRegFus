@@ -266,6 +266,7 @@ def image_to_sitk(im):
     sim = sitk.GetImageFromArray(im)
     sim.SetOrigin(im.origin[::-1])
     sim.SetSpacing(im.spacing[::-1])
+    # import pdb; pdb.set_trace()
     return sim
 
 

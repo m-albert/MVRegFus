@@ -65,7 +65,7 @@ def build_multiview_graph(
     pairs = [[1,0],[1,2],[0,3],[2,3]],
     view_dict = None,
     background_level = 200,
-    perform_chromatic_correction = True,
+    perform_chromatic_correction = False,
     ref_channel_chrom = 0,
     fusion_method = 'LR',
     fusion_weights = 'dct',
@@ -197,7 +197,7 @@ def build_multiview_graph(
             multiview.register_linear_elastix,
             multiview_view_reg_label % (ds,sample-1,time_alignment_ref_view,reg_channel),
             multiview_view_reg_label % (ds,sample,time_alignment_ref_view,reg_channel),
-            1,  # degree = 1 (trans + rotation)
+            0,  # degree = 1 (trans + rotation)
             elastix_dir,
                                                                    )
 
@@ -246,7 +246,9 @@ def build_multiview_graph(
         pairs,
         [fusion_params_pair_label %(ds,sample,pair[0],pair[1]) for ipair,pair in enumerate(pairs)],
         time_alignment_params_label % (ds,sample),
-                                               )
+        True, # consider reg quality
+        [multiview_view_reg_label %(ds,sample,view,reg_channel) for view in all_views],
+        )
 
     # print('WARNING: groupwise registration with relative z scaling from pairwise registration')
 
@@ -454,7 +456,7 @@ def build_multiview_graph(
 
             elif 'tif' in view_dict[view]['filename'][-4:]:
                 graph[multiview_view_fullres_label % (ds, sample, view, ch)] = (io_utils.read_stack_flexible,
-                                                                        view_dict[view]['filename'],
+                                                                        view_dict[view]['filename'] %{'ch':ch},
                                                                         ch,
                                                                         view_dict[view]['origin'],
                                                                         view_dict[view]['spacing'],
