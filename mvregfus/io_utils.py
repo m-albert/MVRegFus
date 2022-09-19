@@ -490,7 +490,7 @@ def io_decorator_local(func):
         nargs = []
         for iarg,arg in enumerate(args):
             if is_io_path(args[0]) and not iarg: continue
-            res = recursive_func_application(arg,process_input_element)
+            res = recursive_func_application(arg, process_input_element)
 
             nargs.append(res)
 
@@ -540,9 +540,9 @@ def read_stack_flexible(
 
     stack = tifffile.imread(filename %{'ch': channel}).squeeze().astype(np.uint16)
 
-    if len(stack.shape) < 3:
-        print('prepending dummy z dimension')
-        stack = np.array([stack]*10)
+    # if len(stack.shape) < 3:
+    #     print('prepending dummy z dimension')
+    #     stack = np.array([stack]*10)
 
     origin = np.array(origin)
     spacing = np.array(spacing)

@@ -1248,6 +1248,8 @@ def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None,
     :return:
     """
 
+    ndim = fixed.ndim
+
     lower_f_phys = fixed.origin
     upper_f_phys = fixed.origin + fixed.shape*fixed.spacing
 
@@ -1263,8 +1265,8 @@ def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None,
     lower_m = ((lower_phys - lower_m_phys) / moving.spacing).astype(np.uint64)
     upper_m = ((upper_phys - lower_m_phys) / moving.spacing).astype(np.uint64)
 
-    slices_f = [slice(lower_f[dim], upper_f[dim]) for dim in range(3)]
-    slices_m = [slice(lower_m[dim], upper_m[dim]) for dim in range(3)]
+    slices_f = [slice(lower_f[dim], upper_f[dim]) for dim in range(ndim)]
+    slices_m = [slice(lower_m[dim], upper_m[dim]) for dim in range(ndim)]
 
     lower_f_phys = np.copy(lower_phys)
     lower_m_phys = np.copy(lower_phys)
@@ -1287,25 +1289,29 @@ def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None,
     static_mask = get_mask_using_otsu(static)
     static_mask = ImageArray(static_mask, spacing=fixed.spacing, origin=lower_f_phys)
 
-    t00 = mv_utils.euler_matrix(0, + fixed.rotation - moving.rotation, 0)
-    center_static = np.array(static.shape)/2.*static.spacing + static.origin
-    center_mov = np.array(mov.shape)/2.*mov.spacing + mov.origin
-    t00offset = center_mov - np.dot(t00[:3,:3], center_static)
-    t00[:3,3] = t00offset
-    t00 = matrix_to_params(t00)
+    if fixed.rotation != moving.rotation:
+        t00 = mv_utils.euler_matrix(0, + fixed.rotation - moving.rotation, 0)
+        center_static = np.array(static.shape)/2.*static.spacing + static.origin
+        center_mov = np.array(mov.shape)/2.*mov.spacing + mov.origin
+
+        t00offset = center_mov - np.dot(t00[:ndim,:ndim], center_static)
+        t00[:ndim,ndim] = t00offset
+        t00 = matrix_to_params(t00)
+    else:
+        t00 = matrix_to_params(np.eye(ndim+1))
 
     # reg_spacing = np.array([fixed.spacing[0]*4]*3)
     # print('WARNING: 20180614: changed fft registration spacing')
     reg_iso_spacing = np.min([np.array(im.spacing)*np.array(im.shape)/160. for im in [static,mov]])
     reg_iso_spacing = np.max([[reg_iso_spacing]+list(static.spacing)+list(mov.spacing)])
-    reg_spacing = np.array([reg_iso_spacing]*3)
+    reg_spacing = np.array([reg_iso_spacing]*static.ndim)
 
     stack_properties = calc_stack_properties_from_views_and_params([static.get_info(), mov.get_info()],
-                                                                   [matrix_to_params(np.eye(4)), t00],
+                                                                   [matrix_to_params(np.eye(static.ndim+1)), t00],
                                                                    spacing=reg_spacing, mode='union')
 
     static_t = transform_stack_sitk(static,
-                                    matrix_to_params(np.eye(4)),
+                                    matrix_to_params(np.eye(ndim+1)),
                                     out_shape=stack_properties['size'],
                                     out_origin=stack_properties['origin'],
                                     out_spacing=stack_properties['spacing']
@@ -1333,10 +1339,10 @@ def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None,
     # offset = np.array([-offset[2],0,offset[0]]) * reg_spacing
     # offset = np.array([offset[0],0,offset[2]]) * reg_spacing
     # print('WARNING: add complete FFT offset (also y component), 20181109')
-    offset = np.array([offset[0],offset[1],offset[2]]) * reg_spacing
+    offset = np.array(offset) * reg_spacing
 
     t0 = np.copy(t00)
-    t0[9:] += np.dot(t0[:9].reshape((3,3)), offset)
+    t0[ndim*ndim:] += np.dot(t0[:ndim*ndim].reshape((ndim, ndim)), offset)
     # return t0
 
     # use raw intensities for elastix
@@ -1383,20 +1389,31 @@ def translation3d(im0, im1):
     from scipy import stats
     corrs = []
     t_candidates = []
-    for s1 in range(4):
-        for s2 in range(4):
-            for s3 in range(4):
-                # t_candidates.append([[-1,1][s1]*t[0], [-1,1][s2]*t[1], [-1,1][s3]*t[2]])
-                t_candidate = []
-                for d in range(3):
-                    if [s1,s2,s3][d] == 0: t_candidate.append(t[d])
-                    elif [s1,s2,s3][d] == 1: t_candidate.append(-t[d])
-                    elif [s1,s2,s3][d] == 2: t_candidate.append(-(t[d]-im1.shape[d]))
-                    elif [s1,s2,s3][d] == 3: t_candidate.append(-t[d]-im1.shape[d])
-                t_candidates.append(t_candidate)
+
+    # for s1 in range(4):
+    #     for s2 in range(4):
+    #         for s3 in range(4):
+    #             # t_candidates.append([[-1,1][s1]*t[0], [-1,1][s2]*t[1], [-1,1][s3]*t[2]])
+    #             t_candidate = []
+    #             for d in range(3):
+    #                 if [s1,s2,s3][d] == 0: t_candidate.append(t[d])
+    #                 elif [s1,s2,s3][d] == 1: t_candidate.append(-t[d])
+    #                 elif [s1,s2,s3][d] == 2: t_candidate.append(-(t[d]-im1.shape[d]))
+    #                 elif [s1,s2,s3][d] == 3: t_candidate.append(-t[d]-im1.shape[d])
+    #             t_candidates.append(t_candidate)
+
+    ndim = im0.ndim
+    for s in np.ndindex(tuple([4]*ndim)):
+        t_candidate = []
+        for d in range(ndim):
+            if s[d] == 0: t_candidate.append(t[d])
+            elif s[d] == 1: t_candidate.append(-t[d])
+            elif s[d] == 2: t_candidate.append(-(t[d]-im1.shape[d]))
+            elif s[d] == 3: t_candidate.append(-t[d]-im1.shape[d])
+        t_candidates.append(t_candidate)
                         
     for t_ in t_candidates:
-        im1t = ndimage.affine_transform(im1+1, params_to_matrix([1,0,0,0,1,0,0,0,1]+list(t_)),
+        im1t = ndimage.affine_transform(im1+1, params_to_matrix(list(np.eye(ndim).flatten())+list(t_)),
                                         order=1, mode='constant', cval=0)
         mask = im1t > 0
         if float(np.sum(mask)) / np.product(im1.shape) < 0.1:
@@ -1450,20 +1467,24 @@ def translation3d_old(im0, im1):
     # if t2 > shape[2] // 2:
     #     t2 -= shape[2]
 
-    if t0 > shape[0] // 2: t0 -= shape[0]
-    if t1 > shape[1] // 2: t1 -= shape[1]
-    if t2 > shape[2] // 2: t2 -= shape[2]
-
-    # import pdb;
-    # pdb.set_trace()
-
     t = np.array([t0, t1, t2])
+    for d in range(3):
+        if t[d] > shape[d] // 2: t[d] -= shape[d]
+
+    # if t0 > shape[0] // 2: t0 -= shape[0]
+    # if t1 > shape[1] // 2: t1 -= shape[1]
+    # if t2 > shape[2] // 2: t2 -= shape[2]
+
+    # # import pdb;
+    # # pdb.set_trace()
+
+    # t = np.array([t0, t1, t2])
 
     from scipy import stats
     corrs = []
     t_candidates = [t, -t]
     for t_ in t_candidates:
-        im1t = ndimage.affine_transform(im1+1, params_to_matrix([1,0,0,0,1,0,0,0,1]+list(t_)))
+        im1t = ndimage.affine_transform(im1+1, params_to_matrix(list(np.eye(ndim).flatten())+list(t_)))
         mask = im1t > 0
         corrs.append(stats.spearmanr(im0[mask], im1t[mask]).correlation)
     print('CORRRRS', corrs)
@@ -1780,6 +1801,8 @@ def transform_stack_dask_numpy(
                               chunksize=512,
                         ):
 
+    ndim = stack.ndim
+
     if stack_properties is not None:
         out_shape = stack_properties['size']
         out_origin = stack_properties['origin']
@@ -1796,8 +1819,8 @@ def transform_stack_dask_numpy(
             out_spacing = stack.spacing
 
     p = np.array(p)
-    matrix = p[:9].reshape(3,3)
-    offset = p[9:]
+    matrix = p[:ndim*ndim].reshape(ndim,ndim)
+    offset = p[ndim*ndim:]
 
     # spacing matrices
     Sx = np.diag(out_spacing)
@@ -1821,7 +1844,7 @@ def transform_stack_dask_numpy(
                                         matrix_prime,
                                         offset_prime,
                                         output_shape=out_shape,
-                                        output_chunks=[chunksize] * 3,
+                                        output_chunks=[chunksize] * ndim,
                                         order=order)
 
     # transformed = ImageArray(transformed)
@@ -1864,7 +1887,8 @@ def affine_transform_dask(
         chunk_offset = np.array([i[0] for i in block_info[0]['array-location']])
         # print('chunk_offset', chunk_offset)
 
-        edges_output_chunk = np.array([[i,j,k] for i in [0,1] for j in [0,1] for k in [0,1]]) * np.array(x.shape) + chunk_offset
+        # edges_output_chunk = np.array([[i,j,k] for i in [0,1] for j in [0,1] for k in [0,1]]) * np.array(x.shape) + chunk_offset
+        edges_output_chunk = np.array([i for i in np.ndindex(tuple([2]*N))]) * np.array(x.shape) + chunk_offset
         # print('edges_output_chunk', edges_output_chunk)
         edges_relevant_input = np.dot(matrix, edges_output_chunk.T).T + offset
 
@@ -2079,9 +2103,12 @@ def transform_view_dask_and_save_chunked(fn, view, params, iview, stack_properti
 
 def transform_stack_sitk(stack,p=None,out_shape=None,out_spacing=None,out_origin=None,interp='linear',stack_properties=None):
 
+    ndim = stack.ndim
+
     # print('WARNING: USING BSPLINE INTERPOLATION AS DEFAULT')
     if p is None:
-        p = np.array([1.,0,0,0,1,0,0,0,1,0,0,0])
+        p = matrix_to_params(np.eye(ndim+1))
+        # p = np.array([1.,0,0,0,1,0,0,0,1,0,0,0])
 
     p = np.array(p)
 
@@ -2107,7 +2134,7 @@ def transform_stack_sitk(stack,p=None,out_shape=None,out_spacing=None,out_origin
     # sstack.SetOrigin(stack.origin[::-1])
 
     trivial = True
-    if not np.allclose(p, matrix_to_params(np.eye(4))):
+    if not np.allclose(p, matrix_to_params(np.eye(ndim+1))):
         trivial = False
     if not np.allclose(out_shape, stack.shape):
         trivial = False
@@ -2369,6 +2396,8 @@ def get_params_from_pairs(ref_view,pairs,params,time_alignment_params=None,consi
     time_alignment_params: single params from longitudinal registration to be concatenated with view params
     """
 
+    ndim = params_to_matrix(params[0]).shape[0]-1
+
     import networkx
     g = networkx.DiGraph()
     for ipair,pair in enumerate(pairs):
@@ -2400,8 +2429,7 @@ def get_params_from_pairs(ref_view,pairs,params,time_alignment_params=None,consi
     final_params = []
     for iview,view in enumerate(all_views):
         if view == ref_view:
-            # final_params.append(matrix_to_params(np.eye(4)))
-            final_view_params = matrix_to_params(np.eye(4))
+            final_view_params = matrix_to_params(np.eye(ndim+1))
 
         else:
             #import pdb; pdb.set_trace()
@@ -2413,7 +2441,7 @@ def get_params_from_pairs(ref_view,pairs,params,time_alignment_params=None,consi
                 # if ipath > 0: break # is it ok to take mean affine params?
                 path_pairs = [[path[i],path[i+1]] for i in range(len(path)-1)]
                 print(path_pairs)
-                path_params = np.eye(4)
+                path_params = np.eye(ndim+1)
                 for edge in path_pairs:
                     tmp_params = params_to_matrix(g.get_edge_data(edge[0], edge[1])['p'])
                     path_params = np.dot(tmp_params,path_params)
@@ -2427,6 +2455,8 @@ def get_params_from_pairs(ref_view,pairs,params,time_alignment_params=None,consi
             final_view_params = concatenate_view_and_time_params(time_alignment_params,final_view_params)
 
         final_params.append(final_view_params)
+
+    print(final_params)
 
     return np.array(final_params)
 
@@ -3521,14 +3551,15 @@ def get_union_volume(stack_properties_list, params):
     """
     back project first planes in every view to get maximum volume
     """
-
-    generic_vertices = np.array([[i,j,k] for i in [0,1] for j in [0,1] for k in [0,1]])
-    vertices = np.zeros((len(stack_properties_list)*len(generic_vertices),3))
+    ndim = len(stack_properties_list[0]['spacing'])
+    # generic_vertices = np.array([[i,j,k] for i in [0,1] for j in [0,1] for k in [0,1]])
+    generic_vertices = np.array([i for i in np.ndindex(tuple([2]*ndim))])
+    vertices = np.zeros((len(stack_properties_list)*len(generic_vertices),ndim))
     for iim, sp in enumerate(stack_properties_list):
         # tmp_vertices = generic_vertices * np.array(im.shape) * im.spacing + im.origin
         tmp_vertices = generic_vertices * np.array(sp['size']) * np.array(sp['spacing']) + np.array(sp['origin'])
         inv_params = params_to_matrix(invert_params(params[iim]))
-        tmp_vertices_transformed = np.dot(inv_params[:3,:3], tmp_vertices.T).T + inv_params[:3,3]
+        tmp_vertices_transformed = np.dot(inv_params[:ndim,:ndim], tmp_vertices.T).T + inv_params[:ndim,ndim]
         vertices[iim*len(generic_vertices):(iim+1)*len(generic_vertices)] = tmp_vertices_transformed
 
     # res = dict()
@@ -3545,14 +3576,15 @@ def get_intersection_volume(stack_properties_list, params):
     back project first planes in every view to get maximum volume
     """
 
+    ndim = len(stack_properties_list[0]['spacing'])
     # generic_vertices = np.array([[i,j,k] for i in [0,1] for j in [0,1] for k in [0,1]])
-    generic_vertices = np.array([[i,j,k] for i in [0,1] for j in [0,1] for k in [0,1]])
-    vertices = np.zeros((len(stack_properties_list),len(generic_vertices),3))
+    generic_vertices = np.array([i for i in np.ndindex(tuple([2]*ndim))])
+    vertices = np.zeros((len(stack_properties_list)*len(generic_vertices),ndim))
     for iim, sp in enumerate(stack_properties_list):
         # tmp_vertices = generic_vertices * np.array(im.shape) * im.spacing + im.origin
         tmp_vertices = generic_vertices * np.array(sp['size']) * np.array(sp['spacing']) + np.array(sp['origin'])
         inv_params = params_to_matrix(invert_params(params[iim]))
-        tmp_vertices_transformed = np.dot(inv_params[:3,:3], tmp_vertices.T).T + inv_params[:3,3]
+        tmp_vertices_transformed = np.dot(inv_params[:ndim,:ndim], tmp_vertices.T).T + inv_params[:ndim,ndim]
         vertices[iim,:] = tmp_vertices_transformed
 
     # res = dict()
@@ -3570,15 +3602,16 @@ def get_sample_volume(stack_properties_list, params):
     back project first planes in every view to get maximum volume
     """
 
+    ndim = len(stack_properties_list[0]['spacing'])
     # generic_vertices = np.array([[i,j,k] for i in [0,1] for j in [0,1] for k in [0,1]])
-    generic_vertices = np.array([[i,j,k] for i in [0,1] for j in [0,1] for k in [0.5]])
-    vertices = np.zeros((len(stack_properties_list)*len(generic_vertices),3))
+    generic_vertices = np.array([i for i in np.ndindex(tuple([2]*ndim))])
+    vertices = np.zeros((len(stack_properties_list)*len(generic_vertices),ndim))
     for iim, sp in enumerate(stack_properties_list):
         # tmp_vertices = generic_vertices * np.array(im.shape) * im.spacing + im.origin
         tmp_vertices = generic_vertices * np.array(sp['size']) * np.array(sp['spacing']) + np.array(sp['origin'])
         # tmp_vertices = generic_vertices * (np.array(im.shape)-2) * im.spacing + im.origin + im.spacing # exclude one line everywhere
         inv_params = params_to_matrix(invert_params(params[iim]))
-        tmp_vertices_transformed = np.dot(inv_params[:3,:3], tmp_vertices.T).T + inv_params[:3,3]
+        tmp_vertices_transformed = np.dot(inv_params[:ndim,:ndim], tmp_vertices.T).T + inv_params[:ndim,ndim]
         vertices[iim*len(generic_vertices):(iim+1)*len(generic_vertices)] = tmp_vertices_transformed
 
     # res = dict()
@@ -8076,17 +8109,17 @@ def fuse_dct(views,params,stack_properties):
 def transformStack(p,stack,outShape=None,outSpacing=None,outOrigin=None,interp='linear'):
     # can handle composite transformations (len(p)%12)
     # 20140326: added outOrigin option
-
+    ndim = len(stack.GetSize())
     # handle arguments
     # transf = sitk.Transform(3,sitk.sitkIdentity) #!!!
     if not (p is None):
 
         p = np.array(p)
-        p = p.reshape((-1,12))
+        p = p.reshape((-1,(ndim*(ndim+1))))
 
         txs = []
         for i in range(len(p)):
-            tx = sitk.Transform(3,sitk.sitkAffine)
+            tx = sitk.Transform(ndim,sitk.sitkAffine)
             tx.SetParameters(np.array(p[i],dtype=np.float64))
             txs.append(tx)
 
@@ -8114,7 +8147,7 @@ def transformStack(p,stack,outShape=None,outSpacing=None,outOrigin=None,interp='
         # return np.sum(np.abs(np.array(v1).astype(np.uint8) - np.array(v2).astype(np.uint8))) == 0
         return np.allclose(v1,v2)
 
-    p_is_identity = vectors_are_same(p,[1,0,0,0,1,0,0,0,1,0,0,0])
+    p_is_identity = vectors_are_same(p,matrix_to_params(np.eye(ndim+1)))
     out_shape_same = vectors_are_same(outShape,stack.GetSize())
     out_spacing_same = vectors_are_same(outSpacing,stack.GetSpacing())
     out_origin_same = vectors_are_same(outOrigin,stack.GetOrigin())

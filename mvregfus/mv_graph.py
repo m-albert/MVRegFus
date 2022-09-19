@@ -53,6 +53,7 @@ def build_multiview_graph(
     out_dir,
     filepath,
     input_graph=None,
+    ndim=3,
     channels = [0],
     reg_channel = 0,
     ref_view = 0,
@@ -212,14 +213,14 @@ def build_multiview_graph(
                                                                 )
 
     else:
-        graph[time_alignment_params_label %(ds,sample)] = np.array([1.,0,0,0,1,0,0,0,1,0,0,0])
+        graph[time_alignment_params_label %(ds,sample)] = mv_utils.matrix_to_params(np.eye(ndim+1).astype(np.float64))
 
     print('INFO: setting registration degree to 2 (trans+rot+aff)')
     for ipair,pair in enumerate(pairs):
 
         fusion_params_pair_file = os.path.join(out_dir,fusion_params_pair_label % (ds, sample, pair[0], pair[1]))
         if pair[0] == pair[1]:
-            graph[fusion_params_pair_label % (ds, sample, pair[0], pair[1])] = np.array([1.,0,0,0,1,0,0,0,1,0,0,0])
+            graph[fusion_params_pair_label % (ds, sample, pair[0], pair[1])] = mv_utils.matrix_to_params(np.eye(ndim+1).astype(np.float64))
         elif os.path.exists(fusion_params_pair_file):
             graph[fusion_params_pair_label %(ds,sample,pair[0],pair[1])] = fusion_params_pair_file
         else:

@@ -284,8 +284,10 @@ def transform_points(pts, p):
 
 
 def bin_stack(im,bin_factors=np.array([1,1,1])):
-    if np.allclose(bin_factors, [1, 1, 1]):
+
+    if np.allclose(bin_factors, [1]*len(bin_factors)):
         return im
+
     bin_factors = np.array(bin_factors)
     origin = im.origin
     spacing = im.spacing
@@ -301,4 +303,5 @@ def bin_stack(im,bin_factors=np.array([1,1,1])):
     im = sitk.GetArrayFromImage(im)
     # im = (im - background_level) * (view > background_level)
     im = ImageArray(im, spacing=binned_spacing, origin=binned_origin, rotation=rotation)
+    print(im)
     return im
