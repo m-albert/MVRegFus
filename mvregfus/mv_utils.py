@@ -298,6 +298,8 @@ def bin_stack(im,bin_factors=np.array([1,1,1])):
     binned_origin = origin + (binned_spacing-spacing)/2.
     # print('watch out with binning origin!')
 
+    # import pdb; pdb.set_trace
+
     im = sitk.GetImageFromArray(im)
     im = sitk.BinShrink(im,[int(i) for i in bin_factors])
     im = sitk.GetArrayFromImage(im)
@@ -305,3 +307,34 @@ def bin_stack(im,bin_factors=np.array([1,1,1])):
     im = ImageArray(im, spacing=binned_spacing, origin=binned_origin, rotation=rotation)
     print(im)
     return im
+
+
+def get_registration_pairs_from_view_dict(view_dict, min_percentile=49):
+    """
+    Automatically determine list of pairwise views to be registered using
+    'origin' and 'shape' information in view_dict.
+    """
+
+    all_pairs, overlap_areas = [], []
+    for iview1, v1 in view_dict.items():
+        for iview2, v2 in view_dict.items():
+            if iview1 >= iview2: continue
+
+            x1_i, x1_f = np.array([[v1['origin'][dim], v1['origin'][dim] + v1['shape'][dim] * v1['spacing'][dim]] for dim in range(2)]).T
+            x2_i, x2_f = np.array([[v2['origin'][dim], v2['origin'][dim] + v2['shape'][dim] * v2['spacing'][dim]] for dim in range(2)]).T
+
+            dim_overlap_opt1 = (x1_f >= x2_i) * (x1_f <= x2_f)
+            dim_overlap_opt2 = (x2_f >= x1_i) * (x2_f <= x1_f)
+
+            dim_overlap = dim_overlap_opt1 + dim_overlap_opt2
+
+            if np.all(dim_overlap):
+                overlap = np.min([x2_f, x1_f], 0) - np.max([x2_i, x1_i], 0)
+                # print(iview1, iview2, x1_i, x1_f, x2_i, x2_f, dim_overlap_opt1, dim_overlap_opt2, dim_overlap, overlap)
+                all_pairs.append((iview1, iview2))
+                overlap_areas.append(np.product(overlap))
+
+    all_pairs, overlap_areas = np.array(all_pairs), np.array(overlap_areas)
+    all_pairs = all_pairs[overlap_areas >= np.percentile(overlap_areas, min_percentile), :]
+
+    return all_pairs

@@ -1238,8 +1238,12 @@ def register_linear_elastix_seq(fixed,moving,t0=None,degree=2,elastix_dir=None,f
 
 
 @io_decorator
-def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None,
-                            identifier_sample=None, identifier_fixed=None, identifier_moving=None, debug_dir=None):
+def register_linear_elastix(fixed, moving,
+                            degree=2, elastix_dir=None,
+                            identifier_sample=None,
+                            identifier_fixed=None,
+                            identifier_moving=None,
+                            debug_dir=None):
 
     """
     register a pair of stacks using their overlap as given by the metadata
@@ -1267,6 +1271,8 @@ def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None,
 
     slices_f = [slice(lower_f[dim], upper_f[dim]) for dim in range(ndim)]
     slices_m = [slice(lower_m[dim], upper_m[dim]) for dim in range(ndim)]
+
+    # import pdb; pdb.set_trace()
 
     lower_f_phys = np.copy(lower_phys)
     lower_m_phys = np.copy(lower_phys)
@@ -1306,6 +1312,8 @@ def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None,
     reg_iso_spacing = np.max([[reg_iso_spacing]+list(static.spacing)+list(mov.spacing)])
     reg_spacing = np.array([reg_iso_spacing]*static.ndim)
 
+    print('REGSPACING', reg_spacing)
+
     stack_properties = calc_stack_properties_from_views_and_params([static.get_info(), mov.get_info()],
                                                                    [matrix_to_params(np.eye(static.ndim+1)), t00],
                                                                    spacing=reg_spacing, mode='union')
@@ -1329,7 +1337,7 @@ def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None,
     # print('ident', np.sum(np.abs(fixed - static_t)))
     # print('mask', static_mask.max())
 
-    # import pdb; pdb.set_trace()
+    
 
     im0 = static_t
     im1 = mov_t
@@ -2391,7 +2399,9 @@ def get_mask_using_otsu(im):
     return seg.astype(np.uint16)
 
 @io_decorator
-def get_params_from_pairs(ref_view,pairs,params,time_alignment_params=None,consider_reg_quality=False,views=None):
+def get_params_from_pairs(ref_view, pairs, params,
+                          time_alignment_params=None, consider_reg_quality=False,
+                          views=None, view_indices=None):
     """
     time_alignment_params: single params from longitudinal registration to be concatenated with view params
     """
@@ -2406,8 +2416,8 @@ def get_params_from_pairs(ref_view,pairs,params,time_alignment_params=None,consi
         # import pdb; pdb.set_trace()
         if consider_reg_quality and views is not None:
             from scipy import stats
-            imf = views[pair[0]] + 1
-            imm = views[pair[1]] + 1
+            imf = views[view_indices[pair[0]]] + 1
+            imm = views[view_indices[pair[1]]] + 1
             immt = transform_stack_sitk(imm, params[ipair],
                                         out_origin=imf.origin,
                                         out_spacing=imf.spacing,

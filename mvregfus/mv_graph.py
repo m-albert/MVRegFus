@@ -91,6 +91,7 @@ def build_multiview_graph(
     elastix_dir = '/scratch/malbert/dependencies_linux/elastix_linux64_v4.8',
     pairwise_registration_mode = 2,
     debug_pairwise_registration = True,
+    multitile_czi = False,
     ):
 
     if input_graph is None:
@@ -215,7 +216,7 @@ def build_multiview_graph(
     else:
         graph[time_alignment_params_label %(ds,sample)] = mv_utils.matrix_to_params(np.eye(ndim+1).astype(np.float64))
 
-    print('INFO: setting registration degree to 2 (trans+rot+aff)')
+    # print('INFO: setting registration degree to 2 (trans+rot+aff)')
     for ipair,pair in enumerate(pairs):
 
         fusion_params_pair_file = os.path.join(out_dir,fusion_params_pair_label % (ds, sample, pair[0], pair[1]))
@@ -227,7 +228,7 @@ def build_multiview_graph(
 
             graph[fusion_params_pair_label %(ds,sample,pair[0],pair[1])] = (
                 multiview.register_linear_elastix,
-                os.path.join(out_dir,fusion_params_pair_label % (ds, sample, pair[0], pair[1])),
+                os.path.join(out_dir, fusion_params_pair_label % (ds, sample, pair[0], pair[1])),
                 # dipy_multiview.register_linear_projections,
                 # os.path.join('/tmp/', fusion_params_pair_label %(ds,sample,ipair)),
                 multiview_view_reg_label % (ds,sample,pair[0],reg_channel),
@@ -249,6 +250,7 @@ def build_multiview_graph(
         time_alignment_params_label % (ds,sample),
         True, # consider reg quality
         [multiview_view_reg_label %(ds,sample,view,reg_channel) for view in all_views],
+        {view: iview for iview, view in enumerate(all_views)}, # view indices
         )
 
     # print('WARNING: groupwise registration with relative z scaling from pairwise registration')
@@ -438,7 +440,19 @@ def build_multiview_graph(
                                                                 )
 
             if view_dict[view]['filename'].endswith('czi'):
-                graph[multiview_view_fullres_label %(ds, sample, view, ch)] = (multiview.readStackFromMultiviewMultiChannelCzi,
+                if multitile_czi:
+                    graph[multiview_view_fullres_label %(ds, sample, view, ch)] = (
+                        io_utils.read_tile_from_multitile_czi,
+                            view_dict[view]['filename'],
+                            view_dict[view]['view'],
+                            ch,
+                            sample, #time
+                            view_dict[view]['origin'],
+                            view_dict[view]['spacing'],
+                        )
+                else:
+                    graph[multiview_view_fullres_label %(ds, sample, view, ch)] = (
+                                                                        multiview.readStackFromMultiviewMultiChannelCzi,
                                                                         view_dict[view]['filename'],
                                                                         # view,
                                                                         view_dict[view]['view'],

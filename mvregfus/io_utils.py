@@ -555,7 +555,52 @@ def read_stack_flexible(
 
     stack = ImageArray(stack, origin=origin, spacing=spacing, rotation=rotation)
 
-    
-
     return stack
 
+
+from aicspylibczi import CziFile
+def read_tile_from_multitile_czi(filename, tile_index, channel_index=0, time_index=0, origin=0, spacing=1., S=0):
+    czi = CziFile(filename)
+    bb = czi.get_mosaic_tile_bounding_box(M=tile_index, C=channel_index, T=time_index, S=0)
+    im = czi.read_mosaic(region=(bb.x, bb.y, bb.w, bb.h), C=channel_index, T=time_index).squeeze()
+    im = ImageArray(im, origin=origin, spacing=spacing, rotation=0)
+    return im
+
+
+from aicsimageio import AICSImage
+def build_view_dict_from_multitile_czi(filename, S=0):
+
+    czi = CziFile(filename)
+    bbs = czi.get_all_mosaic_tile_bounding_boxes()
+
+    ntiles = czi.get_dims_shape()[0]['M'][1]
+    z_shape = czi.get_dims_shape()[0]['Z'][1]
+    ndim = 2 if z_shape == 1 else 3
+
+    spacing = AICSImage(filename).physical_pixel_sizes
+    spacing = np.array([spacing.Y, spacing.X])
+
+    bbs = [czi.get_mosaic_tile_bounding_box(M=itile, S=0, C=0, T=0) for itile in range(ntiles)]
+
+    # xmin, ymin = np.min([[b.y, b.x] for b in bbs], axis=0)
+
+    origins = np.array([[b.y, b.x] for b in bbs]) * spacing# - np.array([xmin, ymin])
+    # shapes = np.array([[b.h, b.w] for b in bbs])
+
+    shape = np.array([czi.get_dims_shape()[0][dim_s][1] for dim_s in ['Z', 'Y', 'X']])
+
+    if ndim == 2:
+        shape = shape[1:] # invert here?
+
+    # LOOK AT AXIS ORDER HERE
+
+    view_dict = {itile: {'shape': shape,
+                  'origin': o,
+                  'rotation': 0,
+                  'spacing': spacing,
+                  'filename': filename,
+                  'view': itile,
+                  }
+            for itile, o in zip(range(ntiles), origins)}
+
+    return view_dict
