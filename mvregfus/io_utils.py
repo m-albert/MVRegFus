@@ -559,15 +559,55 @@ def read_stack_flexible(
 
 
 from aicspylibczi import CziFile
-def read_tile_from_multitile_czi(filename, tile_index, channel_index=0, time_index=0, origin=0, spacing=1., S=0):
-    czi = CziFile(filename)
-    bb = czi.get_mosaic_tile_bounding_box(M=tile_index, C=channel_index, T=time_index, S=0)
-    im = czi.read_mosaic(region=(bb.x, bb.y, bb.w, bb.h), C=channel_index, T=time_index).squeeze()
+import czifile
+def read_tile_from_multitile_czi(filename, tile_index, channel_index=0, time_index=0, origin=None, spacing=None):
+    """
+    Use aicspylibczi to get metadata of multitile czi files.
+    Use czifile to read images (as there's a bug in aicspylibczi20221013, namely that
+    neighboring tiles are included (prestitching?) in a given read out tile).
+    """
+
+    aicspylibcziFile = CziFile(filename)
+    bb = aicspylibcziFile.get_mosaic_tile_bounding_box(M=tile_index, C=channel_index, T=time_index, S=0)
+
+    # def get_segment_index(tile_index, channel_index=0, time_index=0,
+    #     n_tiles=aicspylibcziFile.get_dims_shape()[0]['M'][1],
+    #     n_channels=aicspylibcziFile.get_dims_shape()[0]['C'][1],
+    #     n_times=aicspylibcziFile.get_dims_shape()[0]['T'][1]):
+    #     """
+    #     czifile segments seem to be ordered as such: first channels vary, then tiles, then time points.
+    #     What about sets? Before data segments there are 4 metadata ones.
+    #     """
+    #     return time_index * (n_tiles * n_channels) + tile_index * n_channels + channel_index
+
+    """
+    czifile segments seem to be unordered? Before data segments there are 4 metadata ones.
+    """
+    czifileFile = czifile.CziFile(filename)
+    ss = [s for s in czifileFile.segments()][4:np.product([aicspylibcziFile.get_dims_shape()[0][c][1] for c in ['T', 'M', 'C']])+4]
+    print(len(ss))
+    found = False
+    ind = -1
+    while not found:
+        ind += 1
+        if ss[ind].dimension_entries[0].start == tile_index and ss[ind].dimension_entries[3].start == time_index and ss[ind].dimension_entries[4].start == channel_index:
+            break
+
+    # reading like this seems to work
+    im = ss[ind].data().squeeze()
+
+    # this line shows the bug described in docstring
+    # im = czi.read_mosaic(region=(bb.x, bb.y, bb.w, bb.h), C=channel_index, T=time_index).squeeze()
+
+    if origin is None:
+        origin = [0.] * im.ndim
+        spacing = [1.] * im.ndim
+
     im = ImageArray(im, origin=origin, spacing=spacing, rotation=0)
     return im
 
 
-from aicsimageio import AICSImage
+# from aicsimageio import AICSImage
 def build_view_dict_from_multitile_czi(filename, S=0):
 
     czi = CziFile(filename)
@@ -577,23 +617,22 @@ def build_view_dict_from_multitile_czi(filename, S=0):
     z_shape = czi.get_dims_shape()[0]['Z'][1]
     ndim = 2 if z_shape == 1 else 3
 
-    spacing = AICSImage(filename).physical_pixel_sizes
-    spacing = np.array([spacing.Y, spacing.X])
-
-    bbs = [czi.get_mosaic_tile_bounding_box(M=itile, S=0, C=0, T=0) for itile in range(ntiles)]
-
-    # xmin, ymin = np.min([[b.y, b.x] for b in bbs], axis=0)
-
-    origins = np.array([[b.y, b.x] for b in bbs]) * spacing# - np.array([xmin, ymin])
-    # shapes = np.array([[b.h, b.w] for b in bbs])
-
+    # spacing = AICSImage(filename).physical_pixel_sizes
+    # spacing = np.array([spacing.Y, spacing.X])
+    spacing = np.array([1., 1.])
     shape = np.array([czi.get_dims_shape()[0][dim_s][1] for dim_s in ['Z', 'Y', 'X']])
 
-    if ndim == 2:
-        shape = shape[1:] # invert here?
+    bbs = [czi.get_mosaic_tile_bounding_box(M=itile, S=0, C=0, T=0) for itile in range(ntiles)]
+    # print([bb.x for bb in bbs])
+    # xmin, ymin = np.min([[b.y, b.x] for b in bbs], axis=0)
 
-    # LOOK AT AXIS ORDER HERE
-
+    if ndim == 3:
+        origins = np.array([[0., b.y, b.x] for b in bbs]) * spacing# - np.array([xmin, ymin])
+        spacing = np.append([[1.], spacing])
+    else:
+        origins = np.array([[b.y, b.x] for b in bbs]) * spacing# - np.array([xmin, ymin])
+        shape = shape[1:]
+        
     view_dict = {itile: {'shape': shape,
                   'origin': o,
                   'rotation': 0,

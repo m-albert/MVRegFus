@@ -14,14 +14,14 @@ from mvregfus import io_utils, mv_utils
 
 import SimpleITK as sitk
 from mvregfus.image_array import ImageArray
-from dipy.align.imaffine import (
-                                 # AffineMap,
-                                 MutualInformationMetric,
-                                 AffineRegistration)
-from dipy.align.transforms import (TranslationTransform2D,
-                                   AffineTransform2D,TranslationTransform3D,
-                                   # ShearTransform3D,
-                                   RigidTransform3D,AffineTransform3D)
+# from dipy.align.imaffine import (
+#                                  # AffineMap,
+#                                  MutualInformationMetric,
+#                                  AffineRegistration)
+# from dipy.align.transforms import (TranslationTransform2D,
+#                                    AffineTransform2D,TranslationTransform3D,
+#                                    # ShearTransform3D,
+#                                    RigidTransform3D,AffineTransform3D)
 
 io_decorator = io_utils.io_decorator_local
 
@@ -4704,8 +4704,7 @@ def get_weights_simple(
 #
 #     return ws
 
-import h5pickle as h5py # these objects can be pickled
-# import h5py
+import h5pickle # these objects can be pickled
 def fuse_blockwise(fn,
                    fns_tview,
                    params,
@@ -4776,7 +4775,7 @@ def fuse_blockwise(fn,
         #         print(y.shape,pads,slices)
         return ys
 
-    tviews_dsets = [h5py.File(fn_tview)['Data'] for fn_tview in fns_tview]
+    tviews_dsets = [h5pickle.File(fn_tview)['Data'] for fn_tview in fns_tview]
     #tviews_dsets = [h5py.File(fn_tview, 'r')['DataSet/ResolutionLevel 0/TimePoint 0/Channel 0/Data'] for fn_tview in fns_tview]
 
     depth = int(fusion_block_overlap)

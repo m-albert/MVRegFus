@@ -328,6 +328,8 @@ def get_registration_pairs_from_view_dict(view_dict, min_percentile=49):
 
             dim_overlap = dim_overlap_opt1 + dim_overlap_opt2
 
+            # print(iview1, iview2, x1_i, x1_f, x2_i, x2_f, dim_overlap_opt1, dim_overlap_opt2, dim_overlap)
+
             if np.all(dim_overlap):
                 overlap = np.min([x2_f, x1_f], 0) - np.max([x2_i, x1_i], 0)
                 # print(iview1, iview2, x1_i, x1_f, x2_i, x2_f, dim_overlap_opt1, dim_overlap_opt2, dim_overlap, overlap)
