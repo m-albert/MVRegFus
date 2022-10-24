@@ -583,9 +583,12 @@ def read_tile_from_multitile_czi(filename, tile_index, channel_index=0, time_ind
     """
     czifile segments seem to be unordered? Before data segments there are 4 metadata ones.
     """
+
+    # open file using czifile and get file segments
     czifileFile = czifile.CziFile(filename)
     ss = [s for s in czifileFile.segments()][4:np.product([aicspylibcziFile.get_dims_shape()[0][c][1] for c in ['T', 'M', 'C']])+4]
-    print(len(ss))
+    
+    # find the right segment (czifileFile.segments seem to not be ordered perfectly consistently)
     found = False
     ind = -1
     while not found:
@@ -593,7 +596,7 @@ def read_tile_from_multitile_czi(filename, tile_index, channel_index=0, time_ind
         if ss[ind].dimension_entries[0].start == tile_index and ss[ind].dimension_entries[3].start == time_index and ss[ind].dimension_entries[4].start == channel_index:
             break
 
-    # reading like this seems to work
+    # reading data from segment
     im = ss[ind].data().squeeze()
 
     # this line shows the bug described in docstring
