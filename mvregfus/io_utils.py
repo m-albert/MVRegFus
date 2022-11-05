@@ -357,7 +357,8 @@ def process_output_element(element,path):
 
 
 def is_io_path(path):
-    if not type(path) == str or (type(path) == str and len(path.split('.'))==1) or 'elastix' in path or path.endswith('.czi'):
+    # if not type(path) == str or (type(path) == str and len(path.split('.'))==1) or 'elastix' in path or path.endswith('.czi'):
+    if not type(path) == str or (type(path) == str and len(path[-6:].split('.'))==1) or 'elastix' in path or path.endswith('.czi'):
         return False
     else:
         return True
@@ -494,10 +495,6 @@ def io_decorator_local(func):
 
             nargs.append(res)
 
-        # if 'map2' in args[0]:
-        # #     print(args)
-        # #     print(mtimes)
-
         if is_io_path(args[0]):
             print('producing %s' %args[0])
 
@@ -558,61 +555,129 @@ def read_stack_flexible(
     return stack
 
 
-from aicspylibczi import CziFile
 import czifile
-def read_tile_from_multitile_czi(filename, tile_index, channel_index=0, time_index=0, origin=None, spacing=None):
+def read_tile_from_multitile_czi(filename,
+                                 tile_index, channel_index=0, time_index=0, sample_index=0,
+                                 origin=None, spacing=None,
+                                 max_project=True,
+                                 ):
     """
-    Use aicspylibczi to get metadata of multitile czi files.
     Use czifile to read images (as there's a bug in aicspylibczi20221013, namely that
     neighboring tiles are included (prestitching?) in a given read out tile).
     """
-
-    aicspylibcziFile = CziFile(filename)
-    bb = aicspylibcziFile.get_mosaic_tile_bounding_box(M=tile_index, C=channel_index, T=time_index, S=0)
-
-    # def get_segment_index(tile_index, channel_index=0, time_index=0,
-    #     n_tiles=aicspylibcziFile.get_dims_shape()[0]['M'][1],
-    #     n_channels=aicspylibcziFile.get_dims_shape()[0]['C'][1],
-    #     n_times=aicspylibcziFile.get_dims_shape()[0]['T'][1]):
-    #     """
-    #     czifile segments seem to be ordered as such: first channels vary, then tiles, then time points.
-    #     What about sets? Before data segments there are 4 metadata ones.
-    #     """
-    #     return time_index * (n_tiles * n_channels) + tile_index * n_channels + channel_index
-
-    """
-    czifile segments seem to be unordered? Before data segments there are 4 metadata ones.
-    """
-
-    # open file using czifile and get file segments
     czifileFile = czifile.CziFile(filename)
-    ss = [s for s in czifileFile.segments()][4:np.product([aicspylibcziFile.get_dims_shape()[0][c][1] for c in ['T', 'M', 'C']])+4]
-    
-    # find the right segment (czifileFile.segments seem to not be ordered perfectly consistently)
-    found = False
-    ind = -1
-    while not found:
-        ind += 1
-        if ss[ind].dimension_entries[0].start == tile_index and ss[ind].dimension_entries[3].start == time_index and ss[ind].dimension_entries[4].start == channel_index:
-            break
 
-    # reading data from segment
-    im = ss[ind].data().squeeze()
+    tile = []
+    order = []
+    for directory_entry in czifileFile.filtered_subblock_directory:
+        plane_is_wanted = True
+        for dim in directory_entry.dimension_entries:
 
-    # this line shows the bug described in docstring
-    # im = czi.read_mosaic(region=(bb.x, bb.y, bb.w, bb.h), C=channel_index, T=time_index).squeeze()
+            if dim.dimension == 'M':
+                if not dim.start == tile_index:
+                    plane_is_wanted = False
+                    break
+
+            if dim.dimension == 'C':
+                if not dim.start == channel_index:
+                    plane_is_wanted = False
+                    break
+
+            if dim.dimension == 'T':
+                if not dim.start == time_index:
+                    plane_is_wanted = False
+                    break
+
+            if dim.dimension == 'S':
+                if not dim.start == sample_index:
+                    plane_is_wanted = False
+                    break
+            
+            if dim.dimension == 'Z':
+                z = dim.start
+                    
+        if not plane_is_wanted: continue
+
+        order.append(z)
+        subblock = directory_entry.data_segment()
+        tile2d = subblock.data(resize=False).squeeze()
+
+        tile.append(tile2d)
+
+    tile = np.array(tile)[np.array(order).argsort()].squeeze()
+
+    if max_project and tile.ndim == 3:
+        tile = tile.max(axis=0)
 
     if origin is None:
-        origin = [0.] * im.ndim
-        spacing = [1.] * im.ndim
+        origin = [0.] * tile.ndim
 
-    im = ImageArray(im, origin=origin, spacing=spacing, rotation=0)
-    return im
+    if spacing is None:
+        spacing = [1.] * tile.ndim
+
+    tile = ImageArray(tile, origin=origin, spacing=spacing)
+
+    return tile
+
+
+# from aicspylibczi import CziFile
+# import czifile
+# def read_tile_from_multitile_czi(filename, tile_index, channel_index=0, time_index=0, origin=None, spacing=None):
+#     """
+#     Use aicspylibczi to get metadata of multitile czi files.
+#     Use czifile to read images (as there's a bug in aicspylibczi20221013, namely that
+#     neighboring tiles are included (prestitching?) in a given read out tile).
+#     20221025: this function seems to fail in some cases, as M info is not available in segments. This info is present when using filtered_subblock_directory
+#     """
+
+#     aicspylibcziFile = CziFile(filename)
+#     # bb = aicspylibcziFile.get_mosaic_tile_bounding_box(M=tile_index, C=channel_index, T=time_index, S=0)
+
+#     # def get_segment_index(tile_index, channel_index=0, time_index=0,
+#     #     n_tiles=aicspylibcziFile.get_dims_shape()[0]['M'][1],
+#     #     n_channels=aicspylibcziFile.get_dims_shape()[0]['C'][1],
+#     #     n_times=aicspylibcziFile.get_dims_shape()[0]['T'][1]):
+#     #     """
+#     #     czifile segments seem to be ordered as such: first channels vary, then tiles, then time points.
+#     #     What about sets? Before data segments there are 4 metadata ones.
+#     #     """
+#     #     return time_index * (n_tiles * n_channels) + tile_index * n_channels + channel_index
+
+#     """
+#     czifile segments seem to be unordered? Before data segments there are 4 metadata ones.
+#     """
+
+#     # open file using czifile and get file segments
+#     czifileFile = czifile.CziFile(filename)
+#     ss = [s for s in czifileFile.segments()][4:np.product([aicspylibcziFile.get_dims_shape()[0][c][1] for c in ['T', 'M', 'C']])+4]
+    
+#     # find the right segment (czifileFile.segments seem to not be ordered perfectly consistently)
+#     found = False
+#     ind = -1
+#     while not found:
+#         ind += 1
+#         if ss[ind].dimension_entries[0].start == tile_index and ss[ind].dimension_entries[3].start == time_index and ss[ind].dimension_entries[4].start == channel_index:
+#             break
+
+#     # reading data from segment
+#     im = ss[ind].data().squeeze()
+
+#     # this line shows the bug described in docstring
+#     # im = czi.read_mosaic(region=(bb.x, bb.y, bb.w, bb.h), C=channel_index, T=time_index).squeeze()
+
+#     if origin is None:
+#         origin = [0.] * im.ndim
+#         spacing = [1.] * im.ndim
+
+#     im = ImageArray(im, origin=origin, spacing=spacing, rotation=0)
+#     return im
 
 
 # from aicsimageio import AICSImage
-def build_view_dict_from_multitile_czi(filename, S=0):
+from aicspylibczi import CziFile
+def build_view_dict_from_multitile_czi(filename, S=0, max_project=True):
 
+    # import pdb; pdb.set_trace()
     czi = CziFile(filename)
     bbs = czi.get_all_mosaic_tile_bounding_boxes()
 
@@ -625,14 +690,16 @@ def build_view_dict_from_multitile_czi(filename, S=0):
     spacing = np.array([1., 1.])
     shape = np.array([czi.get_dims_shape()[0][dim_s][1] for dim_s in ['Z', 'Y', 'X']])
 
-    bbs = [czi.get_mosaic_tile_bounding_box(M=itile, S=0, C=0, T=0) for itile in range(ntiles)]
     # print([bb.x for bb in bbs])
     # xmin, ymin = np.min([[b.y, b.x] for b in bbs], axis=0)
+    bbs = [czi.get_mosaic_tile_bounding_box(M=itile, S=0, C=0, T=0, Z=0) for itile in range(ntiles)]
 
-    if ndim == 3:
+    if ndim == 3 and not max_project:
+        spacing = np.append([1.], spacing, axis=0)
         origins = np.array([[0., b.y, b.x] for b in bbs]) * spacing# - np.array([xmin, ymin])
-        spacing = np.append([[1.], spacing])
+        
     else:
+        # bbs = [czi.get_mosaic_tile_bounding_box(M=itile, S=0, C=0, T=0) for itile in range(ntiles)]
         origins = np.array([[b.y, b.x] for b in bbs]) * spacing# - np.array([xmin, ymin])
         shape = shape[1:]
         

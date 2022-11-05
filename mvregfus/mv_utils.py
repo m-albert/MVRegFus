@@ -1,6 +1,7 @@
 import SimpleITK as sitk
 import numpy as np
 from scipy.linalg import expm
+from scipy import ndimage
 
 from mvregfus.image_array import ImageArray
 
@@ -314,14 +315,15 @@ def get_registration_pairs_from_view_dict(view_dict, min_percentile=49):
     Automatically determine list of pairwise views to be registered using
     'origin' and 'shape' information in view_dict.
     """
+    ndim = len(view_dict[list(view_dict.keys())[0]]['spacing'])
 
     all_pairs, overlap_areas = [], []
     for iview1, v1 in view_dict.items():
         for iview2, v2 in view_dict.items():
             if iview1 >= iview2: continue
 
-            x1_i, x1_f = np.array([[v1['origin'][dim], v1['origin'][dim] + v1['shape'][dim] * v1['spacing'][dim]] for dim in range(2)]).T
-            x2_i, x2_f = np.array([[v2['origin'][dim], v2['origin'][dim] + v2['shape'][dim] * v2['spacing'][dim]] for dim in range(2)]).T
+            x1_i, x1_f = np.array([[v1['origin'][dim], v1['origin'][dim] + v1['shape'][dim] * v1['spacing'][dim]] for dim in range(ndim)]).T
+            x2_i, x2_f = np.array([[v2['origin'][dim], v2['origin'][dim] + v2['shape'][dim] * v2['spacing'][dim]] for dim in range(ndim)]).T
 
             dim_overlap_opt1 = (x1_f >= x2_i) * (x1_f <= x2_f)
             dim_overlap_opt2 = (x2_f >= x1_i) * (x2_f <= x1_f)
@@ -340,3 +342,52 @@ def get_registration_pairs_from_view_dict(view_dict, min_percentile=49):
     all_pairs = all_pairs[overlap_areas >= np.percentile(overlap_areas, min_percentile), :]
 
     return all_pairs
+
+
+def get_sigmoidal_border_weights_ndim_mask(im, width=10, mode='non-zero'):
+
+    if mode == 'frame':
+        slices = [slice(0, im.shape[dim]) for dim in range(im.ndim)]
+        x = np.mgrid[tuple(slices)]
+        dist_to_border = np.min([x, (im.shape - x.T).T], axis=0)#, 0, np.max(im.shape))
+        dist = np.min(dist_to_border, 0)
+    
+    elif mode == 'non-zero':
+        b = im>0
+        b = ndimage.binary_erosion(b)
+        a = 3*width
+        b2 = ndimage.binary_erosion(b, iterations=a)
+        b3 = ndimage.binary_erosion(b2, iterations=a)
+        b = b ^ b3
+        dist = ndimage.distance_transform_edt(b)
+        dist[b2] = a
+
+    w = 1 / (1 + np.exp(-(dist-width)/(width/5)))
+    w[w<np.min(w)+1e-5] = 0
+    return w
+
+
+def get_sigmoidal_border_weights_ndim_only_one(ims, width=10):#, max_overlap=5, mode='non-zero'):
+    
+    dts = []
+    domains = []
+    for im in ims:
+        b = im>0
+        b = ndimage.binary_erosion(b)
+        dist = ndimage.distance_transform_edt(b)
+        dts.append(dist)
+        domains.append(b)
+    
+    dtmax = np.max(dts, axis=0)
+    dtmin = np.min(dts, axis=0)
+    # masks = np.array([(dts[iview] > dtmax-2*width) * (dts[iview] > dtmin) * domains[iview]
+                   # for iview in range(len(ims))])
+        
+    masks = np.array([(dts[iview] > dtmax-1e-5) * (dts[iview] > dtmin) * domains[iview]
+                   for iview in range(len(ims))])
+    
+    masks = np.array([ndimage.binary_dilation(masks[iview], iterations=width) * domains[iview] for iview in range(len(ims))])
+    
+    ws = [get_sigmoidal_border_weights_ndim_mask(m, width, mode='non-zero') for m in masks]
+    
+    return np.array(ws)#, dtmax, np.array(dts)

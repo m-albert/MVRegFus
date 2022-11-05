@@ -1286,6 +1286,12 @@ def register_linear_elastix(fixed, moving,
             lower_f_phys[dim] = fixed.origin[dim]
             lower_m_phys[dim] = moving.origin[dim]
 
+    if np.max([[s.start == s.stop for s in slices_f],
+               [s.start == s.stop for s in slices_m]]) > 0:
+        print('WARNING: no overlap between views, proceeding with only metadata (%s and %s).' %(identifier_fixed, identifier_moving))
+        t0 = np.eye(fixed.ndim+1)
+        return matrix_to_params(t0)
+
     c0 = clahe(fixed, 10, clip_limit=0.02)
     c1 = clahe(moving, 10, clip_limit=0.02)
 
@@ -1312,8 +1318,6 @@ def register_linear_elastix(fixed, moving,
     reg_iso_spacing = np.max([[reg_iso_spacing]+list(static.spacing)+list(mov.spacing)])
     reg_spacing = np.array([reg_iso_spacing]*static.ndim)
 
-    print('REGSPACING', reg_spacing)
-
     stack_properties = calc_stack_properties_from_views_and_params([static.get_info(), mov.get_info()],
                                                                    [matrix_to_params(np.eye(static.ndim+1)), t00],
                                                                    spacing=reg_spacing, mode='union')
@@ -1336,8 +1340,6 @@ def register_linear_elastix(fixed, moving,
     # print(mov_t.shape, moving.shape)
     # print('ident', np.sum(np.abs(fixed - static_t)))
     # print('mask', static_mask.max())
-
-    
 
     im0 = static_t
     im1 = mov_t
@@ -1495,7 +1497,7 @@ def translation3d_old(im0, im1):
         im1t = ndimage.affine_transform(im1+1, params_to_matrix(list(np.eye(ndim).flatten())+list(t_)))
         mask = im1t > 0
         corrs.append(stats.spearmanr(im0[mask], im1t[mask]).correlation)
-    print('CORRRRS', corrs)
+    # print('CORRRRS', corrs)
     t = t_candidates[np.argmax(corrs)]
 
     return t
@@ -1838,8 +1840,8 @@ def transform_stack_dask_numpy(
     # offset_prime = np.dot(np.linalg.inv(Sy), offset + stack.origin - np.dot(matrix, out_origin))
     offset_prime = np.dot(np.linalg.inv(Sy), offset - stack.origin + np.dot(matrix, out_origin))
 
-    print('matrices', matrix, matrix_prime)
-    print('offsets', offset, offset_prime)
+    # print('matrices', matrix, matrix_prime)
+    # print('offsets', offset, offset_prime)
 
     if interp == 'linear':
         order = 1
@@ -2302,8 +2304,7 @@ def calc_initial_parameters(pairs,infoDict,view_stacks):
         mean0 = ndimage.center_of_mass(m0) * view_stacks[iview0].spacing + origin_overlap0
         mean1 = ndimage.center_of_mass(m1) * view_stacks[iview1].spacing + origin_overlap1
 
-
-        print(mean0,mean1)
+        # print(mean0,mean1)
 
         offset = mean1 - np.dot(matrix[:3,:3],mean0)
         # offset[1] = (positions[iview1][1] - positions[iview0][1]) / spacing[1] * view_stacks[iview0].spacing[1]
@@ -2360,8 +2361,7 @@ def calc_t0(fixed,moving):
     mean0 = ndimage.center_of_mass(m0) * fixed.spacing + origin_overlap0
     mean1 = ndimage.center_of_mass(m1) * moving.spacing + origin_overlap1
 
-
-    print(mean0,mean1)
+    # print(mean0,mean1)
 
     offset = mean1 - np.dot(matrix[:3,:3],mean0)
     tmpParams[9:] = offset
@@ -2450,12 +2450,12 @@ def get_params_from_pairs(ref_view, pairs, params,
                 print('processing PATH for view %s: ' %view, path)
                 # if ipath > 0: break # is it ok to take mean affine params?
                 path_pairs = [[path[i],path[i+1]] for i in range(len(path)-1)]
-                print(path_pairs)
+                # print(path_pairs)
                 path_params = np.eye(ndim+1)
                 for edge in path_pairs:
                     tmp_params = params_to_matrix(g.get_edge_data(edge[0], edge[1])['p'])
                     path_params = np.dot(tmp_params,path_params)
-                    print(path_params)
+                    # print(path_params)
                 paths_params.append(matrix_to_params(path_params))
 
             final_view_params = np.mean(paths_params,0)
@@ -4014,6 +4014,8 @@ def get_weights_simple(
     #     w_stack_properties['spacing'] = np.array([minspacing]*3)
     #     w_stack_properties['size'] = (stack_properties['spacing'][0]/w_stack_properties['spacing'][0])*stack_properties['size']
 
+    ndim = len(stack_properties['size'])
+
     ws = []
 
     border_points = []
@@ -4160,549 +4162,6 @@ def get_weights_simple(
 
     return ws
 
-# # @io_decorator
-# def get_weights_simple(
-#                     orig_stack_propertiess,
-#                     params,
-#                     stack_properties,
-#                     ):
-#     """
-#     sigmoid on borders
-#     """
-#
-#     # w_stack_properties = stack_properties.copy()
-#     # minspacing = 3.
-#     # changed_stack_properties = False
-#     # if w_stack_properties['spacing'][0] < minspacing:
-#     #     changed_stack_properties = True
-#     #     print('using downsampled images for calculating simple weights..')
-#     #     w_stack_properties['spacing'] = np.array([minspacing]*3)
-#     #     w_stack_properties['size'] = (stack_properties['spacing'][0]/w_stack_properties['spacing'][0])*stack_properties['size']
-#
-#     ws = []
-#
-#     border_points = []
-#     rel_coords = np.linspace(0,1,5)
-#     for point in [[i,j,k] for i in rel_coords for j in rel_coords for k in rel_coords]:
-#         phys_point = stack_properties['origin'] + np.array(point)*stack_properties['size']*stack_properties['spacing']
-#         border_points.append(phys_point)
-#
-#     # for iview,view in enumerate(views):
-#     import time
-#     times = []
-#     for iview in range(len(params)):
-#
-#         start = time.time()
-#
-#         # quick check if stack_properties inside orig volume
-#         osp = orig_stack_propertiess[iview]
-#
-#         # transform border points into orig view space (pixel coords)
-#         t_border_points_inside = []
-#         for point in border_points:
-#             t_point = np.dot(params[iview][:9].reshape((3,3)),point) + params[iview][9:]
-#             t_point_pix = (t_point - osp['origin']) / osp['spacing']
-#             inside = True
-#             for icoord,coord in enumerate(t_point_pix):
-#                 if coord < 0 or coord >= osp['size'][icoord]:
-#                     inside = False
-#                     break
-#             t_border_points_inside.append(inside)
-#
-#
-#         if np.all(t_border_points_inside):
-#             ws.append(np.ones(stack_properties['size'],dtype=np.float32))
-#             print('all borders inside')
-#             continue
-#
-#         elif not np.any(t_border_points_inside):
-#             ws.append(np.zeros(stack_properties['size'], dtype=np.float32))
-#             print('all borders outside')
-#             continue
-#
-#         else:
-#             print('block lies partially inside')
-#
-#
-#         # tmporigin = views[iview].origin+views[iview].spacing/2.
-#         # badplanes = int(0/views[iview].spacing[0]) # in microns
-#         # tmporigin[0]+= views[iview].spacing[0]*badplanes
-#         # # print('WATCH OUT! simple_weights: disregarding %s bad planes at the end of the stack' % badplanes)
-#         # # sig =
-#         #
-#         # # x,y,z = np.mgrid[:sig.shape[0],:sig.shape[1],:sig.shape[2]]
-#         # # dists = np.ones(sig.shape)*np.max(sig.shape)
-#         # # for d in range(3):
-#         # #     ddists =
-#         # #     dists = np.min([dists,ddists])
-#         # reducedview = view[badplanes:-1,:-1,:-1]
-#         # tmp_view = ImageArray(reducedview+1,spacing=views[iview].spacing,origin=tmporigin,rotation=views[iview].rotation)
-#         # # tmp_view = ImageArray(view[:-1,:-1,:-1]+1,spacing=views[iview].spacing,origin=views[iview].origin+views[iview].spacing/2.,rotation=views[iview].rotation)
-#         # mask = transform_stack_sitk(tmp_view,params[iview],
-#         #                        out_origin=w_stack_properties['origin'],
-#         #                        out_shape=w_stack_properties['size'],
-#         #                        out_spacing=w_stack_properties['spacing'],
-#         #                         interp='nearest')
-#
-#         def sigmoid(x,borderwidth):
-#             x0 = float(borderwidth)/2.
-#             a = 12./borderwidth
-#             return 1/(1+np.exp(-a*(x-x0)))
-#
-#         # determine boundary using the psf? alternatively, um
-#
-#         sigN = 200
-#         sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-1)/(sigN-1)*orig_stack_propertiess[iview]['spacing']
-#
-#         b_in_um = 40.
-#         b_in_pixels = int(b_in_um / sigspacing[0])
-#         print('blending weights: border width: %s um, %s pixels' %(b_in_um,b_in_pixels))
-#
-#         # r = 0.05 # relative border width
-#         # sig = np.ones(reducedview.shape,dtype=np.float32)
-#         # sigN = 200
-#         sig = np.ones([sigN]*3,dtype=np.float32)
-#
-#         for d in range(3):
-#             # borderwidth = int(r * sig.shape[d])
-#             borderwidth = b_in_pixels
-#             # print(borderwidth)
-#             slices = [slice(0, sig.shape[i]) for i in range(3)]
-#             for bx in range(borderwidth):
-#                 slices[d] = slice(bx, bx + 1)
-#                 sig[tuple(slices)] = np.min([sig[tuple(slices)] * 0 + sigmoid(bx, borderwidth), sig[tuple(slices)]], 0)
-#
-#             # don't blend best part of the image (assuming that is true for high zs)
-#             # if d == 0: borderwidth = int(0.02 * sig.shape[d])
-#             # if d == 0: borderwidth = int(0.05 * sig.shape[d])
-#             for bx in range(borderwidth):
-#                 slices[d] = slice(sig.shape[d] - bx - 1, sig.shape[d] - bx)
-#                 sig[tuple(slices)] = np.min([sig[tuple(slices)] * 0 + sigmoid(bx, borderwidth), sig[tuple(slices)]], 0)
-#
-#         # sig = ImageArray(sig,spacing=views[iview].spacing,origin=views[iview].origin)
-#
-#         # sigspacing = (np.array(views[iview].shape)-1)/(sigN-1)*views[iview].spacing
-#         # sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-3)/(sigN-1)*orig_stack_propertiess[iview]['spacing']
-#         sig = ImageArray(sig,spacing=sigspacing,origin=orig_stack_propertiess[iview]['origin']+1*orig_stack_propertiess[iview]['spacing'])
-#
-#         tmpvs = transform_stack_sitk(sig,params[iview],
-#                                out_origin=stack_properties['origin'],
-#                                out_shape=stack_properties['size'],
-#                                out_spacing=stack_properties['spacing'],
-#                                interp='linear',
-#                                      )
-#
-#         mask = get_mask_in_target_space(orig_stack_propertiess[iview],
-#                                  stack_properties,
-#                                  params[iview]
-#                                  )
-#         times.append(time.time()-start)
-#         # mask = mask > 0
-#         # print('WARNING; 1 ITERATIONS FOR MASK DILATION (DCT WEIGHTS')
-#         # mask = ndimage.binary_dilation(mask == 0,iterations=1)
-#         ws.append(tmpvs*(mask))
-#         # ws.append(tmpvs)
-#
-#     print('times',times)
-#
-#     wsum = np.sum(ws,0)
-#     wsum[wsum==0] = 1
-#     for iw,w in enumerate(ws):
-#         # ws[iw] /= wsum
-#         ws[iw] = ws[iw] / wsum
-#
-#     return ws
-
-# # @io_decorator
-# def get_weights_simple(
-#                     orig_stack_propertiess,
-#                     params,
-#                     stack_properties,
-#                     ):
-#     """
-#     sigmoid on borders
-#     """
-#
-#     # w_stack_properties = stack_properties.copy()
-#     # minspacing = 3.
-#     # changed_stack_properties = False
-#     # if w_stack_properties['spacing'][0] < minspacing:
-#     #     changed_stack_properties = True
-#     #     print('using downsampled images for calculating simple weights..')
-#     #     w_stack_properties['spacing'] = np.array([minspacing]*3)
-#     #     w_stack_properties['size'] = (stack_properties['spacing'][0]/w_stack_properties['spacing'][0])*stack_properties['size']
-#
-#     ws = []
-#
-#     border_points = []
-#     rel_coords = np.linspace(0,1,5)
-#     for point in [[i,j,k] for i in rel_coords for j in rel_coords for k in rel_coords]:
-#         phys_point = stack_properties['origin'] + np.array(point)*stack_properties['size']*stack_properties['spacing']
-#         border_points.append(phys_point)
-#
-#     # for iview,view in enumerate(views):
-#     import time
-#     times = []
-#     for iview in range(len(params)):
-#
-#         start = time.time()
-#
-#         # quick check if stack_properties inside orig volume
-#         osp = orig_stack_propertiess[iview]
-#
-#         # transform border points into orig view space (pixel coords)
-#         t_border_points_inside = []
-#         for point in border_points:
-#             t_point = np.dot(params[iview][:9].reshape((3,3)),point) + params[iview][9:]
-#             t_point_pix = (t_point - osp['origin']) / osp['spacing']
-#             inside = True
-#             for icoord,coord in enumerate(t_point_pix):
-#                 if coord < 0 or coord >= osp['size'][icoord]:
-#                     inside = False
-#                     break
-#             t_border_points_inside.append(inside)
-#
-#
-#         if np.all(t_border_points_inside):
-#             ws.append(np.ones(stack_properties['size'],dtype=np.float32))
-#             print('all borders inside')
-#             continue
-#
-#         elif not np.any(t_border_points_inside):
-#             ws.append(np.zeros(stack_properties['size'], dtype=np.float32))
-#             print('all borders outside')
-#             continue
-#
-#         else:
-#             print('block lies partially inside')
-#
-#
-#         # tmporigin = views[iview].origin+views[iview].spacing/2.
-#         # badplanes = int(0/views[iview].spacing[0]) # in microns
-#         # tmporigin[0]+= views[iview].spacing[0]*badplanes
-#         # # print('WATCH OUT! simple_weights: disregarding %s bad planes at the end of the stack' % badplanes)
-#         # # sig =
-#         #
-#         # # x,y,z = np.mgrid[:sig.shape[0],:sig.shape[1],:sig.shape[2]]
-#         # # dists = np.ones(sig.shape)*np.max(sig.shape)
-#         # # for d in range(3):
-#         # #     ddists =
-#         # #     dists = np.min([dists,ddists])
-#         # reducedview = view[badplanes:-1,:-1,:-1]
-#         # tmp_view = ImageArray(reducedview+1,spacing=views[iview].spacing,origin=tmporigin,rotation=views[iview].rotation)
-#         # # tmp_view = ImageArray(view[:-1,:-1,:-1]+1,spacing=views[iview].spacing,origin=views[iview].origin+views[iview].spacing/2.,rotation=views[iview].rotation)
-#         # mask = transform_stack_sitk(tmp_view,params[iview],
-#         #                        out_origin=w_stack_properties['origin'],
-#         #                        out_shape=w_stack_properties['size'],
-#         #                        out_spacing=w_stack_properties['spacing'],
-#         #                         interp='nearest')
-#
-#         def sigmoid(x,borderwidth):
-#             x0 = float(borderwidth)/2.
-#             a = 12./borderwidth
-#             return 1/(1+np.exp(-a*(x-x0)))
-#
-#         r = 0.05 # relative border width
-#         # sig = np.ones(reducedview.shape,dtype=np.float32)
-#         # sigN = 200
-#         sigN = 200
-#         sig = np.ones([sigN]*3,dtype=np.float32)
-#
-#         for d in range(3):
-#             borderwidth = int(r * sig.shape[d])
-#             # print(borderwidth)
-#             slices = [slice(0, sig.shape[i]) for i in range(3)]
-#             for bx in range(borderwidth):
-#                 slices[d] = slice(bx, bx + 1)
-#                 sig[tuple(slices)] = np.min([sig[tuple(slices)] * 0 + sigmoid(bx, borderwidth), sig[tuple(slices)]], 0)
-#
-#             # don't blend best part of the image (assuming that is true for high zs)
-#             if d == 0: borderwidth = int(0.02 * sig.shape[d])
-#             # if d == 0: borderwidth = int(0.05 * sig.shape[d])
-#             for bx in range(borderwidth):
-#                 slices[d] = slice(sig.shape[d] - bx - 1, sig.shape[d] - bx)
-#                 sig[tuple(slices)] = np.min([sig[tuple(slices)] * 0 + sigmoid(bx, borderwidth), sig[tuple(slices)]], 0)
-#
-#         # sig = ImageArray(sig,spacing=views[iview].spacing,origin=views[iview].origin)
-#
-#         # sigspacing = (np.array(views[iview].shape)-1)/(sigN-1)*views[iview].spacing
-#         sigspacing = (np.array(orig_stack_propertiess[iview]['size'])-1)/(sigN-1)*orig_stack_propertiess[iview]['spacing']
-#         sig = ImageArray(sig,spacing=sigspacing,origin=orig_stack_propertiess[iview]['origin'])
-#
-#         tmpvs = transform_stack_sitk(sig,params[iview],
-#                                out_origin=stack_properties['origin'],
-#                                out_shape=stack_properties['size'],
-#                                out_spacing=stack_properties['spacing'],
-#                                interp='nearest',
-#                                      )
-#
-#         mask = get_mask_in_target_space(orig_stack_propertiess[iview],
-#                                  stack_properties,
-#                                  params[iview]
-#                                  )
-#         times.append(time.time()-start)
-#         # mask = mask > 0
-#         # print('WARNING; 1 ITERATIONS FOR MASK DILATION (DCT WEIGHTS')
-#         # mask = ndimage.binary_dilation(mask == 0,iterations=1)
-#         ws.append(tmpvs*(mask))
-#         # ws.append(tmpvs)
-#
-#     print('times',times)
-#
-#     wsum = np.sum(ws,0)
-#     wsum[wsum==0] = 1
-#     for iw,w in enumerate(ws):
-#         # ws[iw] /= wsum
-#         ws[iw] = ws[iw] / wsum
-#
-#     return ws
-
-
-# from scipy.fftpack import dctn,idctn
-# from scipy import ndimage
-# import dask.array as da
-# @io_decorator
-# def get_weights_dct(
-#                     views,
-#                     params,
-#                     orig_stack_propertiess,
-#                     stack_properties,
-#                     size=None,
-#                     max_kernel=None,
-#                     gaussian_kernel=None,
-#                     ):
-#     """
-#     DCT Shannon Entropy, as in:
-#     Adaptive light-sheet microscopy for long-term, high-resolution imaging in living organisms
-#     http://www.nature.com/articles/nbt.3708
-#
-#     Adaptations:
-#     - consider the full bandwidth, so set r0=d0 in their equation
-#     - calculate on blocks of size <size> and then interpolate to full grid
-#     - run maximum filter
-#     - run smoothing gaussian filter
-#     - final sigmoidal blending at view transitions
-#
-#     :param vrs:
-#     :return:
-#     """
-#
-#     w_stack_properties = stack_properties.copy()
-#     minspacing = 3.
-#     changed_stack_properties = False
-#     if w_stack_properties['spacing'][0] < minspacing:
-#         changed_stack_properties = True
-#         print('using downsampled images for calculating weights..')
-#         w_stack_properties['spacing'] = np.array([minspacing]*3)
-#         w_stack_properties['size'] = (stack_properties['spacing'][0]/w_stack_properties['spacing'][0])*stack_properties['size']
-#
-#     vs = []
-#     vdils = []
-#     for iview,view in enumerate(views):
-#
-#         tmpvs = transform_stack_sitk(view,matrix_to_params(np.eye(4)),
-#                                out_origin=w_stack_properties['origin'],
-#                                out_shape=w_stack_properties['size'],
-#                                out_spacing=w_stack_properties['spacing'])
-#
-#         mask = get_mask_in_target_space(orig_stack_propertiess[iview],
-#                                  w_stack_properties,
-#                                  params[iview]
-#                                  )
-#
-#         vdils.append(mask == 0)
-#         vs.append(tmpvs*(mask>0))
-#
-#     if size is None:
-#         size = np.max([4,int(50 / vs[0].spacing[0])]) # 50um
-#         print('dct: choosing size %s' %size)
-#     if max_kernel is None:
-#         max_kernel = int(size/2.)
-#         print('dct: choosing max_kernel %s' %max_kernel)
-#     if gaussian_kernel is None:
-#         gaussian_kernel = int(max_kernel)
-#         print('dct: choosing gaussian_kernel %s' %gaussian_kernel)
-#
-#     print('calculating dct weights...')
-#     def determine_quality(vrs):
-#
-#         """
-#         DCT Shannon Entropy, as in:
-#         Adaptive light-sheet microscopy for long-term, high-resolution imaging in living organisms
-#         http://www.nature.com/articles/nbt.3708
-#         Consider the full bandwidth, so set r0=d0 in their equation
-#         :param vrs:
-#         :return:
-#         """
-#         # print('dw...')
-#
-#         vrs = np.copy(vrs)
-#
-#         axes = [0,1,2]
-#         ds = []
-#         for v in vrs:
-#
-#             if np.sum(v==0) > np.product(v.shape) * (4/5.):
-#                 ds.append([0])
-#                 continue
-#             elif v.min()<0.0001:
-#                 v[v==0] = v[v>0].min() # or nearest neighbor
-#
-#             d = dctn(v,norm='ortho',axes=axes)
-#             # cut = size//2
-#             # d[:cut,:cut,:cut] = 0
-#             ds.append(d.flatten())
-#
-#         # l2 norm
-#         dsl2 = np.array([np.sum(np.abs(d)) for d in ds])
-#         # don't divide by zero below
-#         dsl2[dsl2==0] = 1
-#
-#         def abslog(x):
-#             res = np.zeros_like(x)
-#             x = np.abs(x)
-#             res[x==0] = 0
-#             res[x>0] = np.log2(x[x>0])
-#             return res
-#
-#         ws = np.array([-np.sum(np.abs(d)*abslog(d/dsl2[id])) for id,d in enumerate(ds)])
-#
-#         # simple weights in case everything is zero
-#         if not ws.max():
-#             ws = np.ones(len(ws))/float(len(ws))
-#
-#         return ws[:,None,None,None]
-#
-#
-#     x = da.from_array(np.array(vs), chunks=(len(vs),size,size,size))
-#     # ws=x.map_blocks(determine_quality,dtype=np.float)
-#     ws = x.map_blocks(determine_quality,dtype=np.float,chunks=(len(vs),1,1,1))
-#
-#     ws = ws.compute(scheduler = 'threads')
-#     ws = np.array(ws)
-#
-#     ws = ImageArray(ws,
-#                     spacing= np.array([size]*3)*np.array(w_stack_properties['spacing']),
-#                     origin = w_stack_properties['origin'] + ((size-1)*w_stack_properties['spacing'])/2.,
-#                     )
-#
-#     newws = []
-#     for iw in range(len(ws)):
-#         newws.append(transform_stack_sitk(ws[iw],
-#                             [1,0,0,0,1,0,0,0,1,0,0,0],
-#                             # out_shape=stack_properties['size'],
-#                             # out_origin=stack_properties['origin'],
-#                             # out_spacing=stack_properties['spacing'],
-#                                out_origin=w_stack_properties['origin'],
-#                                out_shape=w_stack_properties['size'],
-#                                out_spacing=w_stack_properties['spacing'],
-#                             interp='linear',
-#                              ))
-#     ws = np.array(newws)
-#
-#     for iw,w in enumerate(ws):
-#         print('filtering')
-#         ws[iw] = ndimage.maximum_filter(ws[iw],max_kernel)
-#
-#     for iw,w in enumerate(ws):
-#         ws[iw][vdils[iw]] = 0
-#
-#     wsmin = ws.min(0)
-#     wsmax = ws.max(0)
-#     ws = np.array([(w - wsmin)/(wsmax - wsmin + 0.01) for w in ws])
-#     # ws = np.array([(w - wsmin)/(wsmax - wsmin) for w in ws])
-#
-#     # for iw,w in enumerate(ws):
-#     #     ws[iw][vdils[iw]] = 0.00001
-#
-#     wsum = np.sum(ws,0)
-#     wsum[wsum==0] = 1
-#     for iw,w in enumerate(ws):
-#         ws[iw] /= wsum
-#
-#     # tifffile.imshow(np.array([np.array(ts)*10,ws]).swapaxes(-3,-2),vmax=10000)
-#     for iw,w in enumerate(ws):
-#         print('filtering')
-#         # ws[iw] = ndimage.maximum_filter(ws[iw],10)
-#         # ws[iw][vdils[iw]] = 0.00001
-#         ws[iw] = ndimage.gaussian_filter(ws[iw],gaussian_kernel)
-#         # zeros = ndimage.binary_dilation(vs[iw] == 0)
-#         # ws[iw][zeros] = 0.00001
-#         # ws[iw][vdils[iw]] = 0.00001
-#         ws[iw][vdils[iw]] = 0
-#
-#
-#     # HEURISTIC to adapt weights to number of views
-#     # idea: typically, 2-3 views carry good information at a given location
-#     # and the rest should not contribute
-#     # w**exp with exp>1 polarises the weights
-#     # we want to find exp such that 90% of the quality contribution
-#     # is given by the two best views
-#     # this is overall and the analysis is limited to regions where the best view
-#     # has at least double its baseline value 1/len(views)
-#     # alternatively: best view should have 0.5
-#
-#     if len(ws) > 2:
-#
-#         print('applying heuristic to adapt weights to N=%s views' %len(ws))
-#         print('criterion: weights**exp such that best two views > 0.9')
-#
-#         wsum = np.sum(ws,0)
-#         wsum[wsum==0] = 1
-#         for iw,w in enumerate(ws):
-#             ws[iw] /= wsum
-#
-#         wf = ws[:, np.max(ws, 0) > (2 * (1 / len(ws)))]
-#         # wf = wf[:,np.sum(wf,0)>0]
-#         wfs = np.sort(wf, axis=0)
-#
-#         def energy(exp):
-#             exp = exp[0]
-#             tmpw = wfs ** exp
-#             tmpsum = np.sum(tmpw, 0)
-#             tmpw = tmpw / tmpsum
-#             nsum = np.sum(tmpw[-2:], (-1)) / wfs.shape[-1]
-#             energy = np.abs(np.sum(nsum) - 0.9)
-#             return energy
-#
-#         from scipy import optimize
-#         res = optimize.minimize(energy, [0.5], bounds=[[0.5, 5]], method='L-BFGS-B', options={'maxiter': 10})
-#
-#         exp = res.x[0]
-#
-#         print('found exp=%s' %exp)
-#
-#         ws = [ws[i]**exp for i in range(len(ws))]
-#
-#     ws = list(ws)
-#     for iw,w in enumerate(ws):
-#         ws[iw] = ImageArray(ws[iw],
-#                             origin=w_stack_properties['origin'],
-#                             spacing=w_stack_properties['spacing'])
-#
-#
-#     if changed_stack_properties:
-#         for iview in range(len(ws)):
-#             ws[iview] = transform_stack_sitk(ws[iview],[1,0,0,0,1,0,0,0,1,0,0,0],
-#                                    out_origin=stack_properties['origin'],
-#                                    out_shape=stack_properties['size'],
-#                                    out_spacing=stack_properties['spacing'])
-#
-#     # smooth edges
-#     ws_simple = get_weights_simple(
-#                     orig_stack_propertiess,
-#                     params,
-#                     stack_properties
-#     )
-#
-#     ws = [ws[i]*ws_simple[i] for i in range(len(ws))]
-#
-#     wsum = np.sum(ws,0)
-#     wsum[wsum==0] = 1
-#     for iw,w in enumerate(ws):
-#         ws[iw] /= wsum
-#
-#     return ws
 
 import h5pickle # these objects can be pickled
 def fuse_blockwise(fn,
@@ -4722,6 +4181,8 @@ def fuse_blockwise(fn,
     stack_properties = io_utils.process_input_element(stack_properties)
     params = io_utils.process_input_element(params)
 
+    ndim = len(stack_properties['size'])
+
     # in pixels
     if fusion_block_overlap is None:
         fusion_block_overlap = 0
@@ -4735,7 +4196,7 @@ def fuse_blockwise(fn,
         srcshape = np.array(sources[0].shape)
         slices = []
         outside_of_src = False
-        for dim in range(1, 4):
+        for dim in range(1, x.ndim):
 
             l, u = block_info[0]['array-location'][dim]  # lower and upper coord
             if l >= srcshape[dim - 1]:
@@ -4758,7 +4219,7 @@ def fuse_blockwise(fn,
             sl = slice(np.max([0, l - depth]), np.min([srcshape[dim - 1], u + depth]))
             slices.append(sl)
 
-        ys = np.zeros([nviews] + [np.diff(block_info[0]['array-location'][dim])[0] + 2 * depth for dim in range(1, 4)],
+        ys = np.zeros([nviews] + [np.diff(block_info[0]['array-location'][dim])[0] + 2 * depth for dim in range(1, x.ndim)],
                       dtype=sources[0].dtype)
         if outside_of_src:
             return ys
@@ -4780,16 +4241,16 @@ def fuse_blockwise(fn,
 
     depth = int(fusion_block_overlap)
     # depth = 0
-    depth_dict = {0: 0, 1: depth, 2: depth, 3: depth}
+    # depth_dict = {0: 0, 1: depth, 2: depth, 3: depth}
 
     chunksize = 128
-    block_chunk_size = np.array([nviews,chunksize,chunksize,chunksize])
+    # block_chunk_size = np.array([nviews] + chunksize,chunksize,chunksize])
+    block_chunk_size = np.array([nviews] + [chunksize] * ndim)
+
 
     orig_shape = np.array(tviews_dsets[0].shape)
-    # expanded_shape = np.array(block_chunk_size[-3:]) * (np.array(tviews_dsets[0].shape) // chunksize) + np.array(tviews_dsets[0].shape) % chunksize
-    expanded_shape = np.array(block_chunk_size[-3:]) * (np.array(tviews_dsets[0].shape) // chunksize) \
-            + np.array([[0,chunksize][tviews_dsets[0].shape[dim] % chunksize > 0] for dim in range(3)])
-    # print('expanded_shape', expanded_shape)
+    expanded_shape = np.array(block_chunk_size[-ndim:]) * (np.array(tviews_dsets[0].shape) // chunksize) \
+            + np.array([[0,chunksize][tviews_dsets[0].shape[dim] % chunksize > 0] for dim in range(ndim)])
 
     array_template = da.empty((len(tviews_dsets),)+tuple(expanded_shape),chunks=block_chunk_size,dtype=np.uint16)
 
@@ -4827,7 +4288,7 @@ def fuse_blockwise(fn,
     #                                # boundary = {0: 'periodic', 1: 'periodic', 2: 'periodic', 3: 'periodic'})
     #                                boundary = {1: 'periodic', 2: 'periodic', 3: 'periodic'})
 
-    overlap_block_chunk_size = np.array([nviews,chunksize,chunksize,chunksize])
+    overlap_block_chunk_size = np.array([nviews] + [chunksize] * ndim)
     overlap_block_chunk_size[-3:] += 2*depth#*np.array(array_template.numblocks[1:])
     tviews_stack_overlap = array_template.map_blocks(overlap_from_sources, dtype=np.uint16, sources=tviews_dsets, depth=depth, chunks=overlap_block_chunk_size)
 
@@ -4844,18 +4305,16 @@ def fuse_blockwise(fn,
                                                   })
 
     if depth > 0:
-        trim_dict = {i:depth for i in range(3)}
+        trim_dict = {i:depth for i in range(ndim)}
         result = da.overlap.trim_internal(result, trim_dict)
 
-    result = result[:orig_shape[0], :orig_shape[1], :orig_shape[2]]
+    result = result[tuple([slice(0, orig_shape[dim]) for dim in range(ndim)])]
+    # result = result[:orig_shape[0], :orig_shape[1], :orig_shape[2]]
 
     if os.path.exists(fn):
         logger.warning('WARNING: OVERWRITING %s' %fn)
         os.remove(fn)
 
-        # result.to_hdf5(fn, 'array', compression='gzip')  # ,scheduler = "single-threaded")
-
-    # io_utils.process_output_element(result, fn)
     try:
         import cupy
         # result = result.compute(scheduler='single-threaded')
@@ -4870,7 +4329,6 @@ def fuse_blockwise(fn,
         # dask_scheduler = 'single-threaded'
 
     # from .imaris import da_to_ims
-
     # from dask.diagnostics import ProgressBar
     # with ProgressBar():
     #     print('fusing views...')

@@ -90,8 +90,11 @@ def build_multiview_graph(
     clean_pixels = False,
     elastix_dir = '/scratch/malbert/dependencies_linux/elastix_linux64_v4.8',
     pairwise_registration_mode = 2,
+    time_registration_mode = -1,
     debug_pairwise_registration = True,
     multitile_czi = False,
+    multitile_czi_sample = 0,
+    multitile_czi_z_project = True,
     ):
 
     if input_graph is None:
@@ -199,7 +202,7 @@ def build_multiview_graph(
             multiview.register_linear_elastix,
             multiview_view_reg_label % (ds,sample-1,time_alignment_ref_view,reg_channel),
             multiview_view_reg_label % (ds,sample,time_alignment_ref_view,reg_channel),
-            0,  # degree = 1 (trans + rotation)
+            time_registration_mode,  # degree = 1 (trans + rotation)
             elastix_dir,
                                                                    )
 
@@ -294,7 +297,8 @@ def build_multiview_graph(
     if os.path.exists(stack_properties_label_file):
         graph[stack_properties_label %(ds,sample)] = stack_properties_label_file
 
-    elif not time_alignment or not sample:
+    elif (time_alignment and time_alignment_ref_sample == sample) or (not time_alignment):
+    # elif not time_alignment or not sample:
         graph[stack_properties_label %(ds,sample)] = (
             multiview.calc_stack_properties_from_views_and_params,
             os.path.join(out_dir,stack_properties_label %(ds,sample)),
@@ -447,8 +451,10 @@ def build_multiview_graph(
                             view_dict[view]['view'],
                             ch,
                             sample, #time
+                            multitile_czi_sample,
                             view_dict[view]['origin'],
                             view_dict[view]['spacing'],
+                            multitile_czi_z_project,
                         )
                 else:
                     graph[multiview_view_fullres_label %(ds, sample, view, ch)] = (
