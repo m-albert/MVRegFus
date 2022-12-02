@@ -58,35 +58,11 @@ def recursive_func_application_with_list_output(l,f):
     else:
         # outlist.append(f(l))
         result += [f(l)]
-    # print(result)
     return result
 
 def process_input_element(path):
 
     if not is_io_path(path): return path
-
-    # if '_list_of_' in path:
-    #     split = path.split('_list_of_')
-    #     import glob
-    #     files = glob.glob('*'.join(split))
-    #     files.sort()
-    #     out = []
-    #     for ii in range(len(files)):
-    #         it_path = split[0] + '%03d' %ii + split[1]
-    #         tmp = process_input_element(it_path)
-    #         out.append(tmp)
-    #     return out
-
-    # if not type(path) == str or (type(path) == str and len(path.split('.'))==1) or 'elastix_' in path:
-    #     return path
-    # else:
-    #     try:
-    #         lock_identifier = 'malbert_lock_'+path
-    #         lock = redis_lock.Lock(conn, lock_identifier)
-    #         lock.acquire()
-    #         # print('acquired lock %s' %lock_identifier)
-    #     except:
-    #         print('locking not working')
 
 
     if path.endswith('.mhd') or path.endswith('.tif'):
@@ -149,20 +125,10 @@ def process_input_element(path):
     else:
         raise(Exception('unrecognized string input to function'))
 
-    # try:
-    #     lock.release()
-    #     # print('released lock %s' %lock_identifier)
-    # except:
-    #     pass
-
-    ## h5pyswmr.locking.release_lock(h5pyswmr.locking.redis_conn,'process_input_element',lock_identifier)
-
-
     return res
 
 
 def get_mtime_from_path(path):
-    # print('GETMTIME...')
     if not is_io_path(path): return 0
     # if not type(path) == str or (type(path) == str and len(path.split('.'))==1):
     #     return 0
@@ -537,20 +503,16 @@ def read_stack_flexible(
 
     stack = tifffile.imread(filename %{'ch': channel}).squeeze().astype(np.uint16)
 
-    # if len(stack.shape) < 3:
-    #     print('prepending dummy z dimension')
-    #     stack = np.array([stack]*10)
-
     origin = np.array(origin)
     spacing = np.array(spacing)
-
-    if raw_input_binning is not None:
-        stack = np.array(bin_stack(ImageArray(stack), raw_input_binning))
 
     stack = (stack - np.array(background_level).astype(stack.dtype)) *\
             (stack > background_level)
 
     stack = ImageArray(stack, origin=origin, spacing=spacing, rotation=rotation)
+
+    if raw_input_binning is not None:
+        stack = bin_stack(stack, raw_input_binning)
 
     return stack
 
@@ -672,14 +634,12 @@ def read_tile_from_multitile_czi(filename,
 #     im = ImageArray(im, origin=origin, spacing=spacing, rotation=0)
 #     return im
 
-
-# from aicsimageio import AICSImage
 from aicspylibczi import CziFile
 def build_view_dict_from_multitile_czi(filename, S=0, max_project=True):
 
     # import pdb; pdb.set_trace()
     czi = CziFile(filename)
-    bbs = czi.get_all_mosaic_tile_bounding_boxes()
+    # bbs = czi.get_all_mosaic_tile_bounding_boxes()
 
     ntiles = czi.get_dims_shape()[0]['M'][1]
     z_shape = czi.get_dims_shape()[0]['Z'][1]
@@ -690,7 +650,6 @@ def build_view_dict_from_multitile_czi(filename, S=0, max_project=True):
     spacing = np.array([1., 1.])
     shape = np.array([czi.get_dims_shape()[0][dim_s][1] for dim_s in ['Z', 'Y', 'X']])
 
-    # print([bb.x for bb in bbs])
     # xmin, ymin = np.min([[b.y, b.x] for b in bbs], axis=0)
     bbs = [czi.get_mosaic_tile_bounding_box(M=itile, S=0, C=0, T=0, Z=0) for itile in range(ntiles)]
 

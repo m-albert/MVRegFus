@@ -483,6 +483,7 @@ def build_multiview_graph(
                                                                         view_dict[view]['spacing'],
                                                                         view_dict[view]['rotation'],
                                                                         background_level,
+                                                                        raw_input_binning,
                                                                         )
 
 

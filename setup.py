@@ -2,8 +2,6 @@ from os import path
 
 from setuptools import setup, find_packages
 
-# from setuptools import setup, find_packages, Extension
-
 _dir = path.dirname(__file__)
 with open(path.join(_dir,'README.md'), encoding="utf-8") as f:
     long_description = f.read()
@@ -20,14 +18,10 @@ setup(
     python_requires='>=3.5',
 
     classifiers=
-        ['Development Status :: 4 - Beta',
+        [
         'Intended Audience :: Science/Research',
         'Topic :: Scientific/Engineering',
         'License :: OSI Approved :: BSD License',
-
-        'Programming Language :: Python :: 3.5',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
      ],
 
      install_requires = [
@@ -39,10 +33,14 @@ setup(
                             'dask',
                             'distributed',
                             # 'bokeh',
-                            # 'bcolz',
-                            # 'dipy',
                             'scikit-image',
                             # 'numba',
                             'SimpleITK',
+                            'matplotlib',
+                            'tifffile',
+                            'ipympl',
+                            'czifile',
+                            'aicspylibczi',
+                            # 'aicsimageio',
                         ],
 )

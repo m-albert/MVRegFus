@@ -278,8 +278,9 @@ def sitk_to_image(sim):
 
 
 def transform_points(pts, p):
-    A = p[:9].reshape((3,3))
-    c = p[9:]
+    ndim = params_to_matrix(p).shape[0] - 1
+    A = p[:ndim**2].reshape((ndim, ndim))
+    c = p[ndim**2:]
     pts_t = np.array([np.dot(A, pt) + c for pt in pts]) # should vectorize this
     return pts_t
 
@@ -306,7 +307,7 @@ def bin_stack(im,bin_factors=np.array([1,1,1])):
     im = sitk.GetArrayFromImage(im)
     # im = (im - background_level) * (view > background_level)
     im = ImageArray(im, spacing=binned_spacing, origin=binned_origin, rotation=rotation)
-    print(im)
+    # print(im)
     return im
 
 
@@ -354,7 +355,9 @@ def get_sigmoidal_border_weights_ndim_mask(im, width=10, mode='non-zero'):
     
     elif mode == 'non-zero':
         b = im>0
-        b = ndimage.binary_erosion(b)
+        # b = ndimage.binary_erosion(b)
+        # distance transform is zero at the border, so we need to dilate to distinguish the border from the interior
+        b = ndimage.binary_dilation(b)
         a = 3*width
         b2 = ndimage.binary_erosion(b, iterations=a)
         b3 = ndimage.binary_erosion(b2, iterations=a)
@@ -369,6 +372,11 @@ def get_sigmoidal_border_weights_ndim_mask(im, width=10, mode='non-zero'):
 
 def get_sigmoidal_border_weights_ndim_only_one(ims, width=10):#, max_overlap=5, mode='non-zero'):
     
+    if np.sum(np.product(ims, 0)) < 0.1:
+        # print('no overlap, returning trivial weights')
+        ws = np.array([im>0 for im in ims]).astype(float)
+        return ws
+
     dts = []
     domains = []
     for im in ims:

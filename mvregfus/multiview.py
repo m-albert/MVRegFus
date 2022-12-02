@@ -413,36 +413,37 @@ def illumination_fusion_planewise(stack, fusion_axis=2):#, sample_intensity=220)
 
     stack = np.array(stack)
 
-    # stack = np.moveaxis(stack,fusion_axis,-1)
-
-    stack = da.from_array(stack,chunks = (2,1,stack.shape[-2],stack.shape[-1]))
-    # print(stack.shape)
+    stack = np.swapaxes(stack, fusion_axis, -1)
+    stack = da.from_array(stack, chunks=(2, 1, stack.shape[-2], stack.shape[-1]))
 
     def fuse_planes(planes):
 
         planes = planes.squeeze()
-
-
-        # mask
+        print(planes.shape)
         # mask = np.sum(stack,0)>(sample_intensity*2)
-        mask = np.sum(planes,0)-planes.min()
+        mask = np.sum(planes, 0) - planes.min()
 
         mask = np.log(mask)
 
         mask = (mask - mask.min())/(mask.max()-mask.min())
 
         # pixels along fusion axis
-        total = np.sum(mask,fusion_axis-1)
+        # total = np.sum(mask,fusion_axis-1)
+        total = np.sum(mask, axis=-2)
 
         mask[total == 0] = True
 
-        total[total==0] = mask.shape[fusion_axis-1]
+        # total[total==0] = mask.shape[fusion_axis-1]
+
+        total[total==0] = mask.shape[1]
         # total[total==0] = (mask.shape[fusion_axis]*(mask.shape[fusion_axis]+1))/2./2.
 
         # print(mask.shape)
 
         # pixel count from left
-        cumsum = np.cumsum(mask,fusion_axis-1)
+        # cumsum = np.cumsum(mask, fusion_axis-1)
+        cumsum = np.cumsum(mask, axis=-2)
+
 
         # right_weight = cumsum > total/2.
         right_weight = (cumsum.T > total.T/2.).T
@@ -459,10 +460,12 @@ def illumination_fusion_planewise(stack, fusion_axis=2):#, sample_intensity=220)
 
     from dask.diagnostics import ProgressBar
     with ProgressBar():
-        stack = stack.map_blocks(fuse_planes,drop_axis=0,dtype=np.uint16).compute(scheduler='threads')
+        stack = stack.map_blocks(fuse_planes, drop_axis=0, dtype=np.uint16).compute(scheduler='single-threaded')
 
-    return stack#, (1-right_weight), right_weight, mask, cumsum
-    # return stack
+    stack = np.swapaxes(stack, fusion_axis, -1)
+
+    return stack
+
 
 def despeckle(im):
     # try to supress signal coming from bright, small vesicles
@@ -1105,137 +1108,6 @@ def register_linear_elastix_seq(fixed,moving,t0=None,degree=2,elastix_dir=None,f
 
     return final_params
 
-# @io_decorator
-# def register_linear_elastix(fixed,moving,degree=2,elastix_dir=None,
-#                             identifier_sample=None, identifier_fixed=None, identifier_moving=None, debug_dir=None):
-#
-#     """
-#     estimate t0 and crop images to intersection in y
-#     :param fixed:
-#     :param moving:
-#     :return:
-#     """
-#
-#     lower_y0 = fixed.origin[1]
-#     upper_y0 = fixed.origin[1] + fixed.shape[1]*fixed.spacing[1]
-#
-#     lower_y1 = moving.origin[1]
-#     upper_y1 = moving.origin[1] + moving.shape[1]*moving.spacing[1]
-#
-#     lower_overlap = np.max([lower_y0,lower_y1])
-#     upper_overlap = np.min([upper_y0,upper_y1])
-#
-#     yl0 = int((lower_overlap - lower_y0) / (upper_y0-lower_y0) * fixed.shape[1])
-#     yu0 = int((upper_overlap - lower_y0) / (upper_y0-lower_y0) * fixed.shape[1])
-#     yl1 = int((lower_overlap - lower_y1) / (upper_y1-lower_y1) * moving.shape[1])
-#     yu1 = int((upper_overlap - lower_y1) / (upper_y1-lower_y1) * moving.shape[1])
-#
-#     # images can have different overlaps because of rounding to integer
-#
-#     origin_overlap0 = np.zeros(3)
-#     origin_overlap1 = np.zeros(3)
-#
-#     origin_overlap0[:] = fixed.origin
-#     origin_overlap1[:] = moving.origin
-#
-#     origin_overlap0[1] = lower_y0 + yl0 * fixed.spacing[1]
-#     origin_overlap1[1] = lower_y1 + yl1 * moving.spacing[1]
-#
-#     # static = ImageArray(fixed[:,yl0:yu0,:],spacing=fixed.spacing,origin=origin_overlap0)
-#     # mov = ImageArray(moving[:,yl1:yu1,:],spacing=moving.spacing,origin=origin_overlap1)
-#
-#     c0 = clahe(fixed,10,clip_limit=0.02)
-#     c1 = clahe(moving,10,clip_limit=0.02)
-#
-#     # print('warning: not performing clahe')
-#     # c0 = fixed
-#     # c1 = moving
-#
-#     static = ImageArray(c0[:,yl0:yu0,:],spacing=fixed.spacing,origin=origin_overlap0)
-#     mov = ImageArray(c1[:,yl1:yu1,:],spacing=moving.spacing,origin=origin_overlap1)
-#
-#     static_mask = get_mask_using_otsu(static)
-#     static_mask = ImageArray(static_mask, spacing=fixed.spacing, origin=origin_overlap0)
-#
-#     t00 = mv_utils.euler_matrix(0, + fixed.rotation - moving.rotation, 0)
-#     center_static = np.array(static.shape)/2.*static.spacing + static.origin
-#     center_mov = np.array(mov.shape)/2.*mov.spacing + mov.origin
-#     t00offset = center_mov - np.dot(t00[:3,:3],center_static)
-#     t00[:3,3] = t00offset
-#     t00 = matrix_to_params(t00)
-#
-#     # reg_spacing = np.array([fixed.spacing[0]*4]*3)
-#     # print('WARNING: 20180614: changed fft registration spacing')
-#     reg_iso_spacing = np.min([np.array(im.spacing)*np.array(im.shape)/160. for im in [static,mov]])
-#     reg_iso_spacing = np.max([[reg_iso_spacing]+list(static.spacing)+list(mov.spacing)])
-#     reg_spacing = np.array([reg_iso_spacing]*3)
-#
-#     stack_properties = calc_stack_properties_from_views_and_params([static.get_info(), mov.get_info()],
-#                                                                    [matrix_to_params(np.eye(4)), t00],
-#                                                                    spacing=reg_spacing, mode='union')
-#
-#     static_t = transform_stack_sitk(static,
-#                                     matrix_to_params(np.eye(4)),
-#                                     out_shape=stack_properties['size'],
-#                                     out_origin=stack_properties['origin'],
-#                                     out_spacing=stack_properties['spacing']
-#                                     )
-#
-#     mov_t = transform_stack_sitk(mov,
-#                                     t00,
-#                                     out_shape=stack_properties['size'],
-#                                     out_origin=stack_properties['origin'],
-#                                     out_spacing=stack_properties['spacing']
-#                                     )
-#
-#     im0 = static_t
-#     im1 = mov_t
-#
-#     offset = translation3d(im1,im0)
-#
-#     # offset = np.array([-offset[2],0,offset[0]]) * reg_spacing
-#     # offset = np.array([offset[0],0,offset[2]]) * reg_spacing
-#     # print('WARNING: add complete FFT offset (also y component), 20181109')
-#     offset = np.array([offset[0],offset[1],offset[2]]) * reg_spacing
-#
-#     t0 = np.copy(t00)
-#     t0[9:] += np.dot(t0[:9].reshape((3,3)), offset)
-#     # return t0
-#
-#     # use raw intensities for elastix
-#     static = ImageArray(fixed[:,yl0:yu0,:],spacing=fixed.spacing,origin=origin_overlap0)
-#     mov = ImageArray(moving[:,yl1:yu1,:],spacing=moving.spacing,origin=origin_overlap1)
-#
-#     import tifffile
-#     if debug_dir is not None:
-#         movt0 = transform_stack_sitk(mov, t0, stack_properties=static.get_info())
-#         tifffile.imsave(os.path.join(debug_dir, 'mv_reginfo_000_%03d_pair_%s_%s_view_%s.tif'
-#                                      % (identifier_sample, identifier_fixed, identifier_moving, identifier_fixed)), static)
-#         tifffile.imsave(os.path.join(debug_dir, 'mv_reginfo_000_%03d_pair_%s_%s_view_%s.tif'
-#                                      % (identifier_sample, identifier_fixed, identifier_moving, identifier_moving)), mov)
-#         tifffile.imsave(os.path.join(debug_dir, 'mv_reginfo_000_%03d_pair_%s_%s_view_%s_pretransformed.tif'
-#                                      % (identifier_sample, identifier_fixed, identifier_moving, identifier_moving)), movt0)
-#
-#
-#     if degree is None or degree < 0: return t0
-#
-#     try:
-#         parameters = register_linear_elastix_seq(static, mov, t0,
-#                                                  degree=degree,
-#                                                  elastix_dir=elastix_dir,
-#                                                  fixed_mask=static_mask)
-#
-#         if debug_dir is not None:
-#             movt = transform_stack_sitk(mov, parameters, stack_properties=static.get_info())
-#             tifffile.imsave(os.path.join(debug_dir, 'mv_reginfo_000_%03d_pair_%s_%s_view_%s_transformed.tif'
-#                                          %(identifier_sample, identifier_fixed, identifier_moving, identifier_moving)), movt)
-#
-#     except:
-#
-#         raise(Exception('Could not register view pair (%s, %s)' %(identifier_fixed, identifier_moving)))
-#
-#     return parameters
-
 
 @io_decorator
 def register_linear_elastix(fixed, moving,
@@ -1272,8 +1144,6 @@ def register_linear_elastix(fixed, moving,
     slices_f = [slice(lower_f[dim], upper_f[dim]) for dim in range(ndim)]
     slices_m = [slice(lower_m[dim], upper_m[dim]) for dim in range(ndim)]
 
-    # import pdb; pdb.set_trace()
-
     lower_f_phys = np.copy(lower_phys)
     lower_m_phys = np.copy(lower_phys)
 
@@ -1286,7 +1156,7 @@ def register_linear_elastix(fixed, moving,
             lower_f_phys[dim] = fixed.origin[dim]
             lower_m_phys[dim] = moving.origin[dim]
 
-    if np.max([[s.start == s.stop for s in slices_f],
+    elif np.max([[s.start == s.stop for s in slices_f],
                [s.start == s.stop for s in slices_m]]) > 0:
         print('WARNING: no overlap between views, proceeding with only metadata (%s and %s).' %(identifier_fixed, identifier_moving))
         t0 = np.eye(fixed.ndim+1)
@@ -1432,8 +1302,9 @@ def translation3d(im0, im1):
             corr = stats.spearmanr(im0[mask], im1t[mask]).correlation
         # print('corr', t_, corr, np.sum(mask))
         corrs.append(corr)
-        
-    t = t_candidates[np.argmax(corrs)]
+
+    print(corrs)
+    t = t_candidates[np.nanargmax(corrs)]
 
     return t
 
@@ -1514,9 +1385,16 @@ def get_affine_parameters_from_elastix_output(filepath_or_params,t0=None):
         elx_out_params = np.array([float(i) for i in elx_out_params])
 
         # if len(elx_out_params) in [6, 7, 12]:
+        # import pdb; pdb.set_trace()
         if len(elx_out_params) in [6, 12]:
-            outCenterOfRotation = raw_out_params.split('\n')[19][:-1].split(' ')[1:]
-            outCenterOfRotation = np.array([float(i) for i in outCenterOfRotation])
+            for line in raw_out_params.split('\n'):
+                if 'CenterOfRotationPoint' in line:
+                    # import pdb; pdb.set_trace()
+                    print(line)
+                    outCenterOfRotation = np.array([float(i) for i in line[:-1].split(' ')[1:]])
+                    break
+            # outCenterOfRotation = raw_out_params.split('\n')[19][:-1].split(' ')[1:]
+            # outCenterOfRotation = np.array([float(i) for i in outCenterOfRotation])
 
     else:
         elx_out_params = filepath_or_params
@@ -1576,229 +1454,6 @@ def get_affine_parameters_from_elastix_output(filepath_or_params,t0=None):
 
     return final_params
 
-def register_linear(static,moving,t0=None):
-
-    static_origin = static.origin
-    static_spacing = static.spacing
-    moving_origin = moving.origin
-    moving_spacing = moving.spacing
-
-    if not np.any(np.array(static.shape)-np.array(moving.shape)):
-        if not np.any(static-moving):
-            return np.array([1,0,0,0,1,0,0,0,1,0,0,0]),[0]
-
-    if t0 is None:
-        t0 = np.array([1,0,0,0,1,0,0,0,1,0,0,0])
-
-    # static = ImageArray(clahe(static,[10,10,10],clip_limit=0.02),spacing=static.spacing,origin=static.origin)
-    # moving = ImageArray(clahe(moving,[10,10,10],clip_limit=0.02),spacing=moving.spacing,origin=moving.origin)
-
-    # static = static / float(static.max())
-    # moving = moving / float(moving.max())
-
-    # static = static.astype(np.float64)/float(static.max())
-    # moving = moving.astype(np.float64)/float(moving.max())
-
-    # static = static*(static > 100)#.astype(np.float)
-    # moving = moving*(moving > 100)#.astype(np.float)
-
-    # static[static == 0] = np.random.randint(0,10,(np.sum(static == 0)))
-    # moving[moving == 0] = np.random.randint(0,10,(np.sum(moving == 0)))
-
-    # import pdb
-
-    static_grid2world = np.eye(4)
-    moving_grid2world = np.eye(4)
-
-    np.fill_diagonal(static_grid2world,list(static_spacing)+[1])
-    np.fill_diagonal(moving_grid2world,list(moving_spacing)+[1])
-
-    static_grid2world[:3,3] = static_origin
-    moving_grid2world[:3,3] = moving_origin
-
-    # moving = clahe(moving,[10,10],clip_limit=0.02)
-
-    nbins = 32
-    sampling_prop = None
-    metric = MutualInformationMetric(nbins, sampling_prop)
-    # level_iters = list(np.array([10000, 1000, 100])*1000)
-    # level_iters = list(np.array([1000000000]*7))
-    # sigmas = [6,5,4,3.0,1.0,1.0, 0.0]
-    # factors = [6,5,4,3,2,1,1]
-
-    # transform = TranslationTransform3D()
-    params0 = None
-    starting_affine = np.eye(4)
-    starting_affine[:3,:3] = t0[:9].reshape((3,3))
-    starting_affine[:3,3] = t0[9:]
-    # starting_affine = None
-
-    level_iters = list(np.array([1000000000]*5))
-    sigmas = [3,1,0.0,0.0,0.0]
-    factors = [4,2,1.5,1.2,1]
-
-    affreg = AffineRegistration(metric=metric,
-                                level_iters=level_iters,
-                                sigmas=sigmas,
-                                factors=factors,
-                                ss_sigma_factor = 0.1, # watch out!
-                                verbosity=3,
-                                options = {'gtol': 1e-8},
-                                # method = 'Newton-CG',
-                                )
-
-    print('watch out, using ss_sigma_factor and sigmas are being ignored!')
-
-    # transform = AffineTransform2D()
-    transform = TranslationTransform3D()
-    translation = affreg.optimize(static, moving, transform, params0,
-                            static_grid2world, moving_grid2world,
-                            starting_affine=starting_affine)
-
-    affreg = AffineRegistration(metric=metric,
-                                level_iters=level_iters,
-                                sigmas=sigmas,
-                                factors=factors,
-                                ss_sigma_factor = 0.1, # watch out!
-                                verbosity=3,
-                                options = {'gtol': 1e-8},
-                                # method = 'Newton-CG',
-                                )
-
-    transform = RigidTransform3D()
-    rotation = affreg.optimize(static, moving, transform, params0,
-                            static_grid2world, moving_grid2world,
-                            starting_affine=translation.affine)
-
-    # transform = ShearTransform3D()
-    # shearing = affreg.optimize(static, moving, transform, params0,
-    #                         static_grid2world, moving_grid2world,
-    #                         starting_affine=translation.affine)
-
-    # metric = MutualInformationMetric(nbins, sampling_prop)
-    # level_iters = list(np.array([10000, 1000, 100]))
-    # sigmas = [3,3,3,3,3.0,1.0,1.0, 0.0]
-    # factors = [10,6,5,4,3,2,1,1]
-    # affreg = AffineRegistration(metric=metric,
-    #                             level_iters=level_iters,
-    #                             sigmas=sigmas,
-    #                             factors=factors,
-    #                             verbosity=3,
-    #                             options = {'gtol': 1e-8},
-    #                             # method = 'Nelder-Mead'
-    #                             # method = 'CG',
-    #                             # method = 'Newton-CG' # different result somehow
-    #                             # method = 'trust-ncg' # complains
-    #                             # method = 'dogleg', #complains
-    #                             # method = 'SLSQP',
-    #                             )
-    #
-
-    affreg = AffineRegistration(metric=metric,
-                                level_iters=level_iters,
-                                sigmas=sigmas,
-                                factors=factors,
-                                ss_sigma_factor = 0.1, # watch out!
-                                verbosity=3,
-                                options = {'gtol': 1e-8},
-                                # method = 'Newton-CG',
-                                )
-
-    transform = AffineTransform3D()
-    affine = affreg.optimize(static, moving, transform, params0,
-                            static_grid2world, moving_grid2world,
-                            starting_affine=rotation.affine)
-
-    out_params = affine.affine
-
-    params = np.zeros(12)
-    params[:9] = out_params[:3,:3].flatten()
-    params[9:] = out_params[:3,3]
-
-    # print(metric.metric_evolution)
-
-    params_evolution = np.array([np.append(metric.params_evolution[i][:3,:3].flatten(),metric.params_evolution[i][:3,3]) for i in range(len(metric.params_evolution))])
-
-    # return params,[0]#metric.metric_evolution
-    return params,[metric.metric_evolution,params_evolution]
-
-# def transform_stack_dipy(stack,p=None,out_shape=None,out_spacing=None,out_origin=None,interp='linear',stack_properties=None):
-#
-#     """
-#     In [19]: %timeit transform_stack_numpy(stack00,a0)
-#     4.17 s 8.1 ms per loop (mean std. dev. of 7 runs, 1 loop each)
-#
-#     In [20]: %timeit transform_stack_dipy(stack00,a0)
-#     382 ms 2.85 ms per loop (mean std. dev. of 7 runs, 1 loop each)
-#     """
-#
-#
-#     if p is None:
-#         p = np.array([1.,0,0,0,1,0,0,0,1,0,0,0])
-#
-#     p = np.array(p)
-#     params = np.eye(4)
-#     params[:3,:3] = p[:9].reshape((3,3))
-#     params[:3,3] = p[9:]
-#
-#     if stack_properties is not None:
-#         out_shape = stack_properties['size']
-#         out_origin = stack_properties['origin']
-#         out_spacing = stack_properties['spacing']
-#
-#     else:
-#         if out_shape is None:
-#             out_shape = stack.shape
-#
-#         if out_origin is None:
-#             out_origin = stack.origin
-#
-#         if out_spacing is None:
-#             out_spacing = stack.spacing
-#
-#     static_grid2world = np.eye(4)
-#     moving_grid2world = np.eye(4)
-#
-#     np.fill_diagonal(static_grid2world,list(out_spacing)+[1])
-#     np.fill_diagonal(moving_grid2world,list(stack.spacing)+[1])
-#
-#     static_grid2world[:3,3] = out_origin
-#     moving_grid2world[:3,3] = stack.origin
-#
-#     affine_map = AffineMap(params,
-#                            out_shape, static_grid2world,
-#                            stack.shape, moving_grid2world)
-#
-#     resampled = affine_map.transform(stack,interp=interp)
-#
-#     resampled = ImageArray(resampled,origin=out_origin,spacing=out_spacing)
-#
-#     return resampled
-
-# def transform_stack_ndimage(stack,p=None,out_shape=None,out_spacing=None,out_origin=None,interp='linear',stack_properties=None):
-#     if p is None:
-#         p = np.array([1.,0,0,0,1,0,0,0,1,0,0,0])
-#
-#     p = np.array(p)
-#
-#     if stack_properties is not None:
-#         out_shape = stack_properties['size']
-#         out_origin = stack_properties['origin']
-#         out_spacing = stack_properties['spacing']
-#
-#     else:
-#         if out_shape is None:
-#             out_shape = stack.shape
-#
-#         if out_origin is None:
-#             out_origin = stack.origin
-#
-#         if out_spacing is None:
-#             out_spacing = stack.spacing
-#
-#
-#
-#     return t
 
 def transform_stack_dask_numpy(
                               stack,
@@ -1990,9 +1645,10 @@ def transform_stack_dask(stack,
                               chunksize=512,
                         ):
 
-    # print('WARNING: USING BSPLINE INTERPOLATION AS DEFAULT')
+    ndim = stack.ndim
+
     if p is None:
-        p = np.array([1.,0,0,0,1,0,0,0,1,0,0,0])
+        p = matrix_to_params(np.eye(ndim + 1))
 
     p = np.array(p)
 
@@ -2012,7 +1668,7 @@ def transform_stack_dask(stack,
             out_spacing = stack.spacing
 
     trivial = True
-    if not np.allclose(p, matrix_to_params(np.eye(4))):
+    if not np.allclose(p, matrix_to_params(np.eye(ndim + 1))):
         trivial = False
     if not np.allclose(out_shape, stack.shape):
         trivial = False
@@ -2030,12 +1686,13 @@ def transform_stack_dask(stack,
         block_out_spacing = out_spacing
         block_out_origin = out_origin + offset * out_spacing
 
-        edges = np.array([[i,j,k] for i in [0,1] for j in [0,1] for k in [0,1]]) * np.array(x.shape)
+        # edges = np.array([[i,j,k] for i in [0,1] for j in [0,1] for k in [0,1]]) * np.array(x.shape)
+        edges = np.array([i for i in np.ndindex(tuple([2] * x.ndim))]) * np.array(x.shape)
         edges_out_phys = edges * block_out_spacing + block_out_origin
 
         edges_in_phys = transform_points(edges_out_phys, p)
 
-        for dim in range(3):
+        for dim in range(x.ndim):
             edges_in_phys[:, dim] = np.clip(edges_in_phys[:, dim],
                                             stack.origin[dim],
                                             stack.origin[dim] + stack.shape[dim] * stack.spacing[dim])
@@ -2046,7 +1703,7 @@ def transform_stack_dask(stack,
         max_coord_px = np.ceil(np.max(edges_in_px, 0))  # .astype(np.uint64)
 
         # expand reduced slice, otherwise artefacts can appear
-        min_coord_px = np.max([[0, 0, 0], min_coord_px - 2], 0).astype(np.uint64)
+        min_coord_px = np.max([[0] * x.ndim, min_coord_px - 2], 0).astype(np.uint64)
         max_coord_px = np.min([stack.shape, max_coord_px + 2], 0).astype(np.uint64)
 
         min_coord_phys = np.min(edges_in_phys, 0)
@@ -2058,7 +1715,7 @@ def transform_stack_dask(stack,
 
         slice_reduced = tuple([slice(reduced_origin_px[dim],
                                      reduced_origin_px[dim] + reduced_shape[dim])
-                               for dim in range(3)])
+                               for dim in range(x.ndim)])
 
         stack_reduced = stack[slice_reduced]
         stack_reduced.origin = reduced_origin_phys
@@ -2081,7 +1738,7 @@ def transform_stack_dask(stack,
     import dask.array as da
     import dask.delayed as delayed
     # result = da.from_array(np.zeros(out_shape, dtype=stack.dtype), chunks=tuple([chunksize] * 3))
-    result = da.zeros(out_shape, dtype=stack.dtype, chunks=tuple([chunksize] * 3))
+    result = da.zeros(out_shape, dtype=stack.dtype, chunks=tuple([chunksize] * ndim))
     result = result.map_blocks(transform_block, dtype=result.dtype, p=p, stack=delayed(stack))
     return result
 
@@ -3369,193 +3026,6 @@ def register_groupwise_euler_and_affine(orig_ims, params0, ref_view_index=0, iso
 
     return np.array(final_ref_params_concat)
 
-    # # compute mean image
-    # transformed_img = elastixImageFilter.GetResultImage()
-    # extract_filter = sitk.ExtractImageFilter()
-    # size = list(transformed_img.GetSize())
-    # size[3] = 0 # set t to 0 to collapse this dimension
-    # extract_filter.SetSize(size)
-    # imgs = []
-    # for i in range(len(vectorOfImages)):
-    #     extract_filter.SetIndex([0, 0, 0, i]) # x, y, z, t
-    #     img = extract_filter.Execute(transformed_img)
-    #     imgs.append(sitk.GetArrayFromImage(img))
-    #
-    #
-    # img_mean = np.mean(imgs, axis=0)
-    # img_fused = sitk.GetImageFromArray(img_mean)
-    # sitk.WriteImage(img_fused,'/data/malbert/regtest/mv_transf_view_mean.imagear.mhd')
-    #
-    # for i in range(len(vectorOfImages)):
-    #     sitk.WriteImage(sitk.GetImageFromArray(imgs[i]), '/data/malbert/regtest/mv_transf_view_after_groupwise_%02d.imagear.mhd' %i)
-    #
-    # params = 0
-    # return params
-
-# @io_decorator
-# def get_final_params_global(ref_view,pairs,params,time_alignment_params=None):
-#     """
-#     time_alignment_params: single params from longitudinal registration to be concatenated with view params
-#     """
-#
-#     import networkx
-#     g = networkx.DiGraph()
-#     for ipair,pair in enumerate(pairs):
-#         # g.add_edge(pair[0],pair[1],{'p': params[ipair]})
-#         g.add_edge(pair[0],pair[1], p = params[ipair]) # after update 201809 networkx seems to have changed
-#
-#     all_views = np.unique(np.array(pairs).flatten())
-#     # views_to_transform = np.sort(np.array(list(set(all_views).difference(set([ref_view])))))
-#
-#     # calculate params mapping coords in common space to those in the views
-#     params_common_space_to_view = dict()
-#     for iview0,view0 in enumerate(all_views):
-#
-#         params_to_other_views = []
-#         for iview1, view1 in enumerate(all_views):
-#
-#             if view0 == view1: params_to_other_views.append(matrix_to_params(np.eye(4)))
-#             else:
-#                 paths = networkx.all_shortest_paths(g,view0,view1)
-#                 paths_params = []
-#                 for ipath,path in enumerate(paths):
-#                     path_pairs = [[path[i],path[i+1]] for i in range(len(path)-1)]
-#                     print(path_pairs)
-#                     path_params = np.eye(4)
-#                     for edge in path_pairs:
-#                         tmp_params = params_to_matrix(g.get_edge_data(edge[0],edge[1])['p'])
-#                         path_params = np.dot(tmp_params,path_params)
-#                         print(path_params)
-#                     paths_params.append(matrix_to_params(path_params))
-#
-#                 # params_pairwise['%03d_%03d' %(view0,view1)] = np.mean(paths_params,0)
-#                 params_to_other_views.append(np.mean(paths_params,0))
-#
-#         mean_to_other_views = np.mean(params_to_other_views,0)
-#
-#         if view0 == ref_view:
-#             params_ref_to_common = mean_to_other_views
-#             print(params_ref_to_common)
-#
-#         mean_to_other_views_inv = invert_params(mean_to_other_views)
-#         params_common_space_to_view[view0] = mean_to_other_views_inv
-#
-#     # compose params such that params map coords in ref_view to coords in the views
-#
-#     final_params = []
-#     for iview, view in enumerate(all_views):
-#         if view == ref_view: final_view_params = matrix_to_params(np.eye(4))
-#         else:
-#             final_view_params = np.dot(params_to_matrix(params_ref_to_common), params_to_matrix(params_common_space_to_view[view]))
-#             final_view_params = matrix_to_params(final_view_params)
-#
-#         # concatenate with time alignment if given
-#         if time_alignment_params is not None:
-#             final_view_params = concatenate_view_and_time_params(time_alignment_params,final_view_params)
-#
-#         final_params.append(final_view_params)
-#
-#     return np.array(final_params)
-
-# @io_decorator
-# def get_final_params_global(ref_view,pairs,params,time_alignment_params=None):
-#     """
-#     time_alignment_params: single params from longitudinal registration to be concatenated with view params
-#     """
-#
-#     import networkx
-#     g = networkx.DiGraph()
-#     for ipair,pair in enumerate(pairs):
-#         g.add_edge(pair[0],pair[1], p = params[ipair]) # after update 201809 networkx seems to have changed
-#         g.add_edge(pair[1],pair[0], p = invert_params(params[ipair])) # after update 201809 networkx seems to have changed
-#
-#     all_views = np.unique(np.array(pairs).flatten())
-#     # views_to_transform = np.sort(np.array(list(set(all_views).difference(set([ref_view])))))
-#
-#     # calculate params mapping coords in common space to those in the views
-#     params_common_space_to_view = dict()
-#     params_pairwise = dict()
-#     for iview0,view0 in enumerate(all_views):
-#         for iview1, view1 in enumerate(all_views):
-#
-#             if view0 == view1: pairwise = matrix_to_params(np.eye(4))
-#             else:
-#                 paths = networkx.all_shortest_paths(g,view0,view1)
-#                 paths_params = []
-#                 for ipath,path in enumerate(paths):
-#                     path_pairs = [[path[i],path[i+1]] for i in range(len(path)-1)]
-#                     print(path_pairs)
-#                     path_params = np.eye(4)
-#                     for edge in path_pairs:
-#                         tmp_params = params_to_matrix(g.get_edge_data(edge[0],edge[1])['p'])
-#                         path_params = np.dot(tmp_params,path_params)
-#                         print(path_params)
-#                     paths_params.append(matrix_to_params(path_params))
-#
-#                 # params_pairwise['%03d_%03d' %(view0,view1)] = np.mean(paths_params,0)
-#                 pairwise = np.mean(paths_params,0)
-#
-#             params_pairwise[(view0,view1)] = pairwise
-#
-#     # calc params to ref as mean over every intermediate
-#     final_params = []
-#     for iview, view in enumerate(all_views):
-#         intermediates = []
-#         for iview_interm, view_interm in enumerate(all_views):
-#             ref_to_intermediate  = params_to_matrix(params_pairwise[(ref_view   ,view_interm)])
-#             intermediate_to_view = params_to_matrix(params_pairwise[(view_interm,view       )])
-#             ref_to_view = matrix_to_params(np.dot(intermediate_to_view, ref_to_intermediate))
-#             intermediates.append(ref_to_view)
-#         final_view_params = np.mean(intermediates,0)
-#
-#         # concatenate with time alignment if given
-#         if time_alignment_params is not None:
-#             final_view_params = concatenate_view_and_time_params(time_alignment_params,final_view_params)
-#
-#         final_params.append(final_view_params)
-#
-#     return np.array(final_params)
-
-# @io_decorator
-# def get_params_pairwise(ref_view,pairs,params,time_alignment_params=None):
-#     """
-#     time_alignment_params: single params from longitudinal registration to be concatenated with view params
-#     """
-#
-#     import networkx
-#     g = networkx.DiGraph()
-#     for ipair,pair in enumerate(pairs):
-#         g.add_edge(pair[0],pair[1], p = params[ipair]) # after update 201809 networkx seems to have changed
-#         g.add_edge(pair[1],pair[0], p = invert_params(params[ipair])) # after update 201809 networkx seems to have changed
-#
-#     all_views = np.unique(np.array(pairs).flatten())
-#     # views_to_transform = np.sort(np.array(list(set(all_views).difference(set([ref_view])))))
-#
-#     # calculate params mapping coords in common space to those in the views
-#     params_common_space_to_view = dict()
-#     params_pairwise = dict()
-#     for iview0,view0 in enumerate(all_views):
-#         for iview1, view1 in enumerate(all_views):
-#
-#             if view0 == view1: pairwise = matrix_to_params(np.eye(4))
-#             else:
-#                 paths = networkx.all_shortest_paths(g,view0,view1)
-#                 paths_params = []
-#                 for ipath,path in enumerate(paths):
-#                     path_pairs = [[path[i],path[i+1]] for i in range(len(path)-1)]
-#                     print(path_pairs)
-#                     path_params = np.eye(4)
-#                     for edge in path_pairs:
-#                         tmp_params = params_to_matrix(g.get_edge_data(edge[0],edge[1])['p'])
-#                         path_params = np.dot(tmp_params,path_params)
-#                         print(path_params)
-#                     paths_params.append(matrix_to_params(path_params))
-#
-#                 # params_pairwise['%03d_%03d' %(view0,view1)] = np.mean(paths_params,0)
-#                 pairwise = np.mean(paths_params,0)
-#
-#             params_pairwise[(view0,view1)] = pairwise
-#     return params_pairwise
 
 def get_union_volume(stack_properties_list, params):
     """
@@ -4265,7 +3735,6 @@ def fuse_blockwise(fn,
 
     # calc weights
 
-
     if weights_func == get_weights_simple:
         weights = None
     else:
@@ -4328,11 +3797,18 @@ def fuse_blockwise(fn,
         dask_scheduler = 'threads'
         # dask_scheduler = 'single-threaded'
 
-    # from .imaris import da_to_ims
-    # from dask.diagnostics import ProgressBar
-    # with ProgressBar():
-    #     print('fusing views...')
-    #     da_to_ims(result, fn, scheduler=dask_scheduler)
+    from .imaris import da_to_ims
+    from dask.diagnostics import ProgressBar
+    with ProgressBar():
+        print('fusing views...')
+        da_to_ims(result, fn, scheduler=dask_scheduler)
+
+    # # import dask.array as da
+    # da.to_zarr(result, fn, overwrite=True)
+
+    # result = result.compute(scheduler=dask_scheduler)
+    # import tifffile
+    # tifffile.imwrite(fn[:-4]+'.tif', result)
 
     return result
     # return res
@@ -4362,11 +3838,12 @@ def fuse_block(tviews_block,weights,params,stack_properties,orig_stack_propertie
     tviews_block = tviews_block[inds]
     params = np.array(params)[inds]
     orig_stack_propertiess = [orig_stack_propertiess[i] for i in inds]
+    ndim = len(orig_stack_propertiess[0]['spacing'])
 
     logger.info('performing fusion on %s blocks' %len(params))
 
     curr_origin = []
-    for i in range(3):
+    for i in range(ndim):
         pixel_offset = block_info[0]['chunk-location'][i+1]*array_info['chunksize'] - array_info['depth']
         curr_origin.append(stack_properties['origin'][i]+pixel_offset*stack_properties['spacing'][i])
 
@@ -5118,6 +4595,9 @@ def get_weights_dct(
     :param vrs:
     :return:
     """
+
+    ndim = views[0].ndim
+
     # print('lalala')
     if block_info is not None:
 
@@ -5164,7 +4644,7 @@ def get_weights_dct(
     vdils = []
     for iview,view in enumerate(views):
 
-        tmpvs = transform_stack_sitk(view, matrix_to_params(np.eye(4)),
+        tmpvs = transform_stack_sitk(view, matrix_to_params(np.eye(ndim + 1)),
                                      out_origin=w_stack_properties['origin'],
                                      out_shape=w_stack_properties['size'],
                                      out_spacing=w_stack_properties['spacing'])
@@ -5393,265 +4873,6 @@ def get_weights_dct(
         ws = np.array(ws).astype(np.float32)
 
     return ws
-
-# from scipy.fftpack import dctn,idctn
-# from scipy import ndimage
-# import dask.array as da
-# @io_decorator
-# def get_weights_dct(
-#                     views,
-#                     params,
-#                     orig_stack_propertiess,
-#                     stack_properties,
-#                     size=None,
-#                     max_kernel=None,
-#                     gaussian_kernel=None,
-#                     how_many_best_views = 2,
-#                     cumulative_weight_best_views = 0.9,
-#                     ):
-#     """
-#     DCT Shannon Entropy, as in:
-#     Adaptive light-sheet microscopy for long-term, high-resolution imaging in living organisms
-#     http://www.nature.com/articles/nbt.3708
-#
-#     Adaptations:
-#     - consider the full bandwidth, so set r0=d0 in their equation
-#     - calculate on blocks of size <size> and then interpolate to full grid
-#     - run maximum filter
-#     - run smoothing gaussian filter
-#     - final sigmoidal blending at view transitions
-#
-#     :param vrs:
-#     :return:
-#     """
-#
-#     w_stack_properties = stack_properties.copy()
-#     minspacing = 3.
-#     changed_stack_properties = False
-#     if w_stack_properties['spacing'][0] < minspacing:
-#         changed_stack_properties = True
-#         print('using downsampled images for calculating weights..')
-#         w_stack_properties['spacing'] = np.array([minspacing]*3)
-#         w_stack_properties['size'] = (stack_properties['spacing'][0]/w_stack_properties['spacing'][0])*stack_properties['size']
-#
-#     vs = []
-#     vdils = []
-#     for iview,view in enumerate(views):
-#
-#         tmpvs = transform_stack_sitk(view,matrix_to_params(np.eye(4)),
-#                                out_origin=w_stack_properties['origin'],
-#                                out_shape=w_stack_properties['size'],
-#                                out_spacing=w_stack_properties['spacing'])
-#
-#         mask = get_mask_in_target_space(orig_stack_propertiess[iview],
-#                                  w_stack_properties,
-#                                  params[iview]
-#                                  )
-#
-#         vdils.append(mask == 0)
-#         vs.append(tmpvs*(mask>0))
-#
-#     if size is None:
-#         size = np.max([4,int(50 / vs[0].spacing[0])]) # 50um
-#         print('dct: choosing size %s' %size)
-#     if max_kernel is None:
-#         max_kernel = int(size/2.)
-#         print('dct: choosing max_kernel %s' %max_kernel)
-#     if gaussian_kernel is None:
-#         gaussian_kernel = int(max_kernel)
-#         print('dct: choosing gaussian_kernel %s' %gaussian_kernel)
-#
-#     print('calculating dct weights...')
-#     def determine_quality(vrs):
-#
-#         """
-#         DCT Shannon Entropy, as in:
-#         Adaptive light-sheet microscopy for long-term, high-resolution imaging in living organisms
-#         http://www.nature.com/articles/nbt.3708
-#         Consider the full bandwidth, so set r0=d0 in their equation
-#         :param vrs:
-#         :return:
-#         """
-#         # print('dw...')
-#
-#         vrs = np.copy(vrs)
-#
-#         axes = [0,1,2]
-#         ds = []
-#         for v in vrs:
-#
-#             if np.sum(v==0) > np.product(v.shape) * (4/5.):
-#                 ds.append([0])
-#                 continue
-#             elif v.min()<0.0001:
-#                 v[v==0] = v[v>0].min() # or nearest neighbor
-#
-#             d = dctn(v,norm='ortho',axes=axes)
-#             # cut = size//2
-#             # d[:cut,:cut,:cut] = 0
-#             ds.append(d.flatten())
-#
-#         # l2 norm
-#         dsl2 = np.array([np.sum(np.abs(d)) for d in ds])
-#         # don't divide by zero below
-#         dsl2[dsl2==0] = 1
-#
-#         def abslog(x):
-#             res = np.zeros_like(x)
-#             x = np.abs(x)
-#             res[x==0] = 0
-#             res[x>0] = np.log2(x[x>0])
-#             return res
-#
-#         ws = np.array([-np.sum(np.abs(d)*abslog(d/dsl2[id])) for id,d in enumerate(ds)])
-#
-#         # simple weights in case everything is zero
-#         if not ws.max():
-#             ws = np.ones(len(ws))/float(len(ws))
-#
-#
-#         # HEURISTIC to adapt weights to number of views
-#         # idea: typically, 2-3 views carry good information at a given location
-#         # and the rest should not contribute
-#         # w**exp with exp>1 polarises the weights
-#         # we want to find exp such that 90% of the quality contribution
-#         # is given by the two best views
-#         # this is overall and the analysis is limited to regions where the best view
-#         # has at least double its baseline value 1/len(views)
-#         # alternatively: best view should have 0.5
-#
-#         if len(ws) > 2 and ws.min() < ws.max():
-#
-#             # print('applying heuristic to adapt weights to N=%s views' % len(ws))
-#             # print('criterion: weights**exp such that best two views > 0.9')
-#
-#             wsum = np.sum(ws, 0)
-#             # wsum[wsum == 0] = 1
-#             for iw, w in enumerate(ws):
-#                 ws[iw] /= wsum
-#
-#
-#
-#             # # wf = ws[:, np.max(ws, 0) > (2 * (1 / len(ws)))]
-#             # wf = ws
-#             # # wf = wf[:,np.sum(wf,0)>0]
-#             # wfs = np.sort(wf, axis=0)
-#             #
-#             # def energy(exp):
-#             #     exp = exp[0]
-#             #     tmpw = wfs ** exp
-#             #     tmpsum = np.sum(tmpw, 0)
-#             #     tmpw = tmpw / tmpsum
-#             #
-#             #     nsum = np.sum(tmpw[-int(how_many_best_views):], (-1))# / wfs.shape[-1]
-#             #     energy = np.abs(np.sum(nsum) - cumulative_weight_best_views)
-#             #
-#             #     # nsum = np.sum(tmpw[-1:], (-1))# / wfs.shape[-1]
-#             #     # energy = np.abs(np.sum(nsum) - 0.5)
-#             #
-#             #     return energy
-#             #
-#             # from scipy import optimize
-#             # res = optimize.minimize(energy, [0.5], bounds=[[0.1, 10]], method='L-BFGS-B', options={'maxiter': 10})
-#             #
-#             # exp = res.x[0]
-#             #
-#             # # print('found exp=%s' % exp)
-#             #
-#             # ws = [ws[i] ** exp for i in range(len(ws))]
-#
-#
-#
-#             ws = np.array(ws)
-#
-#         return ws[:,None,None,None]
-#
-#     x = da.from_array(np.array(vs), chunks=(len(vs),size,size,size))
-#     # ws=x.map_blocks(determine_quality,dtype=np.float)
-#     ws = x.map_blocks(determine_quality,dtype=np.float,chunks=(len(vs),1,1,1))
-#
-#     ws = ws.compute(scheduler = 'threads')
-#     ws = np.array(ws)
-#
-#     ws = ImageArray(ws,
-#                     spacing= np.array([size]*3)*np.array(w_stack_properties['spacing']),
-#                     origin = w_stack_properties['origin'] + ((size-1)*w_stack_properties['spacing'])/2.,
-#                     )
-#
-#     newws = []
-#     for iw in range(len(ws)):
-#         newws.append(transform_stack_sitk(ws[iw],
-#                             [1,0,0,0,1,0,0,0,1,0,0,0],
-#                             # out_shape=stack_properties['size'],
-#                             # out_origin=stack_properties['origin'],
-#                             # out_spacing=stack_properties['spacing'],
-#                                out_origin=w_stack_properties['origin'],
-#                                out_shape=w_stack_properties['size'],
-#                                out_spacing=w_stack_properties['spacing'],
-#                             interp='linear',
-#                              ))
-#     ws = np.array(newws)
-#
-#
-#     for iw,w in enumerate(ws):
-#         print('filtering')
-#         ws[iw] = ndimage.maximum_filter(ws[iw],max_kernel)
-#
-#     for iw,w in enumerate(ws):
-#         ws[iw][vdils[iw]] = 0
-#
-#     wsmin = ws.min(0)
-#     wsmax = ws.max(0)
-#     ws = np.array([(w - wsmin)/(wsmax - wsmin + 0.01) for w in ws])
-#
-#     wsum = np.sum(ws,0)
-#     wsum[wsum==0] = 1
-#     for iw,w in enumerate(ws):
-#         ws[iw] /= wsum
-#
-#     # tifffile.imshow(np.array([np.array(ts)*10,ws]).swapaxes(-3,-2),vmax=10000)
-#     for iw,w in enumerate(ws):
-#         print('filtering')
-#         # ws[iw] = ndimage.maximum_filter(ws[iw],10)
-#         # ws[iw][vdils[iw]] = 0.00001
-#         ws[iw] = ndimage.gaussian_filter(ws[iw],gaussian_kernel)
-#         # zeros = ndimage.binary_dilation(vs[iw] == 0)
-#         # ws[iw][zeros] = 0.00001
-#         # ws[iw][vdils[iw]] = 0.00001
-#         ws[iw][vdils[iw]] = 0
-#
-#
-#     ws = list(ws)
-#     for iw,w in enumerate(ws):
-#         ws[iw] = ImageArray(ws[iw],
-#                             origin=w_stack_properties['origin'],
-#                             spacing=w_stack_properties['spacing'])
-#
-#
-#
-#
-#     if changed_stack_properties:
-#         for iview in range(len(ws)):
-#             ws[iview] = transform_stack_sitk(ws[iview],[1,0,0,0,1,0,0,0,1,0,0,0],
-#                                    out_origin=stack_properties['origin'],
-#                                    out_shape=stack_properties['size'],
-#                                    out_spacing=stack_properties['spacing'])
-#
-#     # smooth edges
-#     ws_simple = get_weights_simple(
-#                     orig_stack_propertiess,
-#                     params,
-#                     stack_properties
-#     )
-#
-#     ws = [ws[i]*ws_simple[i] for i in range(len(ws))]
-#
-#     wsum = np.sum(ws,0)
-#     wsum[wsum==0] = 1
-#     for iw,w in enumerate(ws):
-#         ws[iw] /= wsum
-#
-#     return ws
 
 
 # @io_decorator
