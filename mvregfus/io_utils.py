@@ -672,3 +672,9 @@ def build_view_dict_from_multitile_czi(filename, S=0, max_project=True):
             for itile, o in zip(range(ntiles), origins)}
 
     return view_dict
+
+
+def get_dims_from_multitile_czi(filename):
+    czi = CziFile(filename)
+    dims = czi.get_dims_shape()[0]
+    return dims
