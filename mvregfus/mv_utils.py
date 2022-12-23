@@ -427,6 +427,3 @@ def get_overlap_between_pair_of_views(fixed_info, moving_info):
     lower_m_phys = np.copy(lower_phys)
 
     return slices_f, slices_m, lower_f_phys, lower_m_phys
-
-
-def 
