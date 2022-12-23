@@ -399,3 +399,34 @@ def get_sigmoidal_border_weights_ndim_only_one(ims, width=10):#, max_overlap=5, 
     ws = [get_sigmoidal_border_weights_ndim_mask(m, width, mode='non-zero') for m in masks]
     
     return np.array(ws)#, dtmax, np.array(dts)
+
+
+def get_overlap_between_pair_of_views(fixed_info, moving_info):
+
+    ndim = len(fixed_info['spacing'])
+
+    lower_f_phys = fixed_info['origin']
+    upper_f_phys = fixed_info['origin'] + fixed_info['size']*fixed_info['spacing']
+
+    lower_m_phys = moving_info['origin']
+    upper_m_phys = moving_info['origin'] + moving_info['size']*moving_info['spacing']
+
+    lower_phys = np.max([lower_f_phys, lower_m_phys], 0)
+    upper_phys = np.min([upper_f_phys, upper_m_phys], 0)
+
+    lower_f = ((lower_phys - lower_f_phys) / fixed_info['spacing']).astype(np.uint64)
+    upper_f = ((upper_phys - lower_f_phys) / fixed_info['spacing']).astype(np.uint64)
+
+    lower_m = ((lower_phys - lower_m_phys) / fixed_info['spacing']).astype(np.uint64)
+    upper_m = ((upper_phys - lower_m_phys) / fixed_info['spacing']).astype(np.uint64)
+
+    slices_f = [slice(lower_f[dim], upper_f[dim]) for dim in range(ndim)]
+    slices_m = [slice(lower_m[dim], upper_m[dim]) for dim in range(ndim)]
+
+    lower_f_phys = np.copy(lower_phys)
+    lower_m_phys = np.copy(lower_phys)
+
+    return slices_f, slices_m, lower_f_phys, lower_m_phys
+
+
+def 

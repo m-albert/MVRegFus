@@ -1126,26 +1126,29 @@ def register_linear_elastix(fixed, moving,
 
     ndim = fixed.ndim
 
-    lower_f_phys = fixed.origin
-    upper_f_phys = fixed.origin + fixed.shape*fixed.spacing
+    # lower_f_phys = fixed.origin
+    # upper_f_phys = fixed.origin + fixed.shape*fixed.spacing
 
-    lower_m_phys = moving.origin
-    upper_m_phys = moving.origin + moving.shape*moving.spacing
+    # lower_m_phys = moving.origin
+    # upper_m_phys = moving.origin + moving.shape*moving.spacing
 
-    lower_phys = np.max([lower_f_phys, lower_m_phys], 0)
-    upper_phys = np.min([upper_f_phys, upper_m_phys], 0)
+    # lower_phys = np.max([lower_f_phys, lower_m_phys], 0)
+    # upper_phys = np.min([upper_f_phys, upper_m_phys], 0)
 
-    lower_f = ((lower_phys - lower_f_phys) / fixed.spacing).astype(np.uint64)
-    upper_f = ((upper_phys - lower_f_phys) / fixed.spacing).astype(np.uint64)
+    # lower_f = ((lower_phys - lower_f_phys) / fixed.spacing).astype(np.uint64)
+    # upper_f = ((upper_phys - lower_f_phys) / fixed.spacing).astype(np.uint64)
 
-    lower_m = ((lower_phys - lower_m_phys) / moving.spacing).astype(np.uint64)
-    upper_m = ((upper_phys - lower_m_phys) / moving.spacing).astype(np.uint64)
+    # lower_m = ((lower_phys - lower_m_phys) / moving.spacing).astype(np.uint64)
+    # upper_m = ((upper_phys - lower_m_phys) / moving.spacing).astype(np.uint64)
 
-    slices_f = [slice(lower_f[dim], upper_f[dim]) for dim in range(ndim)]
-    slices_m = [slice(lower_m[dim], upper_m[dim]) for dim in range(ndim)]
+    # slices_f = [slice(lower_f[dim], upper_f[dim]) for dim in range(ndim)]
+    # slices_m = [slice(lower_m[dim], upper_m[dim]) for dim in range(ndim)]
 
-    lower_f_phys = np.copy(lower_phys)
-    lower_m_phys = np.copy(lower_phys)
+    # lower_f_phys = np.copy(lower_phys)
+    # lower_m_phys = np.copy(lower_phys)
+
+    slices_f, slices_m, lower_f_phys, lower_m_phys = mv_utils.get_overlap_between_pair_of_views(fixed.get_info(),
+                                                                                       moving.get_info())
 
     # only restrict to overlap in y in case of different rotations
     if fixed.rotation != moving.rotation:

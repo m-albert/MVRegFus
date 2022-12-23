@@ -662,7 +662,9 @@ def build_view_dict_from_multitile_czi(filename, S=0, max_project=True):
         origins = np.array([[b.y, b.x] for b in bbs]) * spacing# - np.array([xmin, ymin])
         shape = shape[1:]
         
-    view_dict = {itile: {'shape': shape,
+    view_dict = {itile: {
+                  'shape': shape,
+                  'size': shape,
                   'origin': o,
                   'rotation': 0,
                   'spacing': spacing,
