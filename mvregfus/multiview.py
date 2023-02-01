@@ -4405,7 +4405,7 @@ def fuse_blockwise(views_dask,
 
     if depth > 0:
         trim_dict = {i: depth for i in range(3)}
-        result = da.overlap.trim_internal(result, trim_dict)
+        result = da.overlap.trim_internal(result, trim_dict, boundary='reflect')
 
     out_shape = stack_properties['size']
     result = result[:out_shape[0],:out_shape[1],:out_shape[2]]
@@ -4831,7 +4831,7 @@ def get_weights_dct_dask(tviews,
 
     if depth > 0:
         trim_dict = {0: 0, 1: depth, 2: depth, 3: depth}
-        tviews = da.overlap.trim_internal(tviews, trim_dict)
+        tviews = da.overlap.trim_internal(tviews, trim_dict, boundary='reflect')
 
     bin_factor = 1
     relspacing = 3. / stack_properties['spacing'][0]
@@ -5931,7 +5931,14 @@ Light-Sheet-Based Fluorescence Microscopy, https://ieeexplore.ieee.org/document/
         print('no GPU acceleration for deconv')
         pass
 
-    psfs =  np.array([get_psf(params[ip], spacing, sz, sxy) for ip in range(len(params))])
+    # cupy sometimes raises an assertion error when trying to create
+    # a cupy array from a ImageArray (which is a numpy subclass).
+    # Therefore, convert to numpy array first
+
+    import numpy as npy
+    psfs =  np.array(npy.array(([get_psf(params[ip], spacing, sz, sxy) for ip in range(len(params))])))
+    # psfs =  np.asarray(([get_psf(params[ip], spacing, sz, sxy) for ip in range(len(params))]))
+
     noisy_multiview_data = np.array(views)
     
     psfs = np.asarray(psfs)
