@@ -139,10 +139,14 @@ A suitable reference view can be obtained from the overlap graph by e.g. choosin
 A *registration graph* or list of registration pairs (TODO: clarify whether this should be a graph or a list of pairs) is obtained from the overlap graph by e.g. finding shortest overlap-weighted paths between the reference view and all other views.
 
 
-## Ideas / things to check out
+## Some relevant links / spaces to watch
 
 - https://github.com/carbonplan/ndpyramid
 - https://www.napari-hub.org/plugins/affinder
+- https://spatialdata.scverse.org/en/latest/
+  - NGFF compatible image data structures
+  - chained transform implementations
+  - currently lacking support for time / API (202309)
 
 ## Related software
 
