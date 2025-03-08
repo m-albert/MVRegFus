@@ -1,3 +1,5 @@
+*This repository is no longer maintained. Have a look at [multiview-stitcher](https://github.com/multiview-stitcher/multiview-stitcher) for a modular and up-to-date python package for (multi-view and -tile) registration and fusion of large image datasets.*
+
 # MVRegFus
 
 **M**ulti-**V**iew **Reg**istration and **Fus**ion
